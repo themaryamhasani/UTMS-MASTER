@@ -1,0 +1,47 @@
+{
+  "name": "utms",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Unified Test Management System monorepo.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev:web",
+    "dev:web": "npm run dev -w @utms/web",
+    "dev:api": "npm run dev -w @utms/api",
+    "dev:worker": "npm run dev -w @utms/worker",
+    "dev:runner": "npm run dev -w @utms/playwright-runner",
+    "dev:all": "node scripts/development/dev-all.cjs",
+    "backend": "npm run dev:api",
+    "backend:self-check": "npm run self-check -w @utms/api",
+    "build": "npm run build --workspaces --if-present",
+    "build:web": "npm run build -w @utms/web",
+    "build:api": "npm run build -w @utms/api",
+    "build:worker": "npm run build -w @utms/worker",
+    "build:runner": "npm run build -w @utms/playwright-runner",
+    "lint": "node scripts/verification/workspace-lint.cjs .",
+    "format": "node scripts/verification/format-check.cjs . --write",
+    "format:check": "node scripts/verification/format-check.cjs .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "architecture:check": "node scripts/verification/architecture-check.cjs",
+    "test": "npm run test:unit && npm run test:contract",
+    "test:unit": "npm run test:unit --workspaces --if-present",
+    "test:integration": "node scripts/verification/test-suite-placeholder.cjs integration",
+    "test:e2e": "node scripts/verification/test-suite-placeholder.cjs e2e",
+    "test:security": "node scripts/verification/test-suite-placeholder.cjs security",
+    "test:contract": "node scripts/verification/contract-tests.cjs",
+    "test:smoke": "node scripts/verification/test-suite-placeholder.cjs smoke",
+    "db:generate": "node scripts/database/prisma-task.cjs generate",
+    "db:migrate": "node scripts/database/prisma-task.cjs migrate",
+    "db:migrate:status": "node scripts/database/prisma-task.cjs migrate:status",
+    "db:seed": "node scripts/database/prisma-task.cjs seed",
+    "db:verify": "node scripts/database/verify-database.cjs",
+    "verify": "npm run format:check && npm run lint && npm run architecture:check && npm run typecheck && npm run test:unit && npm run test:contract && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.17",
+    "typescript": "5.9.3"
+  }
+}

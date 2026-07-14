@@ -1,0 +1,15 @@
+{
+  "name": "@utms/worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node -e \"console.log('UTMS worker development entry: build worker processors before enabling runtime jobs')\"",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"console.log('worker tests: no dedicated worker tests yet')\"",
+    "test:unit": "npm run test",
+    "lint": "node ../../scripts/verification/workspace-lint.cjs apps/worker",
+    "format:check": "node ../../scripts/verification/format-check.cjs apps/worker"
+  }
+}

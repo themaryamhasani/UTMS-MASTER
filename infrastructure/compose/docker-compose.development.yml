@@ -1,0 +1,19 @@
+include:
+  - docker-compose.infrastructure.yml
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api/Dockerfile
+    command: npm run dev:api
+    ports:
+      - "4174:4174"
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/web/Dockerfile
+    command: npm run dev:web
+    ports:
+      - "5173:5173"

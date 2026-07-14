@@ -1,0 +1,15 @@
+{
+  "name": "@utms/playwright-runner",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node -e \"console.log('UTMS Playwright runner development entry: configure runner jobs before execution')\"",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"console.log('runner tests: no dedicated runner tests yet')\"",
+    "test:unit": "npm run test",
+    "lint": "node ../../scripts/verification/workspace-lint.cjs apps/playwright-runner",
+    "format:check": "node ../../scripts/verification/format-check.cjs apps/playwright-runner"
+  }
+}

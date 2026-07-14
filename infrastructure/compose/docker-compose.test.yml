@@ -1,0 +1,9 @@
+include:
+  - docker-compose.infrastructure.yml
+
+services:
+  api-test:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api/Dockerfile
+    command: npm run test:integration

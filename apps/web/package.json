@@ -1,0 +1,42 @@
+{
+  "name": "@utms/web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"console.log('web unit tests: no dedicated unit tests yet')\"",
+    "test:unit": "npm run test",
+    "lint": "node ../../scripts/verification/workspace-lint.cjs apps/web",
+    "format:check": "node ../../scripts/verification/format-check.cjs apps/web"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.101.2",
+    "@types/uuid": "^10.0.0",
+    "clsx": "2.1.1",
+    "date-fns": "^4.4.0",
+    "date-fns-jalali": "^4.4.0-0",
+    "lucide-react": "^1.21.0",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "react-router-dom": "^7.18.0",
+    "tailwind-merge": "3.4.0",
+    "uuid": "^14.0.1",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.1.17",
+    "@types/node": "22.19.17",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.1.1",
+    "esbuild": "^0.28.1",
+    "tailwindcss": "4.1.17",
+    "typescript": "5.9.3",
+    "vite": "^7.3.6",
+    "vite-plugin-singlefile": "2.3.0"
+  }
+}
