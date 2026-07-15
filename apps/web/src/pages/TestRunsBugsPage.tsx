@@ -196,7 +196,16 @@ export const TestRunsBugsPage: React.FC = () => {
   const canRetestBug = canPerformAction(role!, 'bug:retest');
   const canAdminUnlock = canPerformAction(role!, 'admin:unlock');
 
-  useEffect(() => { if (activeContext) { loadRuns(); loadTestCases(); loadBugs(); loadAllBugs(); loadRetestTasks(); loadAllRuns(); loadTestRequests(); } }, [activeContext, runsFilters, bugsFilters]);
+  useEffect(() => { if (activeContext) loadRuns(); }, [activeContext, runsFilters]);
+  useEffect(() => { if (activeContext) loadBugs(); }, [activeContext, bugsFilters]);
+  useEffect(() => {
+    if (activeContext) {
+      loadTestCases();
+      loadRetestTasks();
+      loadAllRuns();
+      loadTestRequests();
+    }
+  }, [activeContext, appId]);
   useEffect(() => {
     if (selectedBug && showBugDetailModal) {
       loadBugComments();

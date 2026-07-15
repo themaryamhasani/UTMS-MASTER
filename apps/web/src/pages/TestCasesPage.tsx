@@ -167,10 +167,15 @@ export const TestCasesPage: React.FC = () => {
   useEffect(() => {
     if (activeContext) {
       loadData();
+    }
+  }, [activeContext, filters]);
+
+  useEffect(() => {
+    if (activeContext) {
       loadTestRequests();
       loadRequirements();
     }
-  }, [activeContext, filters]);
+  }, [activeContext, appId]);
 
   useEffect(() => {
     if (formData.requirementId) {

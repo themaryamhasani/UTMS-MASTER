@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { ExportButton, exportToExcel } from './Table';
 
@@ -16,20 +17,46 @@ export function CartableSearchInput({
   onChange,
   placeholder = 'جستجو...',
   className = '',
+  debounceMs = 350,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  debounceMs?: number;
 }) {
+  const [draftValue, setDraftValue] = useState(value);
+  const onChangeRef = useRef(onChange);
+  const lastEmittedValueRef = useRef(value);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  useEffect(() => {
+    setDraftValue(value);
+    lastEmittedValueRef.current = value;
+  }, [value]);
+
+  useEffect(() => {
+    if (draftValue === lastEmittedValueRef.current) return;
+
+    const timerId = window.setTimeout(() => {
+      lastEmittedValueRef.current = draftValue;
+      onChangeRef.current(draftValue);
+    }, debounceMs);
+
+    return () => window.clearTimeout(timerId);
+  }, [draftValue, debounceMs]);
+
   return (
     <div className={`relative flex-1 min-w-[200px] ${className}`}>
       <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
       <input
         type="text"
         placeholder={placeholder}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
+        value={draftValue}
+        onChange={(event) => setDraftValue(event.target.value)}
         className="w-full pr-10 pl-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
     </div>

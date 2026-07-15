@@ -4,6 +4,29 @@ import { useAuthStore } from '../../stores/authStore';
 import { notificationApi } from '../../services/api';
 import { MinimalLoader } from '../ui/Loading';
 import type { Notification } from '../../types';
+
+const NOTIFICATION_CACHE_TTL_MS = 30_000;
+const notificationCache = new Map<string, { expiresAt: number; rows?: Notification[]; promise?: Promise<Notification[]> }>();
+
+async function getNotificationsForUser(userId: string): Promise<Notification[]> {
+    const now = Date.now();
+    const cached = notificationCache.get(userId);
+    if (cached?.rows && cached.expiresAt > now) return cached.rows;
+    if (cached?.promise) return cached.promise;
+
+    const promise = notificationApi.getByUser(userId);
+    notificationCache.set(userId, { expiresAt: now + NOTIFICATION_CACHE_TTL_MS, promise });
+
+    try {
+        const rows = await promise;
+        notificationCache.set(userId, { expiresAt: Date.now() + NOTIFICATION_CACHE_TTL_MS, rows });
+        return rows;
+    } catch (error) {
+        notificationCache.delete(userId);
+        throw error;
+    }
+}
+
 interface HeaderProps {
     title: string;
     subtitle?: string | undefined;
@@ -17,19 +40,27 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, onRefresh, refr
     const [showNotifications, setShowNotifications] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
     useEffect(() => {
+        let cancelled = false;
         if (activeContext) {
-            loadNotifications();
+            loadNotifications(() => cancelled);
         }
+        return () => {
+            cancelled = true;
+        };
     }, [activeContext]);
-    const loadNotifications = async () => {
+    const loadNotifications = async (isCancelled = () => false) => {
         if (!activeContext)
             return;
         try {
-            const notifs = await notificationApi.getByUser(activeContext.userId);
+            const notifs = await getNotificationsForUser(activeContext.userId);
+            if (isCancelled())
+                return;
             setNotifications(notifs.slice(0, 5));
             setUnreadCount(notifs.filter(n => !n.isRead).length);
         }
         catch {
+            if (isCancelled())
+                return;
             setNotifications([]);
             setUnreadCount(0);
         }
@@ -38,6 +69,15 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, onRefresh, refr
         if (!activeContext)
             return;
         await notificationApi.markAllAsRead(activeContext.userId);
+        const cached = notificationCache.get(activeContext.userId);
+        if (cached?.rows) {
+            notificationCache.set(activeContext.userId, {
+                expiresAt: Date.now() + NOTIFICATION_CACHE_TTL_MS,
+                rows: cached.rows.map(n => ({ ...n, isRead: true })),
+            });
+        } else {
+            notificationCache.delete(activeContext.userId);
+        }
         setUnreadCount(0);
         setNotifications(notifications.map(n => ({ ...n, isRead: true })));
     };
@@ -126,4 +166,3 @@ function formatDate(dateString: string): string {
         return `${days} روز پیش`;
     return date.toLocaleDateString('fa-IR');
 }
-

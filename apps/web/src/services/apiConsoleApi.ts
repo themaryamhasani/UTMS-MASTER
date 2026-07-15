@@ -37,7 +37,7 @@ const API_CONSOLE_POLICY: ApiConsolePermissionPolicy = {
 };
 
 type ApiConsoleRequestOptions = {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown | undefined;
   context?: ActiveContext | undefined;
 };
@@ -85,7 +85,7 @@ function contextHeader(context?: ActiveContext): Record<string, string> {
 
 function applicationScopeParam(scope: ApplicationScopeFilter): string {
   if (!scope || scope === 'ALL') return 'ALL';
-  if (Array.isArray(scope)) return JSON.stringify(scope);
+  if (Array.isArray(scope)) return JSON.stringify([...scope].sort());
   return scope;
 }
 
@@ -102,32 +102,66 @@ async function parseApiError(response: Response): Promise<Error> {
 
 async function requestJson<T>(path: string, options: ApiConsoleRequestOptions = {}): Promise<T> {
   const method = options.method || 'GET';
+  const headers: Record<string, string> = {
+    ...contextHeader(options.context),
+  };
+  if (method !== 'GET') {
+    headers['content-type'] = 'application/json';
+  }
   const requestInit: RequestInit = {
     method,
-    headers: {
-      'content-type': 'application/json',
-      ...contextHeader(options.context),
-    },
+    headers,
   };
   if (method !== 'GET') {
     requestInit.body = JSON.stringify(options.body || {});
   }
-  const response = await fetch(`${API_BASE}${path}`, requestInit);
-
-  if (!response.ok) {
-    throw await parseApiError(response);
+  const url = `${API_BASE}${path}`;
+  const inFlightKey = method === 'GET' ? makeInFlightGetKey(url, headers) : null;
+  if (inFlightKey) {
+    const current = inFlightGetRequests.get(inFlightKey);
+    if (current) return current as Promise<T>;
   }
 
-  return response.json() as Promise<T>;
+  const responsePromise = fetch(url, requestInit).then(async response => {
+    if (!response.ok) {
+      throw await parseApiError(response);
+    }
+
+    return response.json() as Promise<T>;
+  });
+
+  if (inFlightKey) {
+    const key = inFlightKey;
+    let trackedPromise: Promise<T>;
+    trackedPromise = responsePromise.finally(() => {
+      if (inFlightGetRequests.get(key) === trackedPromise) {
+        inFlightGetRequests.delete(key);
+      }
+    });
+    inFlightGetRequests.set(key, trackedPromise);
+    return trackedPromise;
+  }
+
+  return responsePromise;
 }
 
 function withQuery(path: string, params: Record<string, string | number | undefined>): string {
   const query = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
+  Object.entries(params).sort(([left], [right]) => left.localeCompare(right)).forEach(([key, value]) => {
     if (value !== undefined && value !== '') query.set(key, String(value));
   });
   const serialized = query.toString();
   return serialized ? `${path}?${serialized}` : path;
+}
+
+const inFlightGetRequests = new Map<string, Promise<unknown>>();
+
+function makeInFlightGetKey(url: string, headers: Record<string, string>): string {
+  return JSON.stringify({
+    method: 'GET',
+    url,
+    context: headers['x-utms-context'] || '',
+  });
 }
 
 export const apiConsoleApi = {

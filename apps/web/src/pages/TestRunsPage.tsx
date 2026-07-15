@@ -72,9 +72,14 @@ export const TestRunsPage: React.FC = () => {
   useEffect(() => {
     if (activeContext) {
       loadData();
-      loadTestCases();
     }
   }, [activeContext, filters]);
+
+  useEffect(() => {
+    if (activeContext) {
+      loadTestCases();
+    }
+  }, [activeContext, appId]);
 
   const loadData = async () => {
     if (!activeContext) return;

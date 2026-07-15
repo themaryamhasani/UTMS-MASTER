@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Activity, Bell, Fingerprint, History, RefreshCw, RotateCcw, Search } from 'lucide-react';
+import { Activity, Bell, Fingerprint, History, RefreshCw, RotateCcw } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, StatCard } from '../components/ui/Card';
 import { Table, Pagination } from '../components/ui/Table';
+import { CartableSearchInput } from '../components/ui/CartableToolbar';
 import { Badge } from '../components/ui/Badge';
 import { useAuthStore } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
@@ -305,16 +306,12 @@ export const AdminOperationsPage: React.FC = () => {
                 <span className="text-xs bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">{tab.count}</span>
               </button>
             ))}
-            <div className="relative flex-1 min-w-[220px]">
-              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="جستجو در command، correlation، idempotency..."
-                value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
-                className="w-full pr-10 pl-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            <CartableSearchInput
+              value={filters.search || ''}
+              onChange={(search) => setFilters({ ...filters, search, page: 1 })}
+              placeholder="جستجو در command، correlation، idempotency..."
+              className="min-w-[220px]"
+            />
           </div>
         </Card>
 

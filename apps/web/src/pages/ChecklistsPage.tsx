@@ -91,14 +91,13 @@ export const ChecklistsPage: React.FC = () => {
         });
       } else {
         setSelectedAppId(defaultApplicationId);
-        loadData(defaultApplicationId);
       }
     }
   }, [activeContext, shouldSelectApplication, isAppLevel, scopeApplicationIds.join('|'), defaultApplicationId]);
 
   useEffect(() => {
     if (selectedAppId) loadData(selectedAppId);
-  }, [selectedAppId]);
+  }, [selectedAppId, activeContext]);
 
   const loadData = async (appId: string) => {
     if (!activeContext || !appId) return;

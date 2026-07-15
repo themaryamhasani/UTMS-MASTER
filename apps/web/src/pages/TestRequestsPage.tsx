@@ -85,7 +85,8 @@ export const TestRequestsPage: React.FC = () => {
   const canReview = canPerformAction(role!, 'test-request:review');
   const canAssign = canPerformAction(role!, 'test-request:assign');
 
-  useEffect(() => { if (activeContext) { loadData(); loadRequirements(); } }, [activeContext, filters]);
+  useEffect(() => { if (activeContext) loadData(); }, [activeContext, filters]);
+  useEffect(() => { if (activeContext) loadRequirements(); }, [activeContext, appId]);
   useEffect(() => { if (activeContext && (showAssignModal || showAcceptAssignModal)) loadQASpecialists(); }, [activeContext, showAssignModal, showAcceptAssignModal]);
   useEffect(() => {
     if (!selectedRequest || !showDetailModal) {

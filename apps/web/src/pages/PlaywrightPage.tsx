@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Play, Eye, Search, Terminal, CheckCircle, XCircle, Loader2, StopCircle, FolderOpen, Download } from 'lucide-react';
+import { Play, Eye, Terminal, CheckCircle, XCircle, Loader2, StopCircle, FolderOpen, Download } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, StatCard } from '../components/ui/Card';
 import { Table, Pagination } from '../components/ui/Table';
+import { CartableSearchInput } from '../components/ui/CartableToolbar';
 import { StatusBadge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { Input, Select } from '../components/ui/Input';
@@ -79,9 +80,14 @@ export const PlaywrightPage: React.FC = () => {
   useEffect(() => {
     if (activeContext) {
       loadData();
-      loadRunnerConfig();
     }
   }, [activeContext, filters]);
+
+  useEffect(() => {
+    if (activeContext) {
+      loadRunnerConfig();
+    }
+  }, [activeContext]);
 
   useEffect(() => {
     if (showStartModal && activeContext) {
@@ -433,16 +439,10 @@ export const PlaywrightPage: React.FC = () => {
         {/* Filters */}
         <Card className="mb-6" padding="sm">
           <div className="flex flex-wrap gap-4 items-center">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="جستجو..."
-                value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
-                className="w-full pr-10 pl-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+            <CartableSearchInput
+              value={filters.search || ''}
+              onChange={(search) => setFilters({ ...filters, search, page: 1 })}
+            />
             <select
               value={filters.status || ''}
               onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   AlertTriangle,
   Braces,
@@ -154,6 +154,10 @@ function cloneRequest(request: ApiRequestDefinition): ApiRequestDefinition {
   const cloned = JSON.parse(JSON.stringify(request));
   cloned.scripts = { ...defaultScripts(), ...(cloned.scripts || {}) };
   return cloned;
+}
+
+function derivedRequestKey(request: ApiRequestDefinition): string {
+  return [request.id, request.environmentId || '', request.executionMode || ''].join('|');
 }
 
 function makeParam(): ApiKeyValueParameter {
@@ -1095,6 +1099,13 @@ export const OnlineApiConsolePage: React.FC = () => {
   const [versionModalOpen, setVersionModalOpen] = useState(false);
   const [versionForm, setVersionForm] = useState({ version: '', changeLog: '' });
   const [versioning, setVersioning] = useState(false);
+  const derivedRequestSeqRef = useRef(0);
+  const loadAllSeqRef = useRef(0);
+  const reloadRequestsSeqRef = useRef(0);
+  const repositorySeqRef = useRef(0);
+  const reviewSeqRef = useRef(0);
+  const selectRequestSeqRef = useRef(0);
+  const suppressNextDerivedRefreshRef = useRef<string | null>(null);
 
   const policy = apiConsoleApi.policy;
   const role = activeContext?.role;
@@ -1146,12 +1157,21 @@ export const OnlineApiConsolePage: React.FC = () => {
   }, [canManageGeneralSettings, activeTab]);
 
   useEffect(() => {
-    if (!selectedRequest) return;
+    if (!selectedRequest) {
+      derivedRequestSeqRef.current += 1;
+      return;
+    }
+    const requestKey = derivedRequestKey(selectedRequest);
+    if (suppressNextDerivedRefreshRef.current === requestKey) {
+      suppressNextDerivedRefreshRef.current = null;
+      return;
+    }
     refreshDerivedViews(selectedRequest, true);
   }, [selectedRequest?.id, selectedRequest?.environmentId, selectedRequest?.executionMode]);
 
   const loadAll = async () => {
     if (!activeContext) return;
+    const loadSeq = ++loadAllSeqRef.current;
     setLoading(true);
     try {
       const [collectionRows, environmentRows, requestRows, repositorySummary, reviewSummary] = await Promise.all([
@@ -1167,6 +1187,7 @@ export const OnlineApiConsolePage: React.FC = () => {
               .catch(() => null)
           : Promise.resolve(null),
       ]);
+      if (loadSeq !== loadAllSeqRef.current) return;
       setCollections(collectionRows);
       setEnvironments(environmentRows);
       setRequests(requestRows);
@@ -1182,40 +1203,57 @@ export const OnlineApiConsolePage: React.FC = () => {
         setPageMode('list');
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'بارگذاری داده‌های API Console ناموفق بود.');
+      if (loadSeq === loadAllSeqRef.current) {
+        toast.error(error instanceof Error ? error.message : 'بارگذاری داده‌های API Console ناموفق بود.');
+      }
     } finally {
-      setLoading(false);
+      if (loadSeq === loadAllSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   const loadRepository = async () => {
     if (!activeContext) return;
+    const repositorySeq = ++repositorySeqRef.current;
     setRepositoryLoading(true);
     try {
       const rows = await apiConsoleApi.getRepository({ ...repositoryFilters, applicationId: appId }, activeContext);
+      if (repositorySeq !== repositorySeqRef.current) return;
       setRepositoryRows(rows);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'بارگذاری Repository ناموفق بود.');
+      if (repositorySeq === repositorySeqRef.current) {
+        toast.error(error instanceof Error ? error.message : 'بارگذاری Repository ناموفق بود.');
+      }
     } finally {
-      setRepositoryLoading(false);
+      if (repositorySeq === repositorySeqRef.current) {
+        setRepositoryLoading(false);
+      }
     }
   };
 
   const loadShareReviews = async () => {
     if (!activeContext || activeContext.role !== 'QA_LEAD') return;
+    const reviewSeq = ++reviewSeqRef.current;
     setReviewsLoading(true);
     try {
       const rows = await apiConsoleApi.getShareReviews({ ...reviewFilters, applicationId: appId }, activeContext);
+      if (reviewSeq !== reviewSeqRef.current) return;
       setShareReviews(rows);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'بارگذاری کارتابل QA ناموفق بود.');
+      if (reviewSeq === reviewSeqRef.current) {
+        toast.error(error instanceof Error ? error.message : 'بارگذاری کارتابل QA ناموفق بود.');
+      }
     } finally {
-      setReviewsLoading(false);
+      if (reviewSeq === reviewSeqRef.current) {
+        setReviewsLoading(false);
+      }
     }
   };
 
   const refreshDerivedViews = async (request: ApiRequestDefinition, showLoading = false) => {
     if (!activeContext) return;
+    const requestSeq = ++derivedRequestSeqRef.current;
     if (showLoading) setDetailsLoading(true);
     try {
       const [effective, history, manual, bash, cmd, ps] = await Promise.all([
@@ -1226,14 +1264,17 @@ export const OnlineApiConsolePage: React.FC = () => {
         apiConsoleApi.exportCurl(request.id, 'windows-cmd', { context: activeContext }).catch(() => ''),
         apiConsoleApi.exportCurl(request.id, 'powershell', { context: activeContext }).catch(() => ''),
       ]);
+      if (requestSeq !== derivedRequestSeqRef.current) return;
       setEffectiveRequest(effective);
       setHistoryRows(history);
       setManualResponses(manual);
       setExports({ bash, 'windows-cmd': cmd, powershell: ps });
       setSelectedExecution(history[0] || null);
     } catch (error) {
+      if (requestSeq !== derivedRequestSeqRef.current) return;
       toast.error(error instanceof Error ? error.message : 'بارگذاری جزئیات Request ناموفق بود.');
     } finally {
+      if (requestSeq !== derivedRequestSeqRef.current) return;
       if (showLoading) setDetailsLoading(false);
       setSelectingRequestId(prev => prev === request.id ? null : prev);
     }
@@ -1241,10 +1282,14 @@ export const OnlineApiConsolePage: React.FC = () => {
 
   const reloadRequests = async (selectId?: string) => {
     if (!activeContext) return;
+    const reloadSeq = ++reloadRequestsSeqRef.current;
+    if (selectId) selectRequestSeqRef.current += 1;
     const response = await apiConsoleApi.getRequests(appId, filters, activeContext);
+    if (reloadSeq !== reloadRequestsSeqRef.current) return;
     setRequests(response);
     if (selectId) {
       const request = response.data.find(item => item.id === selectId) || await apiConsoleApi.getRequest(selectId, activeContext);
+      if (reloadSeq !== reloadRequestsSeqRef.current) return;
       if (request) {
         setSelectingRequestId(request.id);
         setEffectiveRequest(null);
@@ -1252,6 +1297,7 @@ export const OnlineApiConsolePage: React.FC = () => {
         setManualResponses([]);
         setSelectedExecution(null);
         setExports({ bash: '', 'windows-cmd': '', powershell: '' });
+        suppressNextDerivedRefreshRef.current = derivedRequestKey(request);
         setSelectedRequest(cloneRequest(request));
         setSavedRequest(cloneRequest(request));
         setPageMode('editor');
@@ -1271,6 +1317,7 @@ export const OnlineApiConsolePage: React.FC = () => {
 
   const handleSelectRequest = async (request: ApiRequestDefinition) => {
     if (selectingRequestId === request.id) return;
+    const selectSeq = ++selectRequestSeqRef.current;
     setSelectingRequestId(request.id);
     setDetailsLoading(true);
     setEffectiveRequest(null);
@@ -1280,12 +1327,14 @@ export const OnlineApiConsolePage: React.FC = () => {
     setExports({ bash: '', 'windows-cmd': '', powershell: '' });
     try {
       const fullRequest = activeContext ? await apiConsoleApi.getRequest(request.id, activeContext) : request;
+      if (selectSeq !== selectRequestSeqRef.current) return;
       const next = fullRequest || request;
       setSelectedRequest(cloneRequest(next));
       setSavedRequest(cloneRequest(next));
       setActiveTab('params');
       setPageMode('editor');
     } catch (error) {
+      if (selectSeq !== selectRequestSeqRef.current) return;
       toast.error(error instanceof Error ? error.message : 'باز کردن Request ناموفق بود.');
       setSelectingRequestId(null);
       setDetailsLoading(false);
