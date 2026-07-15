@@ -280,7 +280,9 @@ export interface TestCase {
     applicationId: string;
     testRequestId: string;
     requirementId: string;
+    requirement?: Requirement | undefined;
     flowId?: string | undefined;
+    flow?: Flow | undefined;
     title: string;
     scenario: string;
     preconditions: string;
@@ -289,6 +291,7 @@ export interface TestCase {
     expectedResult: string;
     testType: TestType;
     testDesignTechnique: TestDesignTechnique;
+    testDesignTechniques?: TestDesignTechnique[] | undefined;
     priority: Priority;
     riskLevel: Priority;
     qualityAttribute: QualityAttribute;
@@ -367,6 +370,9 @@ export interface RetestTask {
     applicationId: string;
     bugId: string;
     bug?: Bug | undefined;
+    bugIds?: string[] | undefined;
+    bugs?: Bug[] | undefined;
+    sourceRunId?: string | undefined;
     previousRunId: string;
     previousRun?: TestRun | undefined;
     testRequestId: string;
@@ -425,6 +431,8 @@ export interface Bug {
     severity: BugSeverity;
     priority: Priority;
     status: BugStatus;
+    previousStatus?: BugStatus | undefined;
+    previousStatusChangedAt?: string | undefined;
     assigneeId?: string | undefined;
     assignee?: User | undefined;
     reportedById: string;
@@ -958,4 +966,3 @@ export interface FeatureFlags {
     playwrightEnabled: boolean;
     emergencyPublishEnabled: boolean;
 }
-

@@ -93,7 +93,7 @@ import {
   setApplicationWorkflowPolicy,
 } from './workflowPolicyStore';
 import { isSemVer } from '../utils/semver';
-import { DESCRIPTION_MAX_LENGTH, hasInvalidBuildNumber, validateRequestTitle } from '../utils/inputRules';
+import { DESCRIPTION_MAX_LENGTH, hasInvalidBuildNumber, isValidSystemUrl, validateRequestTitle } from '../utils/inputRules';
 // UserRoleAssignment type is available via mockUserRoleAssignments
 
 // Simulate API delay
@@ -142,6 +142,12 @@ function assertDescriptionLength(value: string | undefined | null, errorCode = '
 function assertBuildNumber(value: string | undefined | null) {
   if (hasInvalidBuildNumber(value)) {
     throw new Error('INVALID_BUILD_NUMBER');
+  }
+}
+
+function assertSystemUrl(value: string | undefined | null) {
+  if (!isValidSystemUrl(value)) {
+    throw new Error('INVALID_SYSTEM_URL');
   }
 }
 
@@ -862,11 +868,20 @@ function notifyRoles(
 }
 
 function hydrateTestRequest(tr: TestRequest): TestRequest {
+  const generatedRequirements = requirements.filter(requirement => requirement.testRequestId === tr.id);
+  const selectedRequirementIds = Array.from(new Set([
+    ...(tr.selectedRequirementIds || []),
+    ...generatedRequirements.map(requirement => requirement.id),
+    ...(tr.requirementId ? [tr.requirementId] : []),
+  ]));
   return {
     ...tr,
+    selectedRequirementIds,
     requester: getUserById(tr.requesterId),
     assignee: tr.assigneeId ? getUserById(tr.assigneeId) : undefined,
-    requirement: tr.requirementId ? requirements.find(r => r.id === tr.requirementId) : tr.requirement,
+    requirement: tr.requirementId
+      ? requirements.find(r => r.id === tr.requirementId)
+      : generatedRequirements[0] || tr.requirement,
   };
 }
 
@@ -904,17 +919,18 @@ function canDeveloperAccessBug(bug: Bug, userId: string): boolean {
 
 function getVisibleBugsForRole(data: Bug[], userId: string, role: UserRole): Bug[] {
   if (role === 'DEVELOPER') {
-    return data.filter(b => canDeveloperAccessBug(b, userId) && !['CLOSED', 'REJECTED'].includes(b.status));
+    return data.filter(b => canDeveloperAccessBug(b, userId) && b.status !== 'CLOSED');
   }
   return data;
 }
 
 function hydrateBug(bug: Bug): Bug {
+  const run = testRuns.find(r => r.id === bug.testRunId);
   return {
     ...bug,
     assignee: bug.assigneeId ? getUserById(bug.assigneeId) : undefined,
     reportedBy: getUserById(bug.reportedById),
-    testRun: testRuns.find(r => r.id === bug.testRunId),
+    testRun: run ? hydrateTestRun(run) : undefined,
   };
 }
 
@@ -955,9 +971,15 @@ function getVisibleTestCasesForRole(data: TestCase[], userId: string, role: User
 }
 
 function hydrateRetestTask(task: RetestTask): RetestTask {
+  const taskBugIds = task.bugIds?.length ? task.bugIds : [task.bugId];
   return {
     ...task,
+    bugIds: taskBugIds,
     bug: hydrateBug(bugs.find(b => b.id === task.bugId) || task.bug!),
+    bugs: taskBugIds
+      .map(bugId => bugs.find(b => b.id === bugId))
+      .filter((bug): bug is Bug => Boolean(bug))
+      .map(hydrateBug),
     previousRun: testRuns.find(r => r.id === task.previousRunId),
     createdRun: task.createdRunId ? testRuns.find(r => r.id === task.createdRunId) : undefined,
     assignedTo: task.assignedToId ? getUserById(task.assignedToId) : undefined,
@@ -969,19 +991,29 @@ function hydrateRetestTask(task: RetestTask): RetestTask {
 function getVisibleRetestTasksForRole(data: RetestTask[], userId: string, role: UserRole): RetestTask[] {
   if (role === 'DEVELOPER') {
     return data.filter(task => {
-      const bug = bugs.find(b => b.id === task.bugId);
-      return !!bug && canDeveloperAccessBug(bug, userId);
+      const taskBugIds = task.bugIds?.length ? task.bugIds : [task.bugId];
+      return taskBugIds.some(bugId => {
+        const bug = bugs.find(b => b.id === bugId);
+        return !!bug && canDeveloperAccessBug(bug, userId);
+      });
     });
   }
-  if (['QA_LEAD', 'QA_SPECIALIST', 'SYSTEM_ADMIN', 'TECH_LEAD'].includes(role)) {
+  if (role === 'QA_SPECIALIST') {
+    return data.filter(task => task.assignedToId === userId);
+  }
+  if (['QA_LEAD', 'SYSTEM_ADMIN', 'TECH_LEAD'].includes(role)) {
     return data;
   }
   return [];
 }
 
+function getRetestTaskBugIds(task: RetestTask): string[] {
+  return task.bugIds?.length ? task.bugIds : [task.bugId];
+}
+
 function getOpenRetestTaskForBug(bugId: string): RetestTask | undefined {
   return retestTasks.find(task =>
-    task.bugId === bugId && ['QUEUED', 'IN_PROGRESS'].includes(task.status)
+    getRetestTaskBugIds(task).includes(bugId) && ['QUEUED', 'IN_PROGRESS'].includes(task.status)
   );
 }
 
@@ -989,7 +1021,7 @@ function ensureRetestTaskForBug(
   bug: Bug,
   userId: string,
   commandMetadata?: ResolvedCommandMetadata
-): RetestTask {
+): RetestTask | null {
   const existing = getOpenRetestTaskForBug(bug.id);
   if (existing) return existing;
 
@@ -998,14 +1030,45 @@ function ensureRetestTaskForBug(
     throw new Error('RETEST_TASK_REQUIRES_PREVIOUS_RUN');
   }
 
-  const assignedToId = userHasRole(bug.reportedById, ['QA_LEAD', 'QA_SPECIALIST'], bug.applicationId)
-    ? bug.reportedById
-    : undefined;
+  const relatedBugs = bugs.filter(candidate =>
+    candidate.testRunId === previousRun.id &&
+    !['CLOSED', 'REJECTED', 'NO_ACTION_NEEDED'].includes(candidate.status)
+  );
+  if (!relatedBugs.length || !relatedBugs.every(candidate => candidate.status === 'RETEST_READY')) {
+    return null;
+  }
+
+  const existingRunTask = retestTasks.find(task =>
+    ['QUEUED', 'IN_PROGRESS'].includes(task.status) &&
+    (task.sourceRunId === previousRun.id || task.previousRunId === previousRun.id)
+  );
+  if (existingRunTask) {
+    const nextBugIds = Array.from(new Set([
+      ...getRetestTaskBugIds(existingRunTask),
+      ...relatedBugs.map(item => item.id),
+    ]));
+    existingRunTask.bugIds = nextBugIds;
+    existingRunTask.bugId = nextBugIds[0] || existingRunTask.bugId;
+    existingRunTask.updatedAt = new Date().toISOString();
+    return existingRunTask;
+  }
+
+  const testRequest = testRequests.find(request => request.id === previousRun.testRequestId);
+  const requestAssigneeId = testRequest?.assigneeId;
+  const fallbackAssignedToId =
+    (userHasRole(previousRun.executedById, ['QA_SPECIALIST'], bug.applicationId) ? previousRun.executedById : undefined)
+    || (userHasRole(bug.reportedById, ['QA_SPECIALIST'], bug.applicationId) ? bug.reportedById : undefined);
+  const assignedToId = requestAssigneeId && userHasRole(requestAssigneeId, ['QA_SPECIALIST'], bug.applicationId)
+    ? requestAssigneeId
+    : fallbackAssignedToId;
+  const groupedBugIds = relatedBugs.map(item => item.id);
   const now = new Date().toISOString();
   const task: RetestTask = {
     id: uuidv4(),
     applicationId: bug.applicationId,
-    bugId: bug.id,
+    bugId: groupedBugIds[0] || bug.id,
+    bugIds: groupedBugIds,
+    sourceRunId: previousRun.id,
     previousRunId: previousRun.id,
     testRequestId: previousRun.testRequestId,
     testCaseId: previousRun.testCaseId,
@@ -1030,17 +1093,33 @@ function ensureRetestTaskForBug(
     commandAuditMetadata(commandMetadata)
   );
 
-  notifyRoles(
-    bug.applicationId,
-    ['QA_LEAD', 'QA_SPECIALIST'],
-    'Task بازآزمون و رگرسیون',
-    `باگ "${bug.title}" برای Retest/Regression آماده شد.`,
-    'INFO',
-    'RETEST_TASK',
-    task.id,
-    undefined,
-    commandMetadata?.correlationId
-  );
+  const notificationMessage = relatedBugs.length > 1
+    ? `${relatedBugs.length} باگ Run "${previousRun.testCase?.title || previousRun.id}" برای Retest/Regression آماده شد.`
+    : `باگ "${bug.title}" برای Retest/Regression آماده شد.`;
+  if (assignedToId) {
+    createNotification(
+      assignedToId,
+      'Task بازآزمون و رگرسیون',
+      notificationMessage,
+      'INFO',
+      'RETEST_TASK',
+      task.id,
+      undefined,
+      commandMetadata?.correlationId
+    );
+  } else {
+    notifyRoles(
+      bug.applicationId,
+      ['QA_SPECIALIST'],
+      'Task بازآزمون و رگرسیون',
+      notificationMessage,
+      'INFO',
+      'RETEST_TASK',
+      task.id,
+      undefined,
+      commandMetadata?.correlationId
+    );
+  }
   return task;
 }
 
@@ -1097,12 +1176,64 @@ function applyTestCaseReadiness(tc: TestCase): TestCase {
   tc.isActive = isActive;
   tc.isComplete = readinessErrors.length === 0;
   tc.readinessErrors = readinessErrors;
+  if (!tc.testDesignTechniques?.length) {
+    tc.testDesignTechniques = [tc.testDesignTechnique || 'REQUIREMENTS_BASED'];
+  }
   tc.status = isActive && tc.isComplete ? 'READY' : 'DRAFT';
   return tc;
 }
 
 function hydrateTestCase(tc: TestCase): TestCase {
-  return { ...applyTestCaseReadiness(tc), createdBy: getUserById(tc.createdById) };
+  const hydrated = applyTestCaseReadiness(tc);
+  return {
+    ...hydrated,
+    requirement: requirements.find(r => r.id === hydrated.requirementId),
+    flow: hydrated.flowId ? flows.find(f => f.id === hydrated.flowId) : undefined,
+    createdBy: getUserById(hydrated.createdById),
+  };
+}
+
+function removeAttachmentsForEntity(entityType: EntityType, entityId: string): void {
+  attachments = attachments.filter(att => !(att.entityType === entityType && att.entityId === entityId));
+}
+
+function canDeleteRunCascade(run: TestRun): boolean {
+  if (run.isLocked || run.lockedByVersionHistoryId) return false;
+  return !bugs.some(bug =>
+    bug.testRunId === run.id && (bug.isLocked || bug.lockedByVersionHistoryId)
+  );
+}
+
+function deleteRunCascade(run: TestRun, userId: string): boolean {
+  if (!canDeleteRunCascade(run)) return false;
+  const runBugs = bugs.filter(bug => bug.testRunId === run.id);
+
+  const runBugIds = runBugs.map(bug => bug.id);
+  const runIssueIds = runIssues.filter(issue => issue.testRunId === run.id).map(issue => issue.id);
+  const runRetestTaskIds = retestTasks
+    .filter(task =>
+      task.previousRunId === run.id ||
+      task.createdRunId === run.id ||
+      task.sourceRunId === run.id ||
+      runBugIds.includes(task.bugId) ||
+      task.bugIds?.some(bugId => runBugIds.includes(bugId))
+    )
+    .map(task => task.id);
+
+  runBugs.forEach(bug => {
+    removeAttachmentsForEntity('BUG', bug.id);
+    createAuditLog(userId, bug.applicationId, 'BUG', bug.id, 'DELETE', bug, null, { source: 'TEST_RUN_DELETE' });
+  });
+  runIssueIds.forEach(issueId => removeAttachmentsForEntity('RUN_ISSUE', issueId));
+  runRetestTaskIds.forEach(taskId => removeAttachmentsForEntity('RETEST_TASK', taskId));
+  removeAttachmentsForEntity('TEST_RUN', run.id);
+
+  bugs = bugs.filter(bug => bug.testRunId !== run.id);
+  runIssues = runIssues.filter(issue => issue.testRunId !== run.id);
+  retestTasks = retestTasks.filter(task => !runRetestTaskIds.includes(task.id));
+  testRuns = testRuns.filter(item => item.id !== run.id);
+  createAuditLog(userId, run.applicationId, 'TEST_RUN', run.id, 'DELETE', run, null);
+  return true;
 }
 
 // ============================================
@@ -1138,12 +1269,7 @@ export const testRequestApi = {
   async getById(id: string): Promise<TestRequest | null> {
     await delay();
     const tr = testRequests.find(t => t.id === id);
-    if (tr) {
-      tr.requester = getUserById(tr.requesterId);
-      if (tr.assigneeId) tr.assignee = getUserById(tr.assigneeId);
-      if (tr.requirementId) tr.requirement = requirements.find(r => r.id === tr.requirementId);
-    }
-    return tr || null;
+    return tr ? hydrateTestRequest(tr) : null;
   },
 
   async create(
@@ -1155,6 +1281,7 @@ export const testRequestApi = {
     assertTestRequestTitle(data.title);
     assertDescriptionLength(data.description, 'TEST_REQUEST_DESCRIPTION_TOO_LONG');
     assertBuildNumber(data.buildNumber);
+    assertSystemUrl(data.systemUrl);
     if (!isSemVer(data.version)) {
       throw new Error('INVALID_SEMVER_VERSION');
     }
@@ -1189,6 +1316,7 @@ export const testRequestApi = {
     if ('title' in data) assertTestRequestTitle(data.title);
     if ('description' in data) assertDescriptionLength(data.description, 'TEST_REQUEST_DESCRIPTION_TOO_LONG');
     if ('buildNumber' in data) assertBuildNumber(data.buildNumber);
+    if ('systemUrl' in data) assertSystemUrl(data.systemUrl);
     if ('version' in data && !isSemVer(data.version)) {
       throw new Error('INVALID_SEMVER_VERSION');
     }
@@ -1244,6 +1372,16 @@ export const testRequestApi = {
     tr.reviewNotes = notes;
     tr.updatedAt = new Date().toISOString();
     createAuditLog(userId, tr.applicationId, 'TEST_REQUEST', id, 'REVIEW', previous, { status: tr.status, decision });
+    if (decision === 'ACCEPTED') {
+      requirements
+        .filter(requirement => requirement.testRequestId === tr.id && requirement.status !== 'APPROVED' && requirementHasFlow(requirement.id))
+        .forEach(requirement => {
+          const previousRequirement = { status: requirement.status };
+          requirement.status = 'APPROVED';
+          requirement.updatedAt = new Date().toISOString();
+          createAuditLog(userId, requirement.applicationId, 'REQUIREMENT', requirement.id, 'APPROVE', previousRequirement, { status: 'APPROVED', testRequestId: tr.id });
+        });
+    }
     return tr;
   },
 
@@ -1530,6 +1668,9 @@ export const testCaseApi = {
       expectedResult: data.expectedResult || '',
       testType: data.testType || 'FUNCTIONAL',
       testDesignTechnique: data.testDesignTechnique || 'REQUIREMENTS_BASED',
+      testDesignTechniques: data.testDesignTechniques?.length
+        ? data.testDesignTechniques
+        : [data.testDesignTechnique || 'REQUIREMENTS_BASED'],
       priority: data.priority || 'MEDIUM',
       riskLevel: data.riskLevel || 'MEDIUM',
       qualityAttribute: data.qualityAttribute || 'FUNCTIONALITY',
@@ -1582,6 +1723,21 @@ export const testCaseApi = {
     applyTestCaseReadiness(updated);
     createAuditLog(userId, updated.applicationId, 'TEST_CASE', id, 'UPDATE', previous, updated);
     return updated;
+  },
+
+  async delete(id: string, userId: string): Promise<boolean> {
+    await delay();
+    const index = testCases.findIndex(t => t.id === id);
+    if (index === -1) return false;
+    const testCase = requireAt(testCases, index);
+    const relatedRuns = testRuns.filter(run => run.testCaseId === id);
+    if (!relatedRuns.every(canDeleteRunCascade)) return false;
+    relatedRuns.forEach(run => deleteRunCascade(run, userId));
+
+    testCases.splice(index, 1);
+    removeAttachmentsForEntity('TEST_CASE', id);
+    createAuditLog(userId, testCase.applicationId, 'TEST_CASE', id, 'DELETE', testCase, null);
+    return true;
   },
 };
 
@@ -1859,6 +2015,13 @@ export const testRunApi = {
     return run;
   },
 
+  async delete(id: string, userId: string): Promise<boolean> {
+    await delay();
+    const run = testRuns.find(r => r.id === id);
+    if (!run) return false;
+    return deleteRunCascade(run, userId);
+  },
+
   // Get pending runs for QA cartable
   async getPending(applicationId: ApplicationScopeFilter): Promise<TestRun[]> {
     await delay();
@@ -2018,7 +2181,7 @@ export const bugApi = {
     if (run?.isLocked || run?.lockedByVersionHistoryId) return false;
 
     bugs.splice(index, 1);
-    retestTasks = retestTasks.filter(task => task.bugId !== id);
+    retestTasks = retestTasks.filter(task => !getRetestTaskBugIds(task).includes(id));
     createAuditLog(userId, bug.applicationId, 'BUG', id, 'DELETE', bug, null);
     return true;
   },
@@ -2062,11 +2225,57 @@ export const bugApi = {
       return null;
     }
     
-    const previous = { status: bug.status };
+    const previous = {
+      status: bug.status,
+      previousStatus: bug.previousStatus,
+      previousStatusChangedAt: bug.previousStatusChangedAt,
+    };
+    if (['REJECTED', 'NO_ACTION_NEEDED'].includes(status) && bug.status !== status) {
+      bug.previousStatus = bug.status;
+      bug.previousStatusChangedAt = new Date().toISOString();
+    } else if (!['REJECTED', 'NO_ACTION_NEEDED'].includes(status)) {
+      bug.previousStatus = undefined;
+      bug.previousStatusChangedAt = undefined;
+    }
     bug.status = status;
     bug.fixNotes = notes;
     bug.updatedAt = new Date().toISOString();
-    createAuditLog(userId, bug.applicationId, 'BUG', id, 'STATUS_CHANGE', previous, { status, notes });
+    createAuditLog(userId, bug.applicationId, 'BUG', id, 'STATUS_CHANGE', previous, {
+      status,
+      notes,
+      previousStatus: bug.previousStatus,
+    });
+    return bug;
+  },
+
+  async restorePreviousStatus(id: string, userId: string, notes = ''): Promise<Bug | null> {
+    await delay();
+    const bug = bugs.find(b => b.id === id);
+    if (!bug || bug.isLocked || !bug.previousStatus || !['REJECTED', 'NO_ACTION_NEEDED'].includes(bug.status)) return null;
+    if (
+      userHasRole(userId, ['DEVELOPER'], bug.applicationId) &&
+      !userHasRole(userId, ['QA_LEAD', 'QA_SPECIALIST', 'SYSTEM_ADMIN'], bug.applicationId) &&
+      !canDeveloperAccessBug(bug, userId)
+    ) {
+      return null;
+    }
+
+    const restoredStatus = bug.previousStatus;
+    const previous = {
+      status: bug.status,
+      previousStatus: bug.previousStatus,
+      previousStatusChangedAt: bug.previousStatusChangedAt,
+    };
+    bug.status = restoredStatus;
+    bug.previousStatus = undefined;
+    bug.previousStatusChangedAt = undefined;
+    if (notes.trim()) bug.fixNotes = notes.trim();
+    bug.updatedAt = new Date().toISOString();
+    createAuditLog(userId, bug.applicationId, 'BUG', id, 'STATUS_CHANGE', previous, {
+      status: restoredStatus,
+      notes,
+      restoredFrom: previous.status,
+    });
     return bug;
   },
 
@@ -2117,6 +2326,11 @@ export const bugApi = {
     bug.status = 'RETEST_READY';
     bug.updatedAt = new Date().toISOString();
     const task = ensureRetestTaskForBug(bug, userId, command);
+    const retestAuditPayload: { status: BugStatus; retestTaskId?: string; waitingForRunBugs?: boolean } = {
+      status: 'RETEST_READY',
+    };
+    if (task) retestAuditPayload.retestTaskId = task.id;
+    else retestAuditPayload.waitingForRunBugs = true;
     createAuditLog(
       userId,
       bug.applicationId,
@@ -2124,7 +2338,7 @@ export const bugApi = {
       id,
       'STATUS_CHANGE',
       previous,
-      { status: 'RETEST_READY', retestTaskId: task.id },
+      retestAuditPayload,
       commandAuditMetadata(command)
     );
     createCommandTrace(command, 'COMPLETED', userId, bug.applicationId, 'BUG', id);
@@ -2162,20 +2376,24 @@ export const bugApi = {
     );
     const task = getOpenRetestTaskForBug(bug.id);
     if (task) {
-      const previousTask = { status: task.status };
-      task.status = 'COMPLETED';
-      task.completedAt = new Date().toISOString();
-      task.updatedAt = new Date().toISOString();
-      createAuditLog(
-        userId,
-        bug.applicationId,
-        'RETEST_TASK',
-        task.id,
-        'STATUS_CHANGE',
-        previousTask,
-        { status: 'COMPLETED', passed },
-        commandAuditMetadata(command)
-      );
+      const taskBugIds = getRetestTaskBugIds(task);
+      const hasPendingBug = taskBugIds.some(taskBugId => bugs.find(item => item.id === taskBugId)?.status === 'RETEST_READY');
+      if (!hasPendingBug) {
+        const previousTask = { status: task.status };
+        task.status = 'COMPLETED';
+        task.completedAt = new Date().toISOString();
+        task.updatedAt = new Date().toISOString();
+        createAuditLog(
+          userId,
+          bug.applicationId,
+          'RETEST_TASK',
+          task.id,
+          'STATUS_CHANGE',
+          previousTask,
+          { status: 'COMPLETED', passed },
+          commandAuditMetadata(command)
+        );
+      }
     }
     createCommandTrace(command, 'COMPLETED', userId, bug.applicationId, 'BUG', id);
     return rememberIdempotentResult(command, bug);
@@ -2246,7 +2464,7 @@ export const bugApi = {
     return bugs.filter(
       b => matchesApplicationScope(b.applicationId, applicationId) && 
            b.assigneeId === assigneeId && 
-           !['CLOSED', 'REJECTED'].includes(b.status)
+           b.status !== 'CLOSED'
     ).map(hydrateBug);
   },
 
@@ -2327,6 +2545,10 @@ export const retestTaskApi = {
     const bug = bugs.find(b => b.id === bugId);
     if (!bug || bug.status !== 'RETEST_READY') return null;
     const task = ensureRetestTaskForBug(bug, userId, command);
+    if (!task) {
+      createCommandTrace(command, 'COMPLETED', userId, bug.applicationId, 'RETEST_TASK', bug.id);
+      return rememberIdempotentResult(command, null);
+    }
     createCommandTrace(command, 'COMPLETED', userId, task.applicationId, 'RETEST_TASK', task.id);
     return hydrateRetestTask(rememberIdempotentResult(command, task));
   },
@@ -3748,6 +3970,196 @@ function isRequestAlreadyLinkedToVersionHistory(testRequestId: string): boolean 
   return releasePublishes.some(rp => getVersionHistoryRequestIds(rp).includes(testRequestId));
 }
 
+function getLatestRunForTestCaseInRequest(testRequestId: string, testCaseId: string): TestRun | undefined {
+  return testRuns
+    .filter(run => run.testRequestId === testRequestId && run.testCaseId === testCaseId)
+    .sort((a, b) => {
+      const aTime = new Date(a.executedAt || a.updatedAt || a.createdAt).getTime();
+      const bTime = new Date(b.executedAt || b.updatedAt || b.createdAt).getTime();
+      return bTime - aTime;
+    })[0];
+}
+
+function getActiveReadyTestCasesForRequest(testRequestId: string): TestCase[] {
+  return testCases
+    .filter(tc => tc.testRequestId === testRequestId)
+    .map(applyTestCaseReadiness)
+    .filter(tc => tc.status === 'READY' && tc.isActive !== false);
+}
+
+function isTestRequestReadyForQualityQueue(testRequest: TestRequest): boolean {
+  if (!['ACCEPTED', 'IN_PROGRESS', 'COMPLETED'].includes(testRequest.status)) return false;
+  if (hasIncompleteLinkedRequirement([testRequest.id])) return false;
+
+  const readyTestCases = getActiveReadyTestCasesForRequest(testRequest.id);
+  if (readyTestCases.length === 0) return false;
+
+  const hasPassedLatestRunForEveryCase = readyTestCases.every(testCase => {
+    const latestRun = getLatestRunForTestCaseInRequest(testRequest.id, testCase.id);
+    return !!latestRun && latestRun.status === 'PASSED';
+  });
+  if (!hasPassedLatestRunForEveryCase) return false;
+
+  const hasOpenBug = getBugsForRequestIds([testRequest.id])
+    .some(bug => !CLOSED_BUG_STATUSES.includes(bug.status));
+  if (hasOpenBug) return false;
+
+  const hasOpenRunIssue = getRunIssuesForRequestIds([testRequest.id])
+    .some(issue => !['RESOLVED', 'CLOSED'].includes(issue.status));
+  if (hasOpenRunIssue) return false;
+
+  return !retestTasks.some(task =>
+    task.testRequestId === testRequest.id && ['QUEUED', 'IN_PROGRESS'].includes(task.status)
+  );
+}
+
+function isVersionHistoryReadyForQualityQueue(rp: ReleasePublish): boolean {
+  return getVersionHistoryRequestIds(rp).every(requestId => {
+    const request = testRequests.find(tr => tr.id === requestId);
+    return !!request && isTestRequestReadyForQualityQueue(request);
+  });
+}
+
+function getAutoVersionHistoryCreatorId(testRequest: TestRequest): string {
+  const qaLeadAssignment = mockUserRoleAssignments.find(assignment =>
+    assignment.isActive &&
+    assignment.role === 'QA_LEAD' &&
+    (
+      assignment.scope === 'APP' ||
+      (assignment.applicationIds || [assignment.applicationId]).includes(testRequest.applicationId)
+    )
+  );
+  return qaLeadAssignment?.userId || testRequest.reviewedById || testRequest.assigneeId || testRequest.requesterId || 'user-admin';
+}
+
+function markRequestCompletedBySuccessfulTests(testRequest: TestRequest, userId: string): void {
+  if (testRequest.status === 'COMPLETED') return;
+  const previous = { status: testRequest.status };
+  testRequest.status = 'COMPLETED';
+  testRequest.updatedAt = new Date().toISOString();
+  createAuditLog(
+    userId,
+    testRequest.applicationId,
+    'TEST_REQUEST',
+    testRequest.id,
+    'STATUS_CHANGE',
+    previous,
+    { status: 'COMPLETED', source: 'AUTO_SUCCESSFUL_TESTS' },
+    { source: 'AUTO_SUCCESSFUL_TESTS' }
+  );
+}
+
+function promoteVersionHistoryToQAReviewIfReady(rp: ReleasePublish): boolean {
+  if (rp.status !== 'DRAFT' || !isVersionHistoryReadyForQualityQueue(rp)) return false;
+  const primary = testRequests.find(tr => tr.id === rp.primaryTestRequestId);
+  if (!primary) return false;
+  const actorId = getAutoVersionHistoryCreatorId(primary);
+  const previous = { status: rp.status };
+
+  getVersionHistoryRequestIds(rp).forEach(requestId => {
+    const linkedRequest = testRequests.find(tr => tr.id === requestId);
+    if (linkedRequest) {
+      linkedRequest.versionHistoryId = rp.id;
+      markRequestCompletedBySuccessfulTests(linkedRequest, actorId);
+    }
+  });
+
+  rp.status = 'QA_REVIEW';
+  rp.snapshot = buildVersionSnapshot(rp);
+  rp.updatedAt = new Date().toISOString();
+  createAuditLog(
+    actorId,
+    rp.applicationId,
+    'VERSION_HISTORY',
+    rp.id,
+    'STATUS_CHANGE',
+    previous,
+    { status: 'QA_REVIEW', source: 'AUTO_SUCCESSFUL_TESTS' },
+    { source: 'AUTO_SUCCESSFUL_TESTS' }
+  );
+  return true;
+}
+
+function createAutomaticVersionHistoryForSuccessfulRequests(requests: TestRequest[]): ReleasePublish | null {
+  const [primary, ...relatedRequests] = requests;
+  if (!primary) return null;
+
+  const actorId = getAutoVersionHistoryCreatorId(primary);
+  const now = new Date().toISOString();
+  const linkedRequestIds = uniqueIds([primary.id, ...relatedRequests.map(request => request.id)]);
+  const rp: ReleasePublish = {
+    id: uuidv4(),
+    applicationId: primary.applicationId,
+    version: primary.version,
+    buildNumber: primary.buildNumber,
+    status: 'QA_REVIEW',
+    primaryTestRequestId: primary.id,
+    relatedRequestIds: relatedRequests.map(request => request.id),
+    isEmergency: false,
+    testRequestIds: linkedRequestIds,
+    createdById: actorId,
+    createdBy: getUserById(actorId),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  refreshVersionHistoryDerivedFields(rp);
+  releasePublishes.unshift(rp);
+  requests.forEach(request => {
+    request.versionHistoryId = rp.id;
+    markRequestCompletedBySuccessfulTests(request, actorId);
+  });
+  createAuditLog(
+    actorId,
+    primary.applicationId,
+    'VERSION_HISTORY',
+    rp.id,
+    'CREATE',
+    null,
+    { ...rp, source: 'AUTO_SUCCESSFUL_TESTS' },
+    { source: 'AUTO_SUCCESSFUL_TESTS' }
+  );
+  notifyRoles(
+    primary.applicationId,
+    ['QA_LEAD'],
+    'در انتظار اعلام وضعیت کیفیت',
+    `تست نسخه ${primary.version}${primary.buildNumber ? ` / بیلد ${primary.buildNumber}` : ''} با موفقیت کامل شد و برای اعلام وضعیت کیفیت آماده است.`,
+    'SUCCESS',
+    'VERSION_HISTORY',
+    rp.id,
+    undefined,
+    `version-history:${rp.id}:auto-successful-tests`
+  );
+  return rp;
+}
+
+function syncAutomaticSuccessfulVersionHistories(applicationId: ApplicationScopeFilter): void {
+  releasePublishes
+    .filter(rp => matchesApplicationScope(rp.applicationId, applicationId))
+    .forEach(promoteVersionHistoryToQAReviewIfReady);
+
+  const groupedRequests = new Map<string, TestRequest[]>();
+  testRequests
+    .filter(request =>
+      matchesApplicationScope(request.applicationId, applicationId) &&
+      !isRequestAlreadyLinkedToVersionHistory(request.id) &&
+      isTestRequestReadyForQualityQueue(request)
+    )
+    .forEach(request => {
+      const groupKey = `${request.applicationId}:${request.version}:${request.buildNumber || ''}`;
+      groupedRequests.set(groupKey, [...(groupedRequests.get(groupKey) || []), request]);
+    });
+
+  groupedRequests.forEach(requests => {
+    const orderedRequests = [...requests].sort((a, b) => {
+      const aTime = new Date(a.updatedAt || a.createdAt).getTime();
+      const bTime = new Date(b.updatedAt || b.createdAt).getTime();
+      return aTime - bTime;
+    });
+    createAutomaticVersionHistoryForSuccessfulRequests(orderedRequests);
+  });
+}
+
 function hydrateVersionHistory(rp: ReleasePublish): ReleasePublish {
   refreshVersionHistoryDerivedFields(rp);
   return {
@@ -3765,6 +4177,7 @@ function hydrateVersionHistory(rp: ReleasePublish): ReleasePublish {
 export const releasePublishApi = {
   async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<ReleasePublish>> {
     await delay();
+    syncAutomaticSuccessfulVersionHistories(applicationId);
     let data = filterByApplicationScope(releasePublishes, applicationId);
     data = applyFilters(data, filters);
     data = data.map(hydrateVersionHistory);
@@ -4188,6 +4601,7 @@ export const releasePublishApi = {
   // Get releases pending decision for Tech Lead
   async getPendingDecision(applicationId: ApplicationScopeFilter): Promise<ReleasePublish[]> {
     await delay();
+    syncAutomaticSuccessfulVersionHistories(applicationId);
     return releasePublishes
       .filter(rp => matchesApplicationScope(rp.applicationId, applicationId) && rp.status === 'PENDING_DECISION')
       .map(hydrateVersionHistory);
@@ -4196,6 +4610,7 @@ export const releasePublishApi = {
   // Get releases pending QA review
   async getPendingQAReview(applicationId: ApplicationScopeFilter): Promise<ReleasePublish[]> {
     await delay();
+    syncAutomaticSuccessfulVersionHistories(applicationId);
     return releasePublishes
       .filter(rp => matchesApplicationScope(rp.applicationId, applicationId) && ['DRAFT', 'QA_REVIEW'].includes(rp.status))
       .map(hydrateVersionHistory);
@@ -4400,6 +4815,7 @@ export const attachmentApi = {
 export const dashboardApi = {
   async getStats(applicationId: ApplicationScopeFilter, userId: string, role: string): Promise<DashboardStats> {
     await delay();
+    syncAutomaticSuccessfulVersionHistories(applicationId);
     
     const filterByApp = <T extends { applicationId: string }>(arr: T[]) =>
       filterByApplicationScope(arr, applicationId);

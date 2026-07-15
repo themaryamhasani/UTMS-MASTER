@@ -1,19 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Plus, Eye, Search, PlayCircle, CheckCircle, XCircle,
+  Plus, Eye, PlayCircle, CheckCircle, XCircle,
   Bug as BugIcon, Send, ArrowRight, ArrowLeft,
   MessageSquare, ChevronDown, ChevronUp, FileText,
   Upload, Trash2, PlusCircle, Paperclip, Clock, User as UserIcon,
-  Hash, Target, Layers, Lock, Unlock, Edit,
+  Hash, Target, Layers, Lock, Unlock, Edit, RotateCcw,
 } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
-import { Table, Pagination, ExportButton, exportToExcel } from '../components/ui/Table';
+import { Table, Pagination } from '../components/ui/Table';
+import { CartableExcelExportButton, CartableSearchInput, CartableSelectFilter } from '../components/ui/CartableToolbar';
 import { Badge, StatusBadge } from '../components/ui/Badge';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Input, Textarea, Select } from '../components/ui/Input';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
+import { useApplicationLookup } from '../utils/useApplicationLookup';
 import { testRunApi, testCaseApi, testRequestApi, bugApi, retestTaskApi, runIssueApi, userApi, commentApi, requirementApi, attachmentApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
 import { isSemVer, SEMVER_HINT } from '../utils/semver';
@@ -82,6 +84,8 @@ interface BugEntry {
   files: File[];
 }
 
+type RetestBugDecision = 'PASSED' | 'FAILED';
+
 interface BugEditEntry {
   id: string;
   title: string;
@@ -98,6 +102,7 @@ interface BugEditEntry {
 export const TestRunsBugsPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const { appId, defaultApplicationId } = useDataScope();
+  const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
 
   // Data
   const [runsData, setRunsData] = useState<PaginatedResponse<TestRun> | null>(null);
@@ -129,6 +134,9 @@ export const TestRunsBugsPage: React.FC = () => {
   const [wizardPrevRunId, setWizardPrevRunId] = useState(''); // previous run for retest/regression
   const [activeRetestTaskId, setActiveRetestTaskId] = useState('');
   const [activeRetestBugId, setActiveRetestBugId] = useState('');
+  const [activeRetestBugIds, setActiveRetestBugIds] = useState<string[]>([]);
+  const [activeRetestBugs, setActiveRetestBugs] = useState<Bug[]>([]);
+  const [retestBugDecisions, setRetestBugDecisions] = useState<Record<string, RetestBugDecision | ''>>({});
   const [wizardPrevRunExpanded, setWizardPrevRunExpanded] = useState(false);
   const [wizardFiles, setWizardFiles] = useState<File[]>([]); // step 1 attachments
   // Step 2: Multiple bugs
@@ -358,14 +366,27 @@ export const TestRunsBugsPage: React.FC = () => {
   const updateBugEntry = <K extends keyof BugEntry>(id: number, field: K, value: BugEntry[K]) => {
     setWizardBugs(prev => prev.map(b => b.id === id ? { ...b, [field]: value } : b));
   };
+  const updateRetestBugDecision = (bugId: string, decision: RetestBugDecision) => {
+    clearWizardError(`retest-bug-${bugId}`);
+    setRetestBugDecisions(prev => ({ ...prev, [bugId]: decision }));
+  };
 
   const handleStartRetestTask = async (task: RetestTask) => {
     if (!activeContext) return;
     setActionLoading(true);
     try {
       const { task: startedTask, run } = await retestTaskApi.start(task.id, activeContext.userId);
+      const startedBugIds = startedTask.bugIds?.length ? startedTask.bugIds : [startedTask.bugId];
+      const startedBugs = startedTask.bugs?.length
+        ? startedTask.bugs
+        : startedBugIds
+            .map(bugId => allBugs.find(bug => bug.id === bugId))
+            .filter((bug): bug is Bug => Boolean(bug));
       setActiveRetestTaskId(startedTask.id);
-      setActiveRetestBugId(startedTask.bugId);
+      setActiveRetestBugId(startedBugIds[0] || startedTask.bugId);
+      setActiveRetestBugIds(startedBugIds);
+      setActiveRetestBugs(startedBugs);
+      setRetestBugDecisions(Object.fromEntries(startedBugIds.map(bugId => [bugId, ''])));
       setWizardCreatedRunId(run.id);
       setWizardTestRequestId(startedTask.testRequestId);
       setWizardTestCaseId(startedTask.testCaseId);
@@ -391,7 +412,7 @@ export const TestRunsBugsPage: React.FC = () => {
     setShowWizard(false); setWizardStep(1); setWizardTestRequestId(''); setWizardTestCaseId(''); setWizardVersion('');
     setWizardBuildNumber(''); setWizardResult(''); setWizardActualResult(''); setWizardPurposes([]);
     setWizardReqExpanded(false); setWizardSelectedReq(null); setWizardCreatedRunId('');
-    setWizardPrevRunId(''); setActiveRetestTaskId(''); setActiveRetestBugId(''); setWizardPrevRunExpanded(false); setWizardFiles([]);
+    setWizardPrevRunId(''); setActiveRetestTaskId(''); setActiveRetestBugId(''); setActiveRetestBugIds([]); setActiveRetestBugs([]); setRetestBugDecisions({}); setWizardPrevRunExpanded(false); setWizardFiles([]);
     setWizardBugs([{ id: 1, title: '', description: '', stepsToReproduce: '', severity: 'MAJOR', priority: 'HIGH', assigneeId: '', files: [] }]);
     bugIdCounter.current = 2;
     setWizardIssueType('ENVIRONMENT'); setWizardIssueTitle(''); setWizardIssueDesc('');
@@ -432,8 +453,10 @@ export const TestRunsBugsPage: React.FC = () => {
       if (!wizardCreatedRunId) {
         await testRunApi.updateStatus(run.id, wizardResult as TestRunStatus, wizardActualResult, activeContext.userId);
       }
-      if (activeRetestTaskId && activeRetestBugId && ['PASSED', 'FAILED'].includes(wizardResult)) {
-        await bugApi.retest(activeRetestBugId, wizardResult === 'PASSED', activeContext.userId);
+      if (activeRetestTaskId && activeRetestBugIds.length > 0 && wizardResult === 'PASSED') {
+        for (const bugId of activeRetestBugIds) {
+          await bugApi.retest(bugId, true, activeContext.userId);
+        }
         await retestTaskApi.complete(activeRetestTaskId, activeContext.userId);
       }
       if (wizardFiles.length > 0) {
@@ -450,27 +473,55 @@ export const TestRunsBugsPage: React.FC = () => {
   // Wizard step 2: submit ALL bugs
   const handleWizardBugsSubmit = async () => {
     if (!activeContext || !wizardCreatedRunId) return;
+    const isRetestFailureReview = !!activeRetestTaskId && activeRetestBugIds.length > 0;
     const validBugs = wizardBugs.filter(b => b.title.trim() && b.description.trim() && b.stepsToReproduce.trim());
     const errors: Record<string, string> = {};
     wizardBugs.forEach((bug, index) => {
-      const touched = bug.title.trim() || bug.description.trim() || bug.stepsToReproduce.trim() || index === 0;
+      const touched = bug.title.trim() || bug.description.trim() || bug.stepsToReproduce.trim() || (!isRetestFailureReview && index === 0);
       if (!touched) return;
       if (!bug.title.trim()) errors[`bug-${bug.id}-title`] = 'عنوان باگ الزامی است.';
       if (!bug.description.trim()) errors[`bug-${bug.id}-description`] = 'توضیحات باگ الزامی است.';
       if (!bug.stepsToReproduce.trim()) errors[`bug-${bug.id}-steps`] = 'مراحل بازتولید الزامی است.';
     });
-    if (validBugs.length === 0 || Object.keys(errors).length > 0) {
+    if (isRetestFailureReview) {
+      activeRetestBugIds.forEach(bugId => {
+        if (!retestBugDecisions[bugId]) errors[`retest-bug-${bugId}`] = 'نتیجه بررسی این باگ را مشخص کنید.';
+      });
+      const hasFailedPreviousBug = activeRetestBugIds.some(bugId => retestBugDecisions[bugId] === 'FAILED');
+      if (!hasFailedPreviousBug && validBugs.length === 0) {
+        errors.retestReview = 'برای نتیجه ناموفق باید حداقل یک باگ قبلی رفع‌نشده باشد یا یک باگ جدید ثبت شود.';
+      }
+    } else if (validBugs.length === 0) {
+      errors.bugs = 'حداقل یک باگ معتبر ثبت کنید.';
+    }
+    if (Object.keys(errors).length > 0) {
       setWizardErrors(errors);
       return;
     }
     setActionLoading(true);
     try {
+      const fallbackRetestAssigneeId = activeRetestBugs.find(bug => bug.assigneeId)?.assigneeId;
+      if (isRetestFailureReview) {
+        for (const bugId of activeRetestBugIds) {
+          const passed = retestBugDecisions[bugId] === 'PASSED';
+          await bugApi.retest(bugId, passed, activeContext.userId);
+          await commentApi.create(
+            'BUG',
+            bugId,
+            passed
+              ? `تأیید رفع در Retest/Regression — ${activeContext.user.fullName}`
+              : `رفع تأیید نشد و برای اقدام مجدد برگشت — ${activeContext.user.fullName}`,
+            activeContext.userId
+          );
+        }
+        await retestTaskApi.complete(activeRetestTaskId, activeContext.userId);
+      }
       for (const bug of validBugs) {
         const createdBug = await bugApi.create({
           testRunId: wizardCreatedRunId, title: bug.title, description: bug.description,
           stepsToReproduce: bug.stepsToReproduce, actualResult: wizardActualResult,
           severity: bug.severity, priority: bug.priority,
-          assigneeId: bug.assigneeId || undefined,
+          assigneeId: bug.assigneeId || fallbackRetestAssigneeId || undefined,
         }, activeContext.userId, defaultApplicationId);
         if (bug.files.length > 0) {
           await uploadFilesForEntity('BUG', createdBug.id, bug.files);
@@ -478,7 +529,9 @@ export const TestRunsBugsPage: React.FC = () => {
         }
       }
       resetWizard();
-      toast.success(`${validBugs.length} باگ ثبت شد.`);
+      toast.success(isRetestFailureReview
+        ? `نتیجه Retest ثبت شد و ${validBugs.length} باگ جدید اضافه شد.`
+        : `${validBugs.length} باگ ثبت شد.`);
       loadRuns(); loadBugs(); loadAllBugs(); loadRetestTasks();
     } catch { toast.error('خطا.'); } finally { setActionLoading(false); }
   };
@@ -534,6 +587,26 @@ export const TestRunsBugsPage: React.FC = () => {
   const handleRetestBug = async (p: boolean) => { if (!activeContext || !selectedBug) return; setActionLoading(true); try { await bugApi.retest(selectedBug.id, p, activeContext.userId); await commentApi.create('BUG', selectedBug.id, `${p ? '✅ تست مجدد موفق' : '❌ ناموفق'} — ${activeContext.user.fullName}`, activeContext.userId); toast.success(p ? 'موفق' : 'ناموفق'); setShowConfirmModal(false); setShowBugDetailModal(false); loadBugs(); loadAllBugs(); loadRetestTasks(); } catch { toast.error('خطا.'); } finally { setActionLoading(false); } };
   const handleCloseBug = async () => { if (!activeContext || !selectedBug) return; setActionLoading(true); try { await bugApi.close(selectedBug.id, activeContext.userId); toast.success('بسته شد.'); setShowConfirmModal(false); setShowBugDetailModal(false); loadBugs(); loadAllBugs(); } catch { toast.error('خطا.'); } finally { setActionLoading(false); } };
   const handleAddComment = async () => { if (!activeContext || !selectedBug || !newComment.trim()) return; setActionLoading(true); try { await commentApi.create('BUG', selectedBug.id, newComment, activeContext.userId); setNewComment(''); loadBugComments(); } catch { toast.error('خطا در ثبت دیدگاه.'); } finally { setActionLoading(false); } };
+
+  const canRestoreBug = (bug: Bug | null | undefined) =>
+    !!bug && !bug.isLocked && !!bug.previousStatus && ['REJECTED', 'NO_ACTION_NEEDED'].includes(bug.status);
+
+  const handleRestoreBugStatus = async (bug: Bug) => {
+    if (!activeContext || !canRestoreBug(bug)) return;
+    setActionLoading(true);
+    try {
+      const restored = await bugApi.restorePreviousStatus(bug.id, activeContext.userId);
+      if (!restored) throw new Error('RESTORE_FAILED');
+      await commentApi.create('BUG', bug.id, `بازگردانی وضعیت از ${BUG_STATUS_LABELS[bug.status]} به ${BUG_STATUS_LABELS[restored.status]}`, activeContext.userId);
+      if (selectedBug?.id === bug.id) setSelectedBug(restored);
+      toast.success('وضعیت قبلی باگ بازگردانده شد.');
+      loadBugs(); loadAllBugs(); loadRetestTasks(); loadBugComments();
+    } catch {
+      toast.error('بازگردانی وضعیت باگ ممکن نیست.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const openUnlockModal = (target: { type: 'RUN' | 'BUG'; id: string; title: string }) => {
     setUnlockTarget(target);
@@ -757,8 +830,11 @@ export const TestRunsBugsPage: React.FC = () => {
 
   const getPrevRun = () => allRuns.find(r => r.id === wizardPrevRunId);
   const openRetestTasks = (retestTasksData?.data || []).filter(t => ['QUEUED', 'IN_PROGRESS'].includes(t.status));
+  const getRetestTaskBugIds = (task: RetestTask) => task.bugIds?.length ? task.bugIds : [task.bugId];
+  const canStartRetestTask = (task: RetestTask) =>
+    role === 'SYSTEM_ADMIN' || (role === 'QA_SPECIALIST' && task.assignedToId === activeContext.userId);
   const selectedOpenRetestTask = selectedBug
-    ? openRetestTasks.find(t => t.bugId === selectedBug.id)
+    ? openRetestTasks.find(t => getRetestTaskBugIds(t).includes(selectedBug.id))
     : undefined;
   const selectedRunBugs = selectedRun ? getBugsForRun(selectedRun.id) : [];
 
@@ -777,19 +853,29 @@ export const TestRunsBugsPage: React.FC = () => {
   const [deleteRunTarget, setDeleteRunTarget] = useState<TestRun | null>(null);
 
   const handleDeleteRun = async () => {
-    if (!deleteRunTarget) return;
+    if (!activeContext || !deleteRunTarget) return;
     setActionLoading(true);
     try {
-      // In production: await testRunApi.delete(deleteRunTarget.id);
+      const removed = await testRunApi.delete(deleteRunTarget.id, activeContext.userId);
+      if (!removed) {
+        toast.error('حذف اجرای تست ممکن نیست؛ اجرا یا باگ‌های وابسته قفل VersionHistory دارند.');
+        return;
+      }
       toast.success('اجرای تست حذف شد.');
       setShowDeleteRunConfirm(false); setDeleteRunTarget(null);
       loadRuns();
+      loadAllRuns();
     } catch { toast.error('خطا در حذف.'); }
     finally { setActionLoading(false); }
   };
 
   const runColumns = [
     { key: 'tc', title: 'تست کیس', render: (item: TestRun) => <div><p className="font-medium text-gray-900">{item.testCase?.title || '-'}</p><p className="text-xs text-gray-500">v{item.version}</p></div> },
+    ...(shouldShowSystemColumn ? [{
+      key: 'applicationId',
+      title: 'سامانه',
+      render: (item: TestRun) => <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{getApplicationName(item.applicationId)}</span>,
+    }] : []),
     { key: 'status', title: 'وضعیت', render: (item: TestRun) => <StatusBadge status={item.status} labels={TEST_RUN_STATUS_LABELS} /> },
     { key: 'exec', title: 'اجراکننده', render: (item: TestRun) => item.executedBy?.fullName || '-' },
     { key: 'date', title: 'تاریخ', render: (item: TestRun) => item.executedAt ? new Date(item.executedAt).toLocaleDateString('fa-IR') : '-' },
@@ -829,8 +915,12 @@ export const TestRunsBugsPage: React.FC = () => {
                 <div key={task.id} className="p-4 bg-white border border-purple-100 rounded-lg shadow-sm">
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div>
-                      <p className="font-medium text-gray-900">{task.bug?.title || task.bugId}</p>
+                      <p className="font-medium text-gray-900">{task.previousRun?.testCase?.title || task.bug?.title || task.bugId}</p>
                       <p className="text-xs text-gray-500 mt-1">Run قبلی: {task.previousRun?.testCase?.title || task.previousRunId}</p>
+                      <p className="text-xs text-purple-700 mt-1">
+                        {getRetestTaskBugIds(task).length} باگ آماده Retest/Regression
+                        {task.assignedTo?.fullName ? ` | مسئول: ${task.assignedTo.fullName}` : ''}
+                      </p>
                     </div>
                     <StatusBadge status={task.status} labels={RETEST_TASK_STATUS_LABELS} />
                   </div>
@@ -845,9 +935,13 @@ export const TestRunsBugsPage: React.FC = () => {
                     <span className="text-xs text-gray-500">
                       ایجاد: {new Date(task.createdAt).toLocaleDateString('fa-IR')}
                     </span>
-                    <Button size="sm" icon={<PlayCircle className="w-4 h-4" />} onClick={() => handleStartRetestTask(task)} loading={actionLoading}>
-                      {task.status === 'IN_PROGRESS' ? 'ادامه اجرا' : 'شروع اجرا'}
-                    </Button>
+                    {canStartRetestTask(task) ? (
+                      <Button size="sm" icon={<PlayCircle className="w-4 h-4" />} onClick={() => handleStartRetestTask(task)} loading={actionLoading}>
+                        {task.status === 'IN_PROGRESS' ? 'ادامه اجرا' : 'شروع اجرا'}
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-gray-500">فقط متخصص مسئول امکان شروع دارد</span>
+                    )}
                   </div>
                 </div>
               ))}
@@ -860,17 +954,32 @@ export const TestRunsBugsPage: React.FC = () => {
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4"><PlayCircle className="w-5 h-5 text-blue-500" /> اجرای تست‌ها {runsData && <span className="text-sm font-normal text-gray-500">({runsData.total})</span>}</h2>
           <div className="flex flex-wrap gap-3 items-center mb-3">
             {canCreateRun && <Button icon={<Plus className="w-4 h-4" />} onClick={() => { resetWizard(); setShowWizard(true); }}>اجرای جدید</Button>}
-            <ExportButton onClick={() => exportToExcel(runsData?.data || [], [
-              { key: 'version', title: 'نسخه' }, { key: 'status', title: 'وضعیت' },
-            ], 'test-runs')} disabled={!runsData?.data?.length} />
-            <div className="relative flex-1 min-w-[180px]"><Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" placeholder="جستجو..." value={runsFilters.search} onChange={(e) => setRunsFilters({ ...runsFilters, search: e.target.value, page: 1 })} className="w-full pr-10 pl-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
-            <select value={runsFilters.status || ''} onChange={(e) => setRunsFilters({ ...runsFilters, status: e.target.value, page: 1 })} className="px-3 py-2 text-sm border border-gray-300 rounded-lg">
-              <option value="">همه</option>{Object.entries(TEST_RUN_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+            <CartableExcelExportButton
+              data={runsData?.data || []}
+              columns={[
+                { key: 'version', title: 'نسخه' }, { key: 'status', title: 'وضعیت' },
+              ]}
+              filename="test-runs"
+              disabled={!runsData?.data?.length}
+            />
+            <CartableSearchInput
+              value={runsFilters.search || ''}
+              onChange={(search) => setRunsFilters({ ...runsFilters, search, page: 1 })}
+              className="min-w-[180px]"
+            />
+            <CartableSelectFilter
+              value={runsFilters.status || ''}
+              onChange={(status) => setRunsFilters({ ...runsFilters, status, page: 1 })}
+              options={Object.entries(TEST_RUN_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+              allLabel="همه وضعیت‌ها"
+            />
           </div>
           <Table columns={runColumns} data={runsData?.data || []} loading={runsLoading} emptyMessage="اجرایی یافت نشد"
             onRowClick={(item) => { setSelectedRun(item); setShowRunDetailModal(true); }}
-            rowClassName={(item) => item.status === 'FAILED' ? 'bg-red-50' : item.status === 'PASSED' ? 'bg-green-50' : ''} />
+            rowClassName={(item) => item.status === 'FAILED' ? 'bg-red-50' : item.status === 'PASSED' ? 'bg-green-50' : ''}
+            enableClientFilter={false}
+            enableExport={false}
+            enableColumnChooser={false} />
           {runsData && <Pagination page={runsData.page} totalPages={runsData.totalPages || 1} total={runsData.total} limit={runsData.limit || runsFilters.limit}
             onPageChange={(p) => setRunsFilters({ ...runsFilters, page: p })}
             onLimitChange={(l) => setRunsFilters({ ...runsFilters, limit: l, page: 1 })} />}
@@ -920,8 +1029,8 @@ export const TestRunsBugsPage: React.FC = () => {
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input label="نسخه *" placeholder="2.5.0" value={wizardVersion} onChange={(e) => handleWizardVersionChange(e.target.value)} hint={SEMVER_HINT} error={wizardErrors.version} />
-              <Input label="شماره بیلد" placeholder="build-1234" value={wizardBuildNumber} onChange={(e) => handleWizardBuildChange(e.target.value)} hint={BUILD_NUMBER_INPUT_HINT} error={wizardErrors.buildNumber} />
+              <Input label="نسخه *" placeholder="2.5.0" value={wizardVersion} onChange={(e) => handleWizardVersionChange(e.target.value)} error={wizardErrors.version} />
+              <Input label="شماره بیلد" placeholder="build-1234" value={wizardBuildNumber} onChange={(e) => handleWizardBuildChange(e.target.value)} error={wizardErrors.buildNumber} />
             </div>
 
             {/* Multi-select Execution Purpose */}
@@ -1003,11 +1112,66 @@ export const TestRunsBugsPage: React.FC = () => {
         {/* STEP 2: Multiple Bugs */}
         {wizardStep === 2 && (
           <div className="space-y-4">
-            <div className="p-3 bg-red-50 rounded-lg border border-red-200 text-sm text-red-700">تست ناموفق بود. باگ‌ها را ثبت کنید. می‌توانید چند باگ اضافه کنید.</div>
+            <div className="p-3 bg-red-50 rounded-lg border border-red-200 text-sm text-red-700">
+              تست ناموفق بود. در Retest ابتدا وضعیت باگ‌های قبلی را مشخص کنید و در صورت وجود ایراد جدید، باگ جدید ثبت کنید.
+            </div>
+            {activeRetestTaskId && activeRetestBugIds.length > 0 && (
+              <div className="space-y-3 rounded-lg border border-purple-200 bg-purple-50 p-4">
+                <div>
+                  <h4 className="font-medium text-purple-900">بررسی باگ‌های قبلی Retest/Regression</h4>
+                  <p className="mt-1 text-xs text-purple-700">
+                    فقط باگ‌هایی که «رفع نشده» انتخاب شوند برای اقدام مجدد به توسعه‌دهنده برمی‌گردند.
+                  </p>
+                </div>
+                {activeRetestBugIds.map((bugId, index) => {
+                  const bug = activeRetestBugs.find(item => item.id === bugId) || allBugs.find(item => item.id === bugId);
+                  const decision = retestBugDecisions[bugId] || '';
+                  return (
+                    <div key={bugId} className="rounded-lg border border-purple-100 bg-white p-3">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {index + 1}. {bug?.title || bugId}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            وضعیت فعلی: {bug ? BUG_STATUS_LABELS[bug.status] : '-'}
+                            {bug?.fixedVersion ? ` | نسخه رفع: ${bug.fixedVersion}` : ''}
+                          </p>
+                          {bug?.fixNotes && <p className="mt-1 text-xs text-gray-600">یادداشت رفع: {bug.fixNotes}</p>}
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <Button
+                            size="sm"
+                            variant={decision === 'PASSED' ? 'primary' : 'secondary'}
+                            icon={<CheckCircle className="w-4 h-4" />}
+                            onClick={() => updateRetestBugDecision(bugId, 'PASSED')}
+                          >
+                            رفع تایید شد
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={decision === 'FAILED' ? 'danger' : 'secondary'}
+                            icon={<XCircle className="w-4 h-4" />}
+                            onClick={() => updateRetestBugDecision(bugId, 'FAILED')}
+                          >
+                            رفع نشده
+                          </Button>
+                        </div>
+                      </div>
+                      {wizardErrors[`retest-bug-${bugId}`] && (
+                        <p className="mt-2 text-sm text-red-600">{wizardErrors[`retest-bug-${bugId}`]}</p>
+                      )}
+                    </div>
+                  );
+                })}
+                {wizardErrors.retestReview && <p className="text-sm text-red-600">{wizardErrors.retestReview}</p>}
+              </div>
+            )}
+            {wizardErrors.bugs && <p className="text-sm text-red-600">{wizardErrors.bugs}</p>}
             {wizardBugs.map((bug, idx) => (
               <div key={bug.id} className="p-4 bg-white border rounded-lg space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="font-medium text-gray-900">🐛 باگ {idx + 1}</h4>
+                  <h4 className="font-medium text-gray-900">🐛 باگ جدید {idx + 1}</h4>
                   {wizardBugs.length > 1 && <button onClick={() => removeBugEntry(bug.id)} className="text-red-500 hover:text-red-700 text-sm flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" /> حذف</button>}
                 </div>
                 <Input label="عنوان باگ *" placeholder="عنوان" value={bug.title} onChange={(e) => { clearWizardError(`bug-${bug.id}-title`); updateBugEntry(bug.id, 'title', e.target.value); }} error={wizardErrors[`bug-${bug.id}-title`]} />
@@ -1038,7 +1202,9 @@ export const TestRunsBugsPage: React.FC = () => {
               <Button variant="secondary" onClick={resetWizard}>انصراف</Button>
               <Button variant="danger" onClick={handleWizardBugsSubmit} loading={actionLoading}
                 disabled={actionLoading}>
-                ثبت {wizardBugs.filter(b => b.title.trim()).length} باگ و اتمام
+                {activeRetestTaskId
+                  ? `ثبت نتیجه Retest${wizardBugs.filter(b => b.title.trim()).length ? ` و ${wizardBugs.filter(b => b.title.trim()).length} باگ جدید` : ''}`
+                  : `ثبت ${wizardBugs.filter(b => b.title.trim()).length} باگ و اتمام`}
               </Button>
             </div>
           </div>
@@ -1107,7 +1273,6 @@ export const TestRunsBugsPage: React.FC = () => {
                 label="نسخه *"
                 value={runEditData.version}
                 onChange={(e) => handleRunEditVersionChange(e.target.value)}
-                hint={SEMVER_HINT}
                 disabled={!canEditRunFields(selectedRun)}
                 error={runEditErrors.version}
               />
@@ -1115,7 +1280,6 @@ export const TestRunsBugsPage: React.FC = () => {
                 label="شماره بیلد"
                 value={runEditData.buildNumber}
                 onChange={(e) => handleRunEditBuildChange(e.target.value)}
-                hint={BUILD_NUMBER_INPUT_HINT}
                 disabled={!canEditRunFields(selectedRun)}
                 error={runEditErrors.buildNumber}
               />
@@ -1496,19 +1660,26 @@ export const TestRunsBugsPage: React.FC = () => {
                             <span>نسخه رفع: {bug.fixedVersion || '-'}</span>
                           </div>
                           {/* Developer actions inline */}
-                          {getAvailableTransitions(bug).length > 0 && (
+                          {(getAvailableTransitions(bug).length > 0 || canRestoreBug(bug)) && (
                             <div className="flex gap-2 pt-2 border-t">
-                              <Button size="sm" variant="primary" icon={<ArrowRight className="w-3.5 h-3.5" />}
-                                onClick={() => { setSelectedBug(bug); setDevTransitionTarget(''); setDevFixVersion(bug.fixedVersion || ''); setDevRejectReason(''); setDevStatusErrors({}); setShowDevStatusModal(true); }}>
-                                تغییر وضعیت
-                              </Button>
+                              {getAvailableTransitions(bug).length > 0 && (
+                                <Button size="sm" variant="primary" icon={<ArrowRight className="w-3.5 h-3.5" />}
+                                  onClick={() => { setSelectedBug(bug); setDevTransitionTarget(''); setDevFixVersion(bug.fixedVersion || ''); setDevRejectReason(''); setDevStatusErrors({}); setShowDevStatusModal(true); }}>
+                                  تغییر وضعیت
+                                </Button>
+                              )}
+                              {canRestoreBug(bug) && (
+                                <Button size="sm" variant="secondary" icon={<RotateCcw className="w-3.5 h-3.5" />} onClick={() => handleRestoreBugStatus(bug)} loading={actionLoading}>
+                                  بازگردانی به {BUG_STATUS_LABELS[bug.previousStatus!]}
+                                </Button>
+                              )}
                               <Button size="sm" variant="ghost" icon={<Eye className="w-3.5 h-3.5" />}
                                 onClick={() => { setSelectedBug(bug); setShowBugDetailModal(true); }}>
                                 جزئیات کامل
                               </Button>
                             </div>
                           )}
-                          {getAvailableTransitions(bug).length === 0 && (
+                          {getAvailableTransitions(bug).length === 0 && !canRestoreBug(bug) && (
                             <Button size="sm" variant="ghost" icon={<Eye className="w-3.5 h-3.5" />}
                               onClick={() => { setSelectedBug(bug); setShowBugDetailModal(true); }}>
                               مشاهده جزئیات
@@ -1626,6 +1797,11 @@ export const TestRunsBugsPage: React.FC = () => {
             {/* Actions */}
             <div className="flex flex-wrap gap-3 pt-4 border-t">
               {getAvailableTransitions(selectedBug).length > 0 && <Button variant="primary" icon={<ArrowRight className="w-4 h-4" />} onClick={() => { setDevTransitionTarget(''); setDevFixVersion(selectedBug.fixedVersion || ''); setDevRejectReason(''); setDevStatusErrors({}); setShowDevStatusModal(true); }}>تغییر وضعیت</Button>}
+              {canRestoreBug(selectedBug) && (
+                <Button variant="secondary" icon={<RotateCcw className="w-4 h-4" />} onClick={() => handleRestoreBugStatus(selectedBug)} loading={actionLoading}>
+                  بازگردانی به {BUG_STATUS_LABELS[selectedBug.previousStatus!]}
+                </Button>
+              )}
               {canAdminUnlock && selectedBug.isLocked && (
                 <Button
                   variant="warning"
@@ -1635,16 +1811,16 @@ export const TestRunsBugsPage: React.FC = () => {
                   Unlock
                 </Button>
               )}
-              {canRetestBug && !selectedBug.isLocked && selectedBug.status === 'RETEST_READY' && selectedOpenRetestTask && (
+              {canRetestBug && !selectedBug.isLocked && selectedBug.status === 'RETEST_READY' && selectedOpenRetestTask && canStartRetestTask(selectedOpenRetestTask) && (
                 <Button variant="primary" icon={<PlayCircle className="w-4 h-4" />} onClick={() => handleStartRetestTask(selectedOpenRetestTask)}>
                   شروع از Task بازآزمون
                 </Button>
               )}
-              {canRetestBug && !selectedBug.isLocked && selectedBug.status === 'RETEST_READY' && !selectedOpenRetestTask && <>
+              {canRetestBug && role !== 'QA_LEAD' && !selectedBug.isLocked && selectedBug.status === 'RETEST_READY' && !selectedOpenRetestTask && <>
                 <Button variant="primary" icon={<CheckCircle className="w-4 h-4" />} onClick={() => { setConfirmAction({ action: 'pass', message: 'Retest و Regression موفق؟' }); setShowConfirmModal(true); }}>موفق</Button>
                 <Button variant="danger" icon={<XCircle className="w-4 h-4" />} onClick={() => { setConfirmAction({ action: 'fail', message: 'ناموفق؟' }); setShowConfirmModal(true); }}>ناموفق</Button>
               </>}
-              {canRetestBug && !selectedBug.isLocked && selectedBug.status === 'RETEST_PASSED' && <Button onClick={() => { setConfirmAction({ action: 'close', message: 'بستن؟' }); setShowConfirmModal(true); }}>بستن باگ</Button>}
+              {canRetestBug && role !== 'QA_LEAD' && !selectedBug.isLocked && selectedBug.status === 'RETEST_PASSED' && <Button onClick={() => { setConfirmAction({ action: 'close', message: 'بستن؟' }); setShowConfirmModal(true); }}>بستن باگ</Button>}
               <Button variant="secondary" onClick={() => setShowBugDetailModal(false)}>بستن</Button>
             </div>
           </div>
@@ -1662,7 +1838,7 @@ export const TestRunsBugsPage: React.FC = () => {
             </label>
           ))}</div>
           {devTransitionTarget === 'FIXED' && <div className="p-4 bg-green-50 rounded-lg border border-green-200 space-y-3">
-            <Input label="نسخه رفع *" placeholder="2.5.1" value={devFixVersion} onChange={(e) => handleDevFixVersionChange(e.target.value)} hint={SEMVER_HINT} error={devStatusErrors.fixedVersion} />
+            <Input label="نسخه رفع *" placeholder="2.5.1" value={devFixVersion} onChange={(e) => handleDevFixVersionChange(e.target.value)} error={devStatusErrors.fixedVersion} />
             <Textarea label="یادداشت (اختیاری)" placeholder="توضیح..." value={devFixNotes} onChange={(e) => setDevFixNotes(e.target.value)} />
           </div>}
           {['REJECTED', 'NO_ACTION_NEEDED'].includes(devTransitionTarget) && (

@@ -28,6 +28,32 @@ npm run build
 
 The web dev server proxies `/api` to the API server on port `4174`.
 
+## Docker Compose
+
+Run the core system from the repository root:
+
+```bash
+docker compose up --build
+```
+
+The Compose system starts Postgres, Redis, the API on `http://localhost:4174`, and the web app on `http://localhost:5173`. Optional background foundations are available with profiles:
+
+```bash
+docker compose --profile jobs --profile runner up --build
+```
+
+Stop the stack and keep volumes:
+
+```bash
+docker compose down
+```
+
+Remove persisted Compose data when you need a clean local system:
+
+```bash
+docker compose down -v
+```
+
 ## Documentation
 
 Start with [docs/INDEX.md](docs/INDEX.md). The restructuring details are in:

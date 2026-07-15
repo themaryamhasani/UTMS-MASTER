@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus, Eye, Search, PlayCircle, CheckCircle, XCircle, AlertTriangle, SkipForward, Bug } from 'lucide-react';
+import { Plus, Eye, PlayCircle, CheckCircle, XCircle, AlertTriangle, SkipForward, Bug } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Table, Pagination } from '../components/ui/Table';
+import { CartableExcelExportButton, CartableSearchInput, CartableSelectFilter } from '../components/ui/CartableToolbar';
 import { StatusBadge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { Input, Textarea, Select } from '../components/ui/Input';
@@ -364,26 +365,26 @@ export const TestRunsPage: React.FC = () => {
         {/* Filters */}
         <Card className="mb-6" padding="sm">
           <div className="flex flex-wrap gap-4 items-center">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="جستجو..."
-                value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
-                className="w-full pr-10 pl-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <select
+            <CartableExcelExportButton
+              data={data?.data || []}
+              columns={[
+                { key: 'version', title: 'نسخه' },
+                { key: 'buildNumber', title: 'شماره بیلد' },
+                { key: 'status', title: 'وضعیت' },
+                { key: 'actualResult', title: 'نتیجه واقعی' },
+              ]}
+              filename="test-runs"
+              disabled={!data?.data?.length}
+            />
+            <CartableSearchInput
+              value={filters.search || ''}
+              onChange={(search) => setFilters({ ...filters, search, page: 1 })}
+            />
+            <CartableSelectFilter
               value={filters.status || ''}
-              onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">همه وضعیت‌ها</option>
-              {Object.entries(TEST_RUN_STATUS_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
+              onChange={(status) => setFilters({ ...filters, status, page: 1 })}
+              options={Object.entries(TEST_RUN_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+            />
           </div>
         </Card>
 
@@ -410,6 +411,9 @@ export const TestRunsPage: React.FC = () => {
             item.status === 'FAILED' ? 'bg-red-50' :
             item.status === 'PASSED' ? 'bg-green-50' : ''
           }
+          enableClientFilter={false}
+          enableExport={false}
+          enableColumnChooser={false}
         />
 
         {data && data.total > 0 && (
@@ -448,7 +452,6 @@ export const TestRunsPage: React.FC = () => {
               setFormErrors(prev => ({ ...prev, version: sanitized.error || '' }));
             }}
             placeholder="مثال: 2.5.0"
-            hint={SEMVER_HINT}
             error={formErrors.version}
           />
           <Input
@@ -460,7 +463,6 @@ export const TestRunsPage: React.FC = () => {
               setFormErrors(prev => ({ ...prev, buildNumber: sanitized.error || '' }));
             }}
             placeholder="مثال: build-1234"
-            hint={BUILD_NUMBER_INPUT_HINT}
             error={formErrors.buildNumber}
           />
           <div className="flex gap-3 justify-end pt-4">

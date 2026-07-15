@@ -9,6 +9,7 @@ import { Modal } from '../components/ui/Modal';
 import { Textarea, Select } from '../components/ui/Input';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
+import { useApplicationLookup } from '../utils/useApplicationLookup';
 import { securityChecklistApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
 
@@ -51,6 +52,7 @@ interface SecurityReview {
 export const ChecklistsPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const { defaultApplicationId, scopeApplicationIds, isAppLevel, isMultiSystem } = useDataScope();
+  const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [reviews, setReviews] = useState<SecurityReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -76,18 +78,23 @@ export const ChecklistsPage: React.FC = () => {
   useEffect(() => {
     if (activeContext) {
       if (shouldSelectApplication) {
+        setLoading(false);
+        setReviews([]);
         // Load applications list for selector
         import('../services/seedData').then(m => {
           setApplications(m.mockApplications
             .filter(a => isAppLevel || scopeApplicationIds.includes(a.id))
             .map(a => ({ id: a.id, name: a.name })));
+        }).catch(() => {
+          setApplications([]);
+          toast.error('خطا در بارگذاری سامانه‌ها.');
         });
       } else {
         setSelectedAppId(defaultApplicationId);
         loadData(defaultApplicationId);
       }
     }
-  }, [activeContext]);
+  }, [activeContext, shouldSelectApplication, isAppLevel, scopeApplicationIds.join('|'), defaultApplicationId]);
 
   useEffect(() => {
     if (selectedAppId) loadData(selectedAppId);
@@ -178,6 +185,11 @@ export const ChecklistsPage: React.FC = () => {
         </Badge>
       ),
     },
+    ...(shouldShowSystemColumn ? [{
+      key: 'applicationId',
+      title: 'سامانه',
+      render: (item: SecurityReview) => <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{getApplicationName(item.applicationId)}</span>,
+    }] : []),
     {
       key: 'progress', title: 'پیشرفت',
       render: (item: SecurityReview) => {
@@ -216,13 +228,13 @@ export const ChecklistsPage: React.FC = () => {
       <Header
         title="کارتابل بازبین امنیت"
         subtitle="چک‌لیست امنیتی به ازای هر تست کیس"
-        onRefresh={() => loadData(selectedAppId)}
+        onRefresh={() => { if (selectedAppId) loadData(selectedAppId); }}
         refreshing={loading}
       />
 
       <main className="p-4 sm:p-6">
         {/* Item #10: System selector for APP-level users */}
-        {isAppLevel && (
+        {shouldSelectApplication && (
           <div className="mb-6 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
             <label className="block text-sm font-medium text-indigo-800 mb-2">انتخاب سامانه</label>
             <div className="flex flex-wrap gap-2">
@@ -242,7 +254,7 @@ export const ChecklistsPage: React.FC = () => {
         )}
 
         {/* Show content only when system is selected */}
-        {(!isAppLevel || selectedAppId) && (<>
+        {(!shouldSelectApplication || selectedAppId) && (<>
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <StatCard title="کل تست کیس‌ها" value={totalCount} icon={<ShieldCheck className="w-6 h-6" />} />
@@ -282,6 +294,9 @@ export const ChecklistsPage: React.FC = () => {
             item.status === 'COMPLETED' ? 'bg-green-50' :
             item.status === 'IN_PROGRESS' ? 'bg-blue-50' : ''
           }
+          enableClientFilter={false}
+          enableExport={false}
+          enableColumnChooser={false}
         />
         </>)}
       </main>

@@ -64,6 +64,7 @@ import type {
 } from '../types/apiConsole';
 
 type EditorTab =
+  | 'response'
   | 'params'
   | 'headers'
   | 'cookies'
@@ -79,9 +80,31 @@ type EditorTab =
 type PageMode = 'list' | 'editor';
 type WorkspaceView = 'requests' | 'repository' | 'reviews';
 type ParserSelfCheckDetail = { name: string; passed: boolean; message?: string };
+type PostmanImportRequestPreview = {
+  name: string;
+  folderPath: string[];
+  method: ApiHttpMethod;
+  url: string;
+  headerCount: number;
+  queryCount: number;
+  bodyType: NormalizedApiRequest['body']['type'];
+  warningCount: number;
+  warnings: string[];
+  normalizedRequest: NormalizedApiRequest;
+  description?: string;
+};
+type PostmanCollectionImportPreview = {
+  name: string;
+  description: string;
+  requestCount: number;
+  variables: ApiCollection['variables'];
+  requests: PostmanImportRequestPreview[];
+  warnings: string[];
+};
 
 const METHOD_OPTIONS: ApiHttpMethod[] = ['GET', 'POST'];
 const TAB_LABELS: Array<{ id: EditorTab; label: string }> = [
+  { id: 'response', label: 'response' },
   { id: 'params', label: 'پارامترها' },
   { id: 'headers', label: 'Headerها' },
   { id: 'cookies', label: 'Cookieها' },
@@ -309,6 +332,368 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function asArray<T = unknown>(value: unknown): T[] {
   return Array.isArray(value) ? value as T[] : [];
+}
+
+function textFromPostmanDescription(value: unknown): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  const record = asRecord(value);
+  return asText(record.content || record.description || record.text, '');
+}
+
+function makeImportedParam(name: string, value: string, order: number, description = ''): ApiKeyValueParameter {
+  return {
+    id: `postman-param-${crypto.randomUUID()}`,
+    name,
+    value,
+    enabled: true,
+    sensitive: isSensitiveFieldName(name),
+    source: 'USER',
+    description,
+    displayOrder: order,
+  };
+}
+
+function makeImportedHeader(name: string, value: string, order: number, description = ''): ApiRequestHeader {
+  const sensitive = isSensitiveFieldName(name);
+  return {
+    id: `postman-header-${crypto.randomUUID()}`,
+    name,
+    valueTemplate: value,
+    enabled: true,
+    sensitive,
+    source: 'USER',
+    category: /authorization|api[-_]?key|token/i.test(name) ? 'AUTHENTICATION' : 'USER_BUSINESS',
+    description: description || 'Header واردشده از Postman Collection.',
+    maskedValue: sensitive ? '***' : value,
+    displayOrder: order,
+  };
+}
+
+function makeImportedCookie(name: string, value: string, order: number): ApiRequestCookie {
+  const sensitive = isSensitiveFieldName(name) || !/^(_ga|_gid|utm_)/i.test(name);
+  return {
+    id: `postman-cookie-${crypto.randomUUID()}`,
+    name,
+    valueReference: value,
+    enabled: true,
+    sensitive,
+    maskedValue: sensitive ? '***' : value,
+    source: 'USER',
+    displayOrder: order,
+  };
+}
+
+function isSensitiveFieldName(name: string): boolean {
+  return /authorization|cookie|token|secret|password|passwd|session|api[-_]?key|apikey|access[-_]?key/i.test(name);
+}
+
+function normalizePostmanMethod(value: unknown, warnings: string[]): ApiHttpMethod {
+  const method = asText(value, 'GET').trim().toUpperCase();
+  const allowed: ApiHttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+  if (allowed.includes(method as ApiHttpMethod)) return method as ApiHttpMethod;
+  warnings.push(`Method ${method || '-'} پشتیبانی نمی‌شود و به GET تبدیل شد.`);
+  return 'GET';
+}
+
+function parsePostmanKeyValueRows(value: unknown): Array<{ key: string; value: string; description: string; disabled: boolean }> {
+  return asArray<Record<string, unknown>>(value)
+    .map(row => ({
+      key: asText(row.key || row.name, '').trim(),
+      value: asText(row.value, ''),
+      description: textFromPostmanDescription(row.description),
+      disabled: row.disabled === true,
+    }))
+    .filter(row => row.key);
+}
+
+function splitPostmanUrl(value: unknown, warnings: string[]) {
+  const record = asRecord(value);
+  let raw = typeof value === 'string' ? value : asText(record.raw, '');
+  if (!raw && Object.keys(record).length) {
+    const protocol = asText(record.protocol, '').replace(/:$/, '');
+    const host = asArray(record.host).map(part => asText(part, '')).filter(Boolean).join('.') || asText(record.host, '');
+    const path = asArray(record.path).map(part => encodeURIComponent(asText(part, ''))).filter(Boolean).join('/');
+    raw = `${protocol ? `${protocol}://` : ''}${host}${path ? `/${path}` : ''}`;
+  }
+  const splitUrl = raw.split(/\?(.+)/, 2);
+  const baseUrl = splitUrl[0] || '';
+  const rawQuery = splitUrl[1] || '';
+  const params: ApiKeyValueParameter[] = [];
+  const seen = new Set<string>();
+  if (rawQuery) {
+    new URLSearchParams(rawQuery).forEach((paramValue, paramName) => {
+      const key = `${paramName}\u0000${paramValue}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        params.push(makeImportedParam(paramName, paramValue, params.length));
+      }
+    });
+  }
+  parsePostmanKeyValueRows(record.query).forEach(row => {
+    if (row.disabled) return;
+    const key = `${row.key}\u0000${row.value}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      params.push(makeImportedParam(row.key, row.value, params.length, row.description));
+    }
+  });
+  if (!baseUrl.trim()) warnings.push('URL این Request در Postman خالی است.');
+  return { url: baseUrl.trim() || raw.trim() || 'https://example.com', queryParameters: params };
+}
+
+function parseCookieHeader(value: string): ApiRequestCookie[] {
+  return value
+    .split(';')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map((part, index) => {
+      const separatorIndex = part.indexOf('=');
+      const name = separatorIndex >= 0 ? part.slice(0, separatorIndex).trim() : part;
+      const cookieValue = separatorIndex >= 0 ? part.slice(separatorIndex + 1).trim() : '';
+      return makeImportedCookie(name, cookieValue, index);
+    })
+    .filter(cookie => cookie.name);
+}
+
+function parsePostmanHeaders(value: unknown) {
+  const headers: ApiRequestHeader[] = [];
+  const cookies: ApiRequestCookie[] = [];
+  parsePostmanKeyValueRows(value).forEach(row => {
+    if (row.disabled) return;
+    if (/^cookie$/i.test(row.key)) {
+      cookies.push(...parseCookieHeader(row.value).map((cookie, index) => ({ ...cookie, displayOrder: cookies.length + index })));
+      return;
+    }
+    headers.push(makeImportedHeader(row.key, row.value, headers.length, row.description));
+  });
+  return { headers, cookies };
+}
+
+function contentTypeFromHeaders(headers: ApiRequestHeader[]): string {
+  return headers.find(header => /^content-type$/i.test(header.name))?.valueTemplate || '';
+}
+
+function parsePostmanBody(value: unknown, headers: ApiRequestHeader[], warnings: string[]): NormalizedApiRequest['body'] {
+  const body = asRecord(value);
+  const mode = asText(body.mode, '').toLowerCase();
+  const contentType = contentTypeFromHeaders(headers);
+  if (!mode) return { type: 'none', value: null, raw: '' };
+  if (mode === 'raw') {
+    const raw = asText(body.raw, '');
+    const language = asText(asRecord(asRecord(body.options).raw).language, '').toLowerCase();
+    if (/json/i.test(contentType) || language === 'json') {
+      const parsed = parseJson(raw);
+      if (parsed.ok) return { type: 'json', value: parsed.value, raw, contentType: contentType || 'application/json' };
+      warnings.push(`JSON body نامعتبر است: ${parsed.message}`);
+      return { type: 'raw', value: raw, raw, contentType: contentType || 'text/plain' };
+    }
+    if (/xml/i.test(contentType) || language === 'xml') return { type: 'xml', value: raw, raw, contentType: contentType || 'application/xml' };
+    return { type: 'raw', value: raw, raw, contentType: contentType || 'text/plain' };
+  }
+  if (mode === 'urlencoded') {
+    const params = parsePostmanKeyValueRows(body.urlencoded).filter(row => !row.disabled);
+    const raw = new URLSearchParams(params.map(row => [row.key, row.value])).toString();
+    return { type: 'form-urlencoded', value: params.reduce<Record<string, string>>((acc, row) => ({ ...acc, [row.key]: row.value }), {}), raw, contentType: contentType || 'application/x-www-form-urlencoded' };
+  }
+  if (mode === 'formdata') {
+    const rows = parsePostmanKeyValueRows(body.formdata).filter(row => !row.disabled);
+    return { type: 'multipart', value: rows, raw: rows.map(row => `${row.key}=${row.value}`).join('\n'), contentType: contentType || 'multipart/form-data' };
+  }
+  if (mode === 'file') {
+    warnings.push('Postman file body به صورت binary reference وارد شد؛ فایل واقعی داخل Collection JSON وجود ندارد.');
+    return { type: 'binary', value: body.file || null, raw: JSON.stringify(body.file || {}, null, 2), contentType };
+  }
+  if (mode === 'graphql') {
+    const graphql = asRecord(body.graphql);
+    const raw = JSON.stringify({ query: graphql.query || '', variables: graphql.variables || {} }, null, 2);
+    return { type: 'json', value: { query: graphql.query || '', variables: graphql.variables || {} }, raw, contentType: contentType || 'application/json' };
+  }
+  warnings.push(`Body mode ${mode} پشتیبانی کامل ندارد و به raw تبدیل شد.`);
+  return { type: 'raw', value: body[mode] || '', raw: asText(body[mode], ''), contentType };
+}
+
+function postmanAuthEntries(auth: Record<string, unknown>, type: string): Record<string, string> {
+  const source = auth[type];
+  const entries = Array.isArray(source) ? source : Object.entries(asRecord(source)).map(([key, value]) => ({ key, value }));
+  return asArray<Record<string, unknown>>(entries).reduce<Record<string, string>>((acc, item) => {
+    const key = asText(item.key || item.name, '').trim();
+    if (key) acc[key] = asText(item.value, '');
+    return acc;
+  }, {});
+}
+
+function resolvePostmanAuth(authValue: unknown, inheritedAuth: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!authValue) return inheritedAuth;
+  const auth = asRecord(authValue);
+  const type = asText(auth.type, '').toLowerCase();
+  if (!type || type === 'inherit') return inheritedAuth;
+  return auth;
+}
+
+function parsePostmanAuth(auth: Record<string, unknown> | null): {
+  authentication: NormalizedApiRequest['authentication'];
+  headers: ApiRequestHeader[];
+  queryParameters: ApiKeyValueParameter[];
+} {
+  const authentication: NormalizedApiRequest['authentication'] = { type: 'none' };
+  const headers: ApiRequestHeader[] = [];
+  const queryParameters: ApiKeyValueParameter[] = [];
+  if (!auth) return { authentication, headers, queryParameters };
+  const type = asText(auth.type, '').toLowerCase();
+  if (!type || type === 'noauth') return { authentication, headers, queryParameters };
+  if (type === 'bearer') {
+    const token = postmanAuthEntries(auth, 'bearer').token || '';
+    return { authentication: { type: 'bearer', bearerTokenReference: token }, headers, queryParameters };
+  }
+  if (type === 'basic') {
+    const basic = postmanAuthEntries(auth, 'basic');
+    return { authentication: { type: 'basic', basicUsername: basic.username || '', basicPasswordReference: basic.password || '' }, headers, queryParameters };
+  }
+  if (type === 'apikey') {
+    const apiKey = postmanAuthEntries(auth, 'apikey');
+    const name = apiKey.key || apiKey.name || 'x-api-key';
+    const value = apiKey.value || '';
+    if ((apiKey.in || '').toLowerCase() === 'query') {
+      queryParameters.push(makeImportedParam(name, value, 0));
+    } else {
+      headers.push(makeImportedHeader(name, value, 0, 'API key واردشده از Postman auth.'));
+    }
+    return { authentication: { type: 'api-key', apiKeyName: name, apiKeyValueReference: value }, headers, queryParameters };
+  }
+  headers.push(makeImportedHeader('Authorization', `{{${type}_auth}}`, 0, `Auth type ${type} از Postman به صورت placeholder وارد شد.`));
+  return { authentication: { type: 'custom-headers', customHeaderReferences: [{ name: 'Authorization', valueReference: `{{${type}_auth}}` }] }, headers, queryParameters };
+}
+
+function classifyNormalizedPostmanRequest(url: string, body: NormalizedApiRequest['body']): ApiClassification {
+  let pathname = url;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    pathname = url.split('?')[0] || url;
+  }
+  let bodyRecord = asRecord(body.value);
+  if (!Object.keys(bodyRecord).length && body.raw) {
+    const parsed = parseJson(body.raw);
+    bodyRecord = parsed.ok ? asRecord(parsed.value) : {};
+  }
+  if (
+    pathname.endsWith('/core-api/v1/data-provider/store-form-data') &&
+    typeof bodyRecord.serviceId === 'string' &&
+    typeof bodyRecord.formId === 'string' &&
+    'data' in bodyRecord
+  ) {
+    return { type: 'CORE_COMMAND', serviceId: bodyRecord.serviceId, operationPath: bodyRecord.formId, coreOperationType: 'COMMAND', endpoint: '/core-api/v1/data-provider/store-form-data' };
+  }
+  if (
+    pathname.endsWith('/core-api/v1/data-provider/get-data-source') &&
+    typeof bodyRecord.serviceId === 'string' &&
+    typeof bodyRecord.key === 'string' &&
+    'params' in bodyRecord
+  ) {
+    return { type: 'CORE_QUERY', serviceId: bodyRecord.serviceId, operationPath: bodyRecord.key, coreOperationType: 'QUERY', endpoint: '/core-api/v1/data-provider/get-data-source' };
+  }
+  return { type: 'GENERIC_HTTP', serviceId: null, operationPath: null, coreOperationType: null, endpoint: null };
+}
+
+function parsePostmanRequestItem(
+  item: Record<string, unknown>,
+  folderPath: string[],
+  inheritedAuth: Record<string, unknown> | null
+): PostmanImportRequestPreview | null {
+  const requestValue = item.request;
+  if (!requestValue) return null;
+  const warnings: string[] = [];
+  const request = typeof requestValue === 'string' ? { url: requestValue, method: 'GET' } : asRecord(requestValue);
+  const method = normalizePostmanMethod(request.method, warnings);
+  const { url, queryParameters } = splitPostmanUrl(request.url, warnings);
+  const parsedHeaders = parsePostmanHeaders(request.header);
+  const auth = parsePostmanAuth(resolvePostmanAuth(request.auth, inheritedAuth));
+  const headers = [
+    ...parsedHeaders.headers,
+    ...auth.headers.map((header, index) => ({ ...header, displayOrder: parsedHeaders.headers.length + index })),
+  ];
+  const cookies = parsedHeaders.cookies;
+  const body = parsePostmanBody(request.body, headers, warnings);
+  const allQueryParameters = [
+    ...queryParameters,
+    ...auth.queryParameters.map((param, index) => ({ ...param, displayOrder: queryParameters.length + index })),
+  ];
+  const normalizedRequest: NormalizedApiRequest = {
+    method,
+    url,
+    queryParameters: allQueryParameters,
+    headers,
+    cookies,
+    body,
+    authentication: auth.authentication,
+    tls: { verifyCertificate: true },
+    executionMode: 'RECOMMENDED',
+    classification: classifyNormalizedPostmanRequest(url, body),
+  };
+  return {
+    name: asText(item.name, `${method} ${url}`),
+    folderPath,
+    method,
+    url,
+    headerCount: headers.length,
+    queryCount: allQueryParameters.length,
+    bodyType: body.type,
+    warningCount: warnings.length,
+    warnings,
+    normalizedRequest,
+    description: textFromPostmanDescription(request.description || item.description),
+  };
+}
+
+function collectPostmanRequests(
+  items: unknown,
+  folderPath: string[] = [],
+  inheritedAuth: Record<string, unknown> | null = null
+): PostmanImportRequestPreview[] {
+  return asArray<Record<string, unknown>>(items).flatMap(item => {
+    const itemName = asText(item.name, '').trim();
+    const itemAuth = resolvePostmanAuth(item.auth, inheritedAuth);
+    const nested = asArray(item.item);
+    if (nested.length) return collectPostmanRequests(nested, itemName ? [...folderPath, itemName] : folderPath, itemAuth);
+    const parsed = parsePostmanRequestItem(item, folderPath, itemAuth);
+    return parsed ? [parsed] : [];
+  });
+}
+
+function parsePostmanVariables(value: unknown): ApiCollection['variables'] {
+  return parsePostmanKeyValueRows(value)
+    .filter(row => !row.disabled)
+    .map(row => ({
+      id: `postman-var-${crypto.randomUUID()}`,
+      key: row.key,
+      currentValue: row.value,
+      initialValue: row.value,
+      sensitive: isSensitiveFieldName(row.key),
+      scope: 'COLLECTION' as const,
+      description: row.description,
+    }));
+}
+
+function parsePostmanCollectionImport(value: string): PostmanCollectionImportPreview {
+  const parsed = JSON.parse(value) as unknown;
+  const root = asRecord(parsed);
+  const info = asRecord(root.info);
+  const name = asText(info.name, 'Imported Postman Collection').trim() || 'Imported Postman Collection';
+  const description = textFromPostmanDescription(info.description);
+  const auth = resolvePostmanAuth(root.auth, null);
+  const requests = collectPostmanRequests(root.item, [], auth);
+  const warnings: string[] = [];
+  if (!asText(info.schema, '').includes('postman')) warnings.push('Schema رسمی Postman Collection در info.schema پیدا نشد، اما ساختار itemها parse شد.');
+  if (!requests.length) warnings.push('هیچ Request قابل import در Collection پیدا نشد.');
+  return {
+    name,
+    description,
+    requestCount: requests.length,
+    variables: parsePostmanVariables(root.variable),
+    requests,
+    warnings,
+  };
 }
 
 function asText(value: unknown, fallback = '-'): string {
@@ -657,6 +1042,11 @@ export const OnlineApiConsolePage: React.FC = () => {
   const [importTitle, setImportTitle] = useState('');
   const [importCollectionId, setImportCollectionId] = useState('');
   const [previewSubtab, setPreviewSubtab] = useState<'summary' | 'original' | 'normalized' | 'warnings'>('summary');
+  const [postmanModalOpen, setPostmanModalOpen] = useState(false);
+  const [postmanText, setPostmanText] = useState('');
+  const [postmanFileName, setPostmanFileName] = useState('');
+  const [postmanPreview, setPostmanPreview] = useState<PostmanCollectionImportPreview | null>(null);
+  const [postmanImporting, setPostmanImporting] = useState(false);
   const [editCurlModalOpen, setEditCurlModalOpen] = useState(false);
   const [editCurlText, setEditCurlText] = useState('');
   const [editCurlPreview, setEditCurlPreview] = useState<ApiCurlImportPreview | null>(null);
@@ -764,14 +1154,28 @@ export const OnlineApiConsolePage: React.FC = () => {
     if (!activeContext) return;
     setLoading(true);
     try {
-      const [collectionRows, environmentRows, requestRows] = await Promise.all([
+      const [collectionRows, environmentRows, requestRows, repositorySummary, reviewSummary] = await Promise.all([
         apiConsoleApi.getCollections(appId, activeContext),
         apiConsoleApi.getEnvironments(),
         apiConsoleApi.getRequests(appId, filters, activeContext),
+        apiConsoleApi
+          .getRepository({ ...repositoryFilters, applicationId: appId }, activeContext)
+          .catch(() => null),
+        activeContext.role === 'QA_LEAD'
+          ? apiConsoleApi
+              .getShareReviews({ ...reviewFilters, applicationId: appId }, activeContext)
+              .catch(() => null)
+          : Promise.resolve(null),
       ]);
       setCollections(collectionRows);
       setEnvironments(environmentRows);
       setRequests(requestRows);
+      if (repositorySummary) {
+        setRepositoryRows(repositorySummary);
+      }
+      if (reviewSummary) {
+        setShareReviews(reviewSummary);
+      }
       if (selectedRequest && !requestRows.data.some(request => request.id === selectedRequest.id)) {
         setSelectedRequest(null);
         setSavedRequest(null);
@@ -897,6 +1301,33 @@ export const OnlineApiConsolePage: React.FC = () => {
     setCurlModalOpen(true);
   };
 
+  const closeImportPostmanCollection = () => {
+    if (postmanImporting) return;
+    setPostmanModalOpen(false);
+    setPostmanText('');
+    setPostmanFileName('');
+    setPostmanPreview(null);
+  };
+
+  const openImportPostmanCollection = () => {
+    setPostmanText('');
+    setPostmanFileName('');
+    setPostmanPreview(null);
+    setPostmanModalOpen(true);
+  };
+
+  const handlePostmanFileSelected = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setPostmanFileName(file.name);
+      setPostmanText(text);
+      setPostmanPreview(null);
+    } catch {
+      toast.error('خواندن فایل Postman Collection ناموفق بود.');
+    }
+  };
+
   const handleNewRequest = async () => {
     if (!activeContext || !canCreate) return;
     const selectedCollection = filters.collectionId
@@ -917,6 +1348,65 @@ export const OnlineApiConsolePage: React.FC = () => {
       setPreviewSubtab('summary');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Parse کردن cURL ناموفق بود.');
+    }
+  };
+
+  const handleParsePostmanCollection = () => {
+    if (!postmanText.trim()) return;
+    try {
+      const preview = parsePostmanCollectionImport(postmanText);
+      setPostmanPreview(preview);
+      if (preview.requestCount) {
+        toast.success(`${preview.requestCount} Request از Collection خوانده شد.`);
+      } else {
+        toast.warning('هیچ Request قابل import در Collection پیدا نشد.');
+      }
+    } catch (error) {
+      setPostmanPreview(null);
+      toast.error(error instanceof Error ? error.message : 'فرمت Postman Collection معتبر نیست.');
+    }
+  };
+
+  const handleImportPostmanCollection = async () => {
+    if (!activeContext || !postmanPreview || !postmanPreview.requestCount || !canCreate) return;
+    setPostmanImporting(true);
+    try {
+      const baseName = postmanPreview.name.trim() || 'Imported Postman Collection';
+      const existingNames = new Set(collections.map(collection => collection.name.trim().toLowerCase()));
+      const collectionName = existingNames.has(baseName.toLowerCase())
+        ? `${baseName} - Import ${new Date().toLocaleString('fa-IR')}`
+        : baseName;
+      const collection = await apiConsoleApi.createCollection({
+        applicationId: defaultApplicationId,
+        name: collectionName,
+        description: postmanPreview.description || `Imported from ${postmanFileName || 'Postman Collection JSON'}`,
+        variables: postmanPreview.variables,
+      }, activeContext);
+      const createdRequests: ApiRequestDefinition[] = [];
+      for (const item of postmanPreview.requests) {
+        const request = await apiConsoleApi.createRequest({
+          name: item.folderPath.length ? `${item.folderPath.join(' / ')} / ${item.name}` : item.name,
+          ...(item.description ? { description: item.description } : {}),
+          collectionId: collection.id,
+          applicationId: collection.applicationId || defaultApplicationId,
+          environmentId: environments[0]?.id || 'env-development',
+          normalizedRequest: item.normalizedRequest,
+        }, activeContext);
+        createdRequests.push(request);
+      }
+      setCollections(prev => [collection, ...prev.filter(item => item.id !== collection.id)]);
+      setFilters(prev => ({ ...prev, collectionId: collection.id, page: 1 }));
+      setPostmanModalOpen(false);
+      setPostmanText('');
+      setPostmanFileName('');
+      setPostmanPreview(null);
+      toast.success(`${createdRequests.length} Request از Postman Collection ایمپورت شد.`);
+      await reloadRequests(createdRequests[0]?.id);
+      if (createdRequests[0]) setPageMode('editor');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Import کردن Postman Collection ناموفق بود.');
+    } finally {
+      setPostmanImporting(false);
     }
   };
 
@@ -1045,7 +1535,7 @@ export const OnlineApiConsolePage: React.FC = () => {
     if (!activeContext || !deleteTarget || !canDelete) return;
     try {
       await apiConsoleApi.archiveRequest(deleteTarget.id, activeContext);
-      toast.success('Request به‌صورت نرم حذف شد.');
+      toast.success('Request حذف شد.');
       if (selectedRequest?.id === deleteTarget.id) {
         setSelectedRequest(null);
         setSavedRequest(null);
@@ -1054,7 +1544,7 @@ export const OnlineApiConsolePage: React.FC = () => {
       setDeleteTarget(null);
       await reloadRequests();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'حذف نرم Request ناموفق بود.');
+      toast.error(error instanceof Error ? error.message : 'حذف Request ناموفق بود.');
     }
   };
 
@@ -1099,8 +1589,10 @@ export const OnlineApiConsolePage: React.FC = () => {
       setSelectedExecution(execution);
       await refreshDerivedViews(requestToExecute);
       if (execution.transportResult === 'SUCCESS') {
-        toast.success('Request از مسیر backend Runner اجرا شد.');
+        setActiveTab('response');
+        toast.success('Request اجرا شد.');
       } else {
+        setActiveTab('response');
         toast.warning(execution.sanitizedError || 'Execution با warning تمام شد.');
       }
     } catch (error) {
@@ -1146,6 +1638,7 @@ export const OnlineApiConsolePage: React.FC = () => {
       });
       setSelectedExecution(execution);
       await refreshDerivedViews(saved);
+      setActiveTab('response');
       if (execution.transportResult === 'SUCCESS') {
         toast.success('Request با Verify TLS certificate خاموش اجرا شد.');
       } else {
@@ -1229,7 +1722,7 @@ export const OnlineApiConsolePage: React.FC = () => {
       setShareModalOpen(false);
       setShareTarget(null);
       setShareForm({ purpose: '', introduction: '', description: '' });
-      await reloadRequests(shareTarget.id);
+      await Promise.all([reloadRequests(shareTarget.id), loadShareReviews(), loadRepository()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'ارسال درخواست اشتراک API ناموفق بود.');
     } finally {
@@ -1266,7 +1759,7 @@ export const OnlineApiConsolePage: React.FC = () => {
       setRepositoryModalOpen(false);
       setRepositoryDetail(null);
       setWorkspaceView('requests');
-      await reloadRequests(result.request.id);
+      await Promise.all([reloadRequests(result.request.id), loadRepository()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'افزودن API به Console ناموفق بود.');
     }
@@ -1346,7 +1839,7 @@ export const OnlineApiConsolePage: React.FC = () => {
       setReviewModalOpen(false);
       setReviewDetail(null);
       setReturnReason('');
-      await Promise.all([loadShareReviews(), reloadRequests()]);
+      await Promise.all([loadShareReviews(), reloadRequests(), loadRepository()]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'بازگردانی درخواست ناموفق بود.');
     } finally {
@@ -1568,6 +2061,9 @@ export const OnlineApiConsolePage: React.FC = () => {
                     <Button size="sm" variant="secondary" icon={<Upload className="h-4 w-4" />} onClick={openImportCurl} disabled={!canCreate}>
                       Import cURL
                     </Button>
+                    <Button size="sm" variant="secondary" icon={<Upload className="h-4 w-4" />} onClick={openImportPostmanCollection} disabled={!canCreate}>
+                      Import Collection
+                    </Button>
                     <Button size="sm" icon={<Plus className="h-4 w-4" />} onClick={handleNewRequest} disabled={!canCreate}>
                       Request جدید
                     </Button>
@@ -1698,7 +2194,7 @@ export const OnlineApiConsolePage: React.FC = () => {
                     disabled={!canDelete}
                     onClick={() => selectedRequest && setDeleteTarget(selectedRequest)}
                   >
-                    حذف نرم
+                    حذف
                   </Button>
                 </div>
               )}
@@ -1828,214 +2324,225 @@ export const OnlineApiConsolePage: React.FC = () => {
                   </div>
                 </div>
 
-                <Card>
-                  {activeTab === 'params' && (
-                    <KeyValueEditor
-                      rows={selectedRequest.queryParameters}
-                      onChange={(rows) => updateDraft(request => ({ ...request, queryParameters: rows }))}
-                      onAdd={() => updateDraft(request => ({ ...request, queryParameters: [...request.queryParameters, { ...makeParam(), displayOrder: request.queryParameters.length }] }))}
-                      valueKey="value"
-                      title="Query parameters"
+                {activeTab === 'response' ? (
+                  <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+                    <EffectiveRequestPanel request={selectedRequest} effectiveRequest={effectiveRequest} loading={detailsLoading} />
+                    <ResponsePanel
+                      execution={latestExecution}
+                      loading={detailsLoading}
+                      canDisableTls={canEdit && canExecute && selectedEnvironment?.kind !== 'PRODUCTION'}
+                      onDisableTlsAndRetry={handleDisableTlsAndRetry}
                     />
-                  )}
+                  </div>
+                ) : (
+                  <Card>
+                    {activeTab === 'params' && (
+                      <KeyValueEditor
+                        rows={selectedRequest.queryParameters}
+                        onChange={(rows) => updateDraft(request => ({ ...request, queryParameters: rows }))}
+                        onAdd={() => updateDraft(request => ({ ...request, queryParameters: [...request.queryParameters, { ...makeParam(), displayOrder: request.queryParameters.length }] }))}
+                        valueKey="value"
+                        title="Query parameters"
+                      />
+                    )}
 
-                  {activeTab === 'headers' && (
-                    <HeaderEditor
-                      rows={selectedRequest.headers}
-                      onChange={(rows) => updateDraft(request => ({ ...request, headers: rows }))}
-                      onAdd={() => updateDraft(request => ({ ...request, headers: [...request.headers, makeHeader(request.headers.length)] }))}
-                    />
-                  )}
+                    {activeTab === 'headers' && (
+                      <HeaderEditor
+                        rows={selectedRequest.headers}
+                        onChange={(rows) => updateDraft(request => ({ ...request, headers: rows }))}
+                        onAdd={() => updateDraft(request => ({ ...request, headers: [...request.headers, makeHeader(request.headers.length)] }))}
+                      />
+                    )}
 
-                  {activeTab === 'cookies' && (
-                    <CookieEditor
-                      rows={selectedRequest.cookies}
-                      onChange={(rows) => updateDraft(request => ({ ...request, cookies: rows }))}
-                      onAdd={() => updateDraft(request => ({ ...request, cookies: [...request.cookies, makeCookie(request.cookies.length)] }))}
-                    />
-                  )}
+                    {activeTab === 'cookies' && (
+                      <CookieEditor
+                        rows={selectedRequest.cookies}
+                        onChange={(rows) => updateDraft(request => ({ ...request, cookies: rows }))}
+                        onAdd={() => updateDraft(request => ({ ...request, cookies: [...request.cookies, makeCookie(request.cookies.length)] }))}
+                      />
+                    )}
 
-                  {activeTab === 'body' && (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    {activeTab === 'body' && (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                          <Select
+                            label="نوع Body"
+                            value={selectedRequest.bodyType}
+                            onChange={(event) => updateDraft(request => ({
+                              ...request,
+                              bodyType: event.target.value as ApiRequestDefinition['bodyType'],
+                              bodyTemplate: event.target.value === 'none' ? '' : request.bodyTemplate,
+                            }))}
+                            options={[
+                              { value: 'none', label: 'None' },
+                              { value: 'json', label: 'JSON' },
+                              { value: 'raw', label: 'Raw text' },
+                              { value: 'xml', label: 'XML' },
+                              { value: 'form-urlencoded', label: 'Form URL encoded' },
+                              { value: 'multipart', label: 'Multipart form-data' },
+                              { value: 'binary', label: 'Binary/file reference' },
+                            ]}
+                          />
+                        </div>
+                        {selectedRequest.bodyType === 'json' ? (
+                          <JsonEditor
+                            value={selectedRequest.bodyTemplate}
+                            onChange={(value) => updateDraft(request => ({ ...request, bodyTemplate: value }))}
+                            onFormat={() => {
+                              const parsed = parseJson(selectedRequest.bodyTemplate);
+                              if (parsed.ok) {
+                                updateDraft(request => ({ ...request, bodyTemplate: JSON.stringify(parsed.value, null, 2), bodyType: 'json' }));
+                              } else {
+                                toast.error(parsed.message);
+                              }
+                            }}
+                            onCopy={() => {
+                              navigator.clipboard?.writeText(selectedRequest.bodyTemplate);
+                                toast.success('Body کپی شد.');
+                            }}
+                          />
+                        ) : (
+                          <Textarea
+                            label="Body"
+                            value={selectedRequest.bodyTemplate}
+                            onChange={(event) => updateDraft(request => ({ ...request, bodyTemplate: event.target.value }))}
+                            className="min-h-[320px] text-left font-mono"
+                            dir="ltr"
+                          />
+                        )}
+                      </div>
+                    )}
+
+                    {activeTab === 'auth' && (
+                      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                         <Select
-                          label="نوع Body"
-                          value={selectedRequest.bodyType}
+                            label="نوع Authentication"
+                          value={selectedRequest.authentication.type}
                           onChange={(event) => updateDraft(request => ({
                             ...request,
-                            bodyType: event.target.value as ApiRequestDefinition['bodyType'],
-                            bodyTemplate: event.target.value === 'none' ? '' : request.bodyTemplate,
+                            authentication: { type: event.target.value as ApiRequestDefinition['authentication']['type'] },
                           }))}
                           options={[
-                            { value: 'none', label: 'None' },
-                            { value: 'json', label: 'JSON' },
-                            { value: 'raw', label: 'Raw text' },
-                            { value: 'xml', label: 'XML' },
-                            { value: 'form-urlencoded', label: 'Form URL encoded' },
-                            { value: 'multipart', label: 'Multipart form-data' },
-                            { value: 'binary', label: 'Binary/file reference' },
+                            { value: 'none', label: 'بدون Authentication' },
+                            { value: 'bearer', label: 'Bearer Token' },
+                            { value: 'basic', label: 'Basic Authentication' },
+                            { value: 'api-key', label: 'API Key Header' },
+                            { value: 'cookie-session', label: 'Cookie Session' },
+                            { value: 'custom-headers', label: 'Custom Headers' },
+                            { value: 'environment-secret', label: 'Environment Secret Reference' },
                           ]}
                         />
+                        <Input
+                          label="Secret reference / variable"
+                          value={
+                            selectedRequest.authentication.bearerTokenReference ||
+                            selectedRequest.authentication.apiKeyValueReference ||
+                            selectedRequest.authentication.cookieValueReference ||
+                            selectedRequest.authentication.basicPasswordReference ||
+                            ''
+                          }
+                          placeholder="{{token}} یا secret-reference"
+                          onChange={(event) => updateDraft(request => ({
+                            ...request,
+                            authentication: {
+                              ...request.authentication,
+                              bearerTokenReference: event.target.value,
+                              apiKeyValueReference: event.target.value,
+                              cookieValueReference: event.target.value,
+                              basicPasswordReference: event.target.value,
+                            },
+                          }))}
+                        />
+                        <Input
+                          label="نام API key/header/cookie"
+                          value={selectedRequest.authentication.apiKeyName || selectedRequest.authentication.cookieName || ''}
+                          onChange={(event) => updateDraft(request => ({
+                            ...request,
+                            authentication: {
+                              ...request.authentication,
+                              apiKeyName: event.target.value,
+                              cookieName: event.target.value,
+                            },
+                          }))}
+                        />
+                        <Input
+                          label="Basic username"
+                          value={selectedRequest.authentication.basicUsername || ''}
+                          onChange={(event) => updateDraft(request => ({
+                            ...request,
+                            authentication: { ...request.authentication, basicUsername: event.target.value },
+                          }))}
+                        />
                       </div>
-                      {selectedRequest.bodyType === 'json' ? (
-                        <JsonEditor
-                          value={selectedRequest.bodyTemplate}
-                          onChange={(value) => updateDraft(request => ({ ...request, bodyTemplate: value }))}
-                          onFormat={() => {
-                            const parsed = parseJson(selectedRequest.bodyTemplate);
-                            if (parsed.ok) {
-                              updateDraft(request => ({ ...request, bodyTemplate: JSON.stringify(parsed.value, null, 2), bodyType: 'json' }));
-                            } else {
-                              toast.error(parsed.message);
-                            }
-                          }}
-                          onCopy={() => {
-                            navigator.clipboard?.writeText(selectedRequest.bodyTemplate);
-                              toast.success('Body کپی شد.');
-                          }}
-                        />
-                      ) : (
-                        <Textarea
-                          label="Body"
-                          value={selectedRequest.bodyTemplate}
-                          onChange={(event) => updateDraft(request => ({ ...request, bodyTemplate: event.target.value }))}
-                          className="min-h-[320px] text-left font-mono"
-                          dir="ltr"
-                        />
-                      )}
-                    </div>
-                  )}
+                    )}
 
-                  {activeTab === 'auth' && (
-                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                      <Select
-                          label="نوع Authentication"
-                        value={selectedRequest.authentication.type}
-                        onChange={(event) => updateDraft(request => ({
-                          ...request,
-                          authentication: { type: event.target.value as ApiRequestDefinition['authentication']['type'] },
-                        }))}
-                        options={[
-                          { value: 'none', label: 'بدون Authentication' },
-                          { value: 'bearer', label: 'Bearer Token' },
-                          { value: 'basic', label: 'Basic Authentication' },
-                          { value: 'api-key', label: 'API Key Header' },
-                          { value: 'cookie-session', label: 'Cookie Session' },
-                          { value: 'custom-headers', label: 'Custom Headers' },
-                          { value: 'environment-secret', label: 'Environment Secret Reference' },
-                        ]}
+                    {activeTab === 'core' && (
+                      <CoreDetailsEditor
+                        request={selectedRequest}
+                        enabled={corePresentationEnabled}
+                        onToggle={setCorePresentationEnabled}
+                        onCorePatch={updateCoreBody}
+                        onPayloadPatch={updateCorePayload}
                       />
-                      <Input
-                        label="Secret reference / variable"
-                        value={
-                          selectedRequest.authentication.bearerTokenReference ||
-                          selectedRequest.authentication.apiKeyValueReference ||
-                          selectedRequest.authentication.cookieValueReference ||
-                          selectedRequest.authentication.basicPasswordReference ||
-                          ''
-                        }
-                        placeholder="{{token}} یا secret-reference"
-                        onChange={(event) => updateDraft(request => ({
-                          ...request,
-                          authentication: {
-                            ...request.authentication,
-                            bearerTokenReference: event.target.value,
-                            apiKeyValueReference: event.target.value,
-                            cookieValueReference: event.target.value,
-                            basicPasswordReference: event.target.value,
-                          },
-                        }))}
+                    )}
+
+                    {activeTab === 'scripts' && (
+                      <ScriptsPanel
+                        scripts={selectedRequest.scripts || defaultScripts()}
+                        onChange={(scripts) => updateDraft(request => ({ ...request, scripts }))}
                       />
-                      <Input
-                        label="نام API key/header/cookie"
-                        value={selectedRequest.authentication.apiKeyName || selectedRequest.authentication.cookieName || ''}
-                        onChange={(event) => updateDraft(request => ({
-                          ...request,
-                          authentication: {
-                            ...request.authentication,
-                            apiKeyName: event.target.value,
-                            cookieName: event.target.value,
-                          },
-                        }))}
+                    )}
+
+                    {activeTab === 'settings' && canManageGeneralSettings && (
+                      <SettingsPanel
+                        request={selectedRequest}
+                        environment={selectedEnvironment}
+                        effectiveRequest={effectiveRequest}
+                        onChange={(patch) => updateDraft(request => ({ ...request, ...patch }))}
                       />
-                      <Input
-                        label="Basic username"
-                        value={selectedRequest.authentication.basicUsername || ''}
-                        onChange={(event) => updateDraft(request => ({
-                          ...request,
-                          authentication: { ...request.authentication, basicUsername: event.target.value },
-                        }))}
+                    )}
+
+                    {activeTab === 'assertions' && (
+                      <AssertionEditor
+                        rows={selectedRequest.assertions}
+                        onChange={(rows) => updateDraft(request => ({ ...request, assertions: rows }))}
+                        onAdd={() => updateDraft(request => ({ ...request, assertions: [...request.assertions, makeAssertion()] }))}
                       />
-                    </div>
-                  )}
+                    )}
 
-                  {activeTab === 'core' && (
-                    <CoreDetailsEditor
-                      request={selectedRequest}
-                      enabled={corePresentationEnabled}
-                      onToggle={setCorePresentationEnabled}
-                      onCorePatch={updateCoreBody}
-                      onPayloadPatch={updateCorePayload}
-                    />
-                  )}
+                    {activeTab === 'curl' && (
+                      <GeneratedCurlPanel
+                        exports={exports}
+                        originalCurl={selectedRequest.originalImportedCurl}
+                        loading={detailsLoading}
+                        onRefresh={() => {
+                          const request = savedRequest || selectedRequest;
+                          if (request) refreshDerivedViews(request, true);
+                        }}
+                      />
+                    )}
 
-                  {activeTab === 'scripts' && (
-                    <ScriptsPanel
-                      scripts={selectedRequest.scripts || defaultScripts()}
-                      onChange={(scripts) => updateDraft(request => ({ ...request, scripts }))}
-                    />
-                  )}
+                    {activeTab === 'history' && (
+                      <HistoryPanel
+                        rows={historyRows}
+                        selected={selectedExecution}
+                        manualResponses={manualResponses}
+                        loading={detailsLoading}
+                        onSelect={setSelectedExecution}
+                        onManual={() => setManualModalOpen(true)}
+                      />
+                    )}
+                  </Card>
+                )}
 
-                  {activeTab === 'settings' && canManageGeneralSettings && (
-                    <SettingsPanel
-                      request={selectedRequest}
-                      environment={selectedEnvironment}
-                      effectiveRequest={effectiveRequest}
-                      onChange={(patch) => updateDraft(request => ({ ...request, ...patch }))}
-                    />
-                  )}
-
-                  {activeTab === 'assertions' && (
-                    <AssertionEditor
-                      rows={selectedRequest.assertions}
-                      onChange={(rows) => updateDraft(request => ({ ...request, assertions: rows }))}
-                      onAdd={() => updateDraft(request => ({ ...request, assertions: [...request.assertions, makeAssertion()] }))}
-                    />
-                  )}
-
-                  {activeTab === 'curl' && (
-                    <GeneratedCurlPanel
-                      exports={exports}
-                      originalCurl={selectedRequest.originalImportedCurl}
-                      loading={detailsLoading}
-                      onRefresh={() => {
-                        const request = savedRequest || selectedRequest;
-                        if (request) refreshDerivedViews(request, true);
-                      }}
-                    />
-                  )}
-
-                  {activeTab === 'history' && (
-                    <HistoryPanel
-                      rows={historyRows}
-                      selected={selectedExecution}
-                      manualResponses={manualResponses}
-                      loading={detailsLoading}
-                      onSelect={setSelectedExecution}
-                      onManual={() => setManualModalOpen(true)}
-                    />
-                  )}
-                </Card>
-
-                <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
-                  <EffectiveRequestPanel request={selectedRequest} effectiveRequest={effectiveRequest} loading={detailsLoading} />
+                {activeTab === 'history' && selectedExecution && (
                   <ResponsePanel
-                    execution={latestExecution}
+                    execution={selectedExecution}
                     loading={detailsLoading}
                     canDisableTls={canEdit && canExecute && selectedEnvironment?.kind !== 'PRODUCTION'}
                     onDisableTlsAndRetry={handleDisableTlsAndRetry}
                   />
-                </div>
+                )}
               </>
             )}
           </section>
@@ -2064,6 +2571,22 @@ export const OnlineApiConsolePage: React.FC = () => {
           setImportTitle('');
           setImportCollectionId('');
         }}
+      />
+
+      <ImportPostmanCollectionModal
+        open={postmanModalOpen}
+        text={postmanText}
+        fileName={postmanFileName}
+        preview={postmanPreview}
+        importing={postmanImporting}
+        onText={(value) => {
+          setPostmanText(value);
+          setPostmanPreview(null);
+        }}
+        onFile={handlePostmanFileSelected}
+        onParse={handleParsePostmanCollection}
+        onImport={handleImportPostmanCollection}
+        onClose={closeImportPostmanCollection}
       />
 
       <ImportCurlModal
@@ -2134,9 +2657,7 @@ export const OnlineApiConsolePage: React.FC = () => {
 
       <Modal isOpen={shareConfirmOpen} onClose={() => setShareConfirmOpen(false)} title="تأیید ارسال برای QA review" size="sm">
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            با تأیید، Snapshot امن و immutable از Request ساخته می‌شود و وضعیت API به «در انتظار بررسی» تغییر می‌کند.
-          </p>
+          <p className="text-sm text-gray-600">آیا از ارسال درخواست اشتراک برای بررسی مطمئن هستید؟</p>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setShareConfirmOpen(false)} disabled={sharing}>انصراف</Button>
             <Button onClick={handleConfirmShare} loading={sharing}>ارسال برای بررسی</Button>
@@ -2328,7 +2849,7 @@ export const OnlineApiConsolePage: React.FC = () => {
         </div>
       </Modal>
 
-      <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="حذف نرم Request" size="sm">
+      <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="حذف Request" size="sm">
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
             این Request از جدول فعال حذف می‌شود اما برای audit و history به‌صورت Archived نگه‌داری خواهد شد.
@@ -2342,7 +2863,7 @@ export const OnlineApiConsolePage: React.FC = () => {
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setDeleteTarget(null)}>انصراف</Button>
             <Button variant="danger" icon={<Trash2 className="h-4 w-4" />} onClick={handleConfirmSoftDelete} disabled={!canDelete}>
-              حذف نرم
+              حذف
             </Button>
           </div>
         </div>
@@ -3535,6 +4056,120 @@ const ShareReviewSection = ({
       />
     )}
   </div>
+);
+
+const ImportPostmanCollectionModal = ({
+  open,
+  text,
+  fileName,
+  preview,
+  importing,
+  onText,
+  onFile,
+  onParse,
+  onImport,
+  onClose,
+}: {
+  open: boolean;
+  text: string;
+  fileName: string;
+  preview: PostmanCollectionImportPreview | null;
+  importing: boolean;
+  onText: (value: string) => void;
+  onFile: (file: File | null) => void;
+  onParse: () => void;
+  onImport: () => void;
+  onClose: () => void;
+}) => (
+  <Modal isOpen={open} onClose={onClose} title="Import Postman Collection" size="wide">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1.2fr]">
+      <div className="space-y-3">
+        <label className="block space-y-2">
+          <span className="text-sm font-medium text-gray-700">فایل Postman Collection</span>
+          <input
+            type="file"
+            accept=".json,.postman_collection.json,application/json"
+            onChange={(event) => onFile(event.target.files?.[0] || null)}
+            className="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+          />
+          {fileName && <span className="block text-xs text-gray-500">{fileName}</span>}
+        </label>
+        <Textarea
+          label="یا JSON کالکشن را paste کنید"
+          value={text}
+          onChange={(event) => onText(event.target.value)}
+          className="min-h-[420px] text-left font-mono"
+          dir="ltr"
+        />
+        <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-700">
+          فرمت‌های Postman Collection v2 و v2.1 پشتیبانی می‌شوند. Folderها حفظ می‌شوند و هر item به یک Request داخل Online API Console تبدیل می‌شود.
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={importing}>انصراف</Button>
+          <Button icon={<Upload className="h-4 w-4" />} onClick={onParse} disabled={!text.trim() || importing}>Preview</Button>
+        </div>
+      </div>
+      <div className="space-y-3">
+        {!preview ? (
+          <div className="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed border-gray-300 text-sm text-gray-500">
+            فایل یا JSON را وارد کنید و Preview بزنید.
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <InfoTile label="Collection" value={preview.name} />
+              <InfoTile label="Requests" value={String(preview.requestCount)} />
+              <InfoTile label="Variables" value={String(preview.variables.length)} />
+              <InfoTile label="Warnings" value={String(preview.warnings.length + preview.requests.reduce((sum, item) => sum + item.warningCount, 0))} />
+            </div>
+            {preview.description && (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600">
+                {preview.description}
+              </div>
+            )}
+            <div className="max-h-[360px] overflow-auto rounded-lg border border-gray-200">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-right font-medium text-gray-600">نام</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-600">Method</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-600">URL</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-600">Body</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 bg-white">
+                  {preview.requests.map((item, index) => (
+                    <tr key={`${item.name}-${index}`}>
+                      <td className="px-3 py-2 text-gray-900">
+                        <div className="font-medium">{item.name}</div>
+                        {item.folderPath.length > 0 && <div className="text-xs text-gray-500">{item.folderPath.join(' / ')}</div>}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs text-gray-700">{item.method}</td>
+                      <td className="max-w-[20rem] truncate px-3 py-2 font-mono text-xs text-gray-600" dir="ltr">{item.url}</td>
+                      <td className="px-3 py-2 text-gray-600">{item.bodyType}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {(preview.warnings.length || preview.requests.some(item => item.warnings.length)) && (
+              <div className="max-h-36 overflow-auto rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                {[...preview.warnings, ...preview.requests.flatMap(item => item.warnings.map(warning => `${item.name}: ${warning}`))].map((warning, index) => (
+                  <div key={`${warning}-${index}`}>{warning}</div>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end gap-2 border-t border-gray-200 pt-3">
+              <Button variant="secondary" onClick={onClose} disabled={importing}>انصراف</Button>
+              <Button icon={<CheckCircle className="h-4 w-4" />} onClick={onImport} loading={importing} disabled={!preview.requestCount}>
+                Import {preview.requestCount} Request
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  </Modal>
 );
 
 const ImportCurlModal = ({

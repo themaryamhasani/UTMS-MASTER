@@ -7,6 +7,7 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const apiProxyTarget = process.env.VITE_DEV_API_PROXY_TARGET || "http://localhost:4174";
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -14,7 +15,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:4174",
+        target: apiProxyTarget,
         changeOrigin: true,
       },
     },

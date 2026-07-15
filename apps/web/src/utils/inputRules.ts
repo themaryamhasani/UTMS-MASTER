@@ -5,8 +5,10 @@ const VERSION_ALLOWED_PATTERN = /[^0-9A-Za-z.+-]/g;
 const NON_ASCII_PRINTABLE_PATTERN = /[^\x20-\x7E]/g;
 
 export const REQUEST_TITLE_HINT = 'عنوان درخواست نباید با فاصله شروع شود و کاراکتر ` مجاز نیست.';
-export const VERSION_INPUT_HINT = 'فقط کاراکترهای معتبر SemVer انگلیسی مجاز است؛ مثل 1.2.3 یا 1.2.3-beta.1';
+export const VERSION_INPUT_HINT = 'فرمت نسخه باید SemVer باشد؛ مثال: 1.2.3 یا 1.2.3-beta.1';
 export const BUILD_NUMBER_INPUT_HINT = 'شماره بیلد فقط می‌تواند شامل حروف، اعداد و کاراکترهای انگلیسی باشد.';
+export const SYSTEM_URL_INPUT_HINT = 'آدرس سامانه باید URL معتبر باشد؛ مثال: https://app.example.com';
+const SYSTEM_URL_PATTERN = /^https?:\/\/(?:(?:localhost)|(?:(?:\d{1,3}\.){3}\d{1,3})|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})(?::\d{1,5})?(?:[/?#][^\s]*)?$/;
 
 export function sanitizeRequestTitleInput(rawValue: string): { value: string; error?: string } {
   const hasLeadingWhitespace = /^\s/.test(rawValue);
@@ -53,4 +55,9 @@ export function hasInvalidBuildNumber(value: string | undefined | null): boolean
   if (!value) return false;
   NON_ASCII_PRINTABLE_PATTERN.lastIndex = 0;
   return NON_ASCII_PRINTABLE_PATTERN.test(value);
+}
+
+export function isValidSystemUrl(value: string | undefined | null): boolean {
+  if (!value?.trim()) return true;
+  return SYSTEM_URL_PATTERN.test(value.trim());
 }

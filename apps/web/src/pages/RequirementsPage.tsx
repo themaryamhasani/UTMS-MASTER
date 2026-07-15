@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Plus, Eye, Search, FileText, GitBranch, Edit, Trash2 } from 'lucide-react';
+import { Plus, Eye, FileText, GitBranch, Edit, Trash2 } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Table, Pagination, ExportButton, exportToExcel } from '../components/ui/Table';
+import { Table, Pagination } from '../components/ui/Table';
+import { CartableExcelExportButton, CartableSearchInput, CartableSelectFilter } from '../components/ui/CartableToolbar';
 import { StatusBadge } from '../components/ui/Badge';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Input, Textarea } from '../components/ui/Input';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
+import { useApplicationLookup } from '../utils/useApplicationLookup';
 import { requirementApi, flowApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
 import type { Requirement, Flow, CartableFilterParams, PaginatedResponse } from '../types';
@@ -17,6 +19,7 @@ import { REQUIREMENT_STATUS_LABELS } from '../types';
 export const RequirementsPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const { appId, defaultApplicationId } = useDataScope();
+  const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [data, setData] = useState<PaginatedResponse<Requirement> | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<CartableFilterParams>({
@@ -198,6 +201,11 @@ export const RequirementsPage: React.FC = () => {
         <div><p className="font-medium text-gray-900">{item.title}</p><p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{item.description}</p></div>
       ),
     },
+    ...(shouldShowSystemColumn ? [{
+      key: 'applicationId',
+      title: 'سامانه',
+      render: (item: Requirement) => <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{getApplicationName(item.applicationId)}</span>,
+    }] : []),
     { key: 'createdBy', title: 'ایجادکننده', render: (item: Requirement) => item.createdBy?.fullName || '-' },
     {
       key: 'flows', title: 'جریان‌ها',
@@ -248,27 +256,33 @@ export const RequirementsPage: React.FC = () => {
             {canCreate && !isDeveloper && (
               <Button icon={<Plus className="w-4 h-4" />} onClick={() => { resetForm(); setShowCreateModal(true); }}>نیازمندی جدید</Button>
             )}
-            <ExportButton onClick={() => exportToExcel(data?.data || [], [
-              { key: 'title', title: 'عنوان' }, { key: 'status', title: 'وضعیت' },
-            ], 'requirements')} disabled={!data?.data?.length} />
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" placeholder="جستجو..." value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
-                className="w-full pr-10 pl-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <select value={filters.status || ''} onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg">
-              <option value="">همه وضعیت‌ها</option>
-              {Object.entries(REQUIREMENT_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-            </select>
+            <CartableExcelExportButton
+              data={data?.data || []}
+              columns={[
+                { key: 'title', title: 'عنوان' }, { key: 'status', title: 'وضعیت' },
+              ]}
+              filename="requirements"
+              disabled={!data?.data?.length}
+            />
+            <CartableSearchInput
+              value={filters.search || ''}
+              onChange={(search) => setFilters({ ...filters, search, page: 1 })}
+            />
+            <CartableSelectFilter
+              value={filters.status || ''}
+              onChange={(status) => setFilters({ ...filters, status, page: 1 })}
+              options={Object.entries(REQUIREMENT_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+            />
           </div>
         </Card>
 
         <Table columns={columns} data={data?.data || []} loading={loading} emptyMessage="نیازمندی‌ای یافت نشد"
           sortBy={filters.sortBy} sortOrder={filters.sortOrder}
           onSort={(key) => setFilters({ ...filters, sortBy: key, sortOrder: filters.sortBy === key && filters.sortOrder === 'asc' ? 'desc' : 'asc' })}
-          onRowClick={openDetail} />
+          onRowClick={openDetail}
+          enableClientFilter={false}
+          enableExport={false}
+          enableColumnChooser={false} />
 
         {data && <Pagination page={data.page} totalPages={data.totalPages || 1} total={data.total} limit={data.limit || filters.limit}
           onPageChange={(p) => setFilters({ ...filters, page: p })}

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, CheckCircle, XCircle, Search, UserPlus, Bug as BugIcon } from 'lucide-react';
+import { Eye, CheckCircle, XCircle, UserPlus, Bug as BugIcon, RotateCcw } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { Table, Pagination } from '../components/ui/Table';
+import { CartableExcelExportButton, CartableSearchInput, CartableSelectFilter } from '../components/ui/CartableToolbar';
 import { StatusBadge, PriorityBadge } from '../components/ui/Badge';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Input, Select } from '../components/ui/Input';
@@ -201,6 +202,27 @@ export const BugsPage: React.FC = () => {
     }
   };
 
+  const canRestoreBug = (bug: Bug) =>
+    !bug.isLocked && !!bug.previousStatus && ['REJECTED', 'NO_ACTION_NEEDED'].includes(bug.status);
+
+  const handleRestorePreviousStatus = async () => {
+    if (!activeContext || !selectedBug || !canRestoreBug(selectedBug)) return;
+    setActionLoading(true);
+    try {
+      const restored = await bugApi.restorePreviousStatus(selectedBug.id, activeContext.userId);
+      if (!restored) throw new Error('RESTORE_FAILED');
+      await commentApi.create('BUG', selectedBug.id, `بازگردانی وضعیت از ${BUG_STATUS_LABELS[selectedBug.status]} به ${BUG_STATUS_LABELS[restored.status]}`, activeContext.userId);
+      setSelectedBug(restored);
+      await loadComments();
+      loadData();
+      toast.success('وضعیت قبلی باگ بازگردانده شد.');
+    } catch {
+      toast.error('بازگردانی وضعیت باگ ممکن نیست.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const openConfirmModal = (action: string, message: string) => {
     setConfirmAction({ action, message });
     setShowConfirmModal(true);
@@ -303,32 +325,32 @@ export const BugsPage: React.FC = () => {
 
       <main className="p-6">
         {/* Filters */}
-        {!isDeveloper && (
-          <Card className="mb-6" padding="sm">
-            <div className="flex flex-wrap gap-4 items-center">
-              <div className="relative flex-1 min-w-[200px]">
-                <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="جستجو..."
-                  value={filters.search}
-                  onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
-                  className="w-full pr-10 pl-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <select
+        <Card className="mb-6" padding="sm">
+          <div className="flex flex-wrap gap-4 items-center">
+            <CartableExcelExportButton
+              data={data?.data || []}
+              columns={[
+                { key: 'title', title: 'عنوان' },
+                { key: 'severity', title: 'شدت' },
+                { key: 'priority', title: 'اولویت' },
+                { key: 'status', title: 'وضعیت' },
+              ]}
+              filename="bugs"
+              disabled={!data?.data?.length}
+            />
+            <CartableSearchInput
+              value={filters.search || ''}
+              onChange={(search) => setFilters({ ...filters, search, page: 1 })}
+            />
+            {!isDeveloper && (
+              <CartableSelectFilter
                 value={filters.status || ''}
-                onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
-                className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">همه وضعیت‌ها</option>
-                {Object.entries(BUG_STATUS_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </div>
-          </Card>
-        )}
+                onChange={(status) => setFilters({ ...filters, status, page: 1 })}
+                options={Object.entries(BUG_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+              />
+            )}
+          </div>
+        </Card>
 
         {/* Table */}
         <Table
@@ -352,6 +374,9 @@ export const BugsPage: React.FC = () => {
           rowClassName={(item) => 
             item.severity === 'CRITICAL' ? 'bg-red-50' : ''
           }
+          enableClientFilter={false}
+          enableExport={false}
+          enableColumnChooser={false}
         />
 
         {data && data.total > 0 && (
@@ -450,7 +475,6 @@ export const BugsPage: React.FC = () => {
                       setFixedVersion(sanitized.value);
                       setFixedVersionError(sanitized.error || '');
                     }}
-                    hint={SEMVER_HINT}
                     error={fixedVersionError}
                   />
                   <Button
@@ -520,6 +544,17 @@ export const BugsPage: React.FC = () => {
                   loading={actionLoading}
                 >
                   آماده تست مجدد
+                </Button>
+              )}
+
+              {canRestoreBug(selectedBug) && (
+                <Button
+                  variant="secondary"
+                  icon={<RotateCcw className="w-4 h-4" />}
+                  onClick={handleRestorePreviousStatus}
+                  loading={actionLoading}
+                >
+                  بازگردانی به {BUG_STATUS_LABELS[selectedBug.previousStatus!]}
                 </Button>
               )}
 

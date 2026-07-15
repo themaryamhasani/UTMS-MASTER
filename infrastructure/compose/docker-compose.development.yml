@@ -6,14 +6,59 @@ services:
     build:
       context: ../..
       dockerfile: infrastructure/docker/api/Dockerfile
+    environment:
+      NODE_ENV: development
+      API_CONSOLE_PORT: 4174
+      API_CONSOLE_CORS_ORIGIN: http://localhost:5173
+      API_CONSOLE_DATA_DIR: /app/runtime/api-console
+      DATABASE_URL: postgresql://utms:utms@postgres:5432/utms?schema=public
+      REDIS_URL: redis://redis:6379
     command: npm run dev:api
     ports:
       - "4174:4174"
+    volumes:
+      - utms-api-console:/app/runtime/api-console
+    depends_on:
+      - postgres
+      - redis
 
   web:
     build:
       context: ../..
       dockerfile: infrastructure/docker/web/Dockerfile
-    command: npm run dev:web
+    command: npm run dev -w @utms/web -- --host 0.0.0.0
+    environment:
+      NODE_ENV: development
+      VITE_API_CONSOLE_BASE_URL: /api/api-console
+      VITE_DEV_API_PROXY_TARGET: http://api:4174
     ports:
       - "5173:5173"
+    depends_on:
+      - api
+
+  worker:
+    profiles: ["jobs"]
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/worker/Dockerfile
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://utms:utms@postgres:5432/utms?schema=public
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+
+  playwright-runner:
+    profiles: ["runner"]
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/playwright-runner/Dockerfile
+    environment:
+      NODE_ENV: development
+      UTMS_API_BASE_URL: http://api:4174
+    depends_on:
+      - api
+
+volumes:
+  utms-api-console:

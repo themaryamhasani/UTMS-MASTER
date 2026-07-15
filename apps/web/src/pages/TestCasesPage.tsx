@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Eye, Search, Edit, Trash2 } from 'lucide-react';
+import { Plus, Eye, Edit, Trash2, FileText, GitBranch } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Table, Pagination, ExportButton, exportToExcel } from '../components/ui/Table';
+import { Table, Pagination } from '../components/ui/Table';
+import { CartableExcelExportButton, CartableSearchInput, CartableSelectFilter } from '../components/ui/CartableToolbar';
 import { StatusBadge, PriorityBadge } from '../components/ui/Badge';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Input, Textarea, Select } from '../components/ui/Input';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
+import { useApplicationLookup } from '../utils/useApplicationLookup';
 import { testCaseApi, requirementApi, flowApi, testRequestApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
 import type {
@@ -40,6 +42,7 @@ interface TestCaseFormState {
   expectedResult: string;
   testType: TestType;
   testDesignTechnique: TestDesignTechnique;
+  testDesignTechniques: TestDesignTechnique[];
   priority: Priority;
   riskLevel: Priority;
   qualityAttribute: QualityAttribute;
@@ -50,6 +53,9 @@ interface TestCaseFormState {
   flowId: string;
 }
 
+const TEST_CASE_TITLE_MAX_LENGTH = 50;
+const TEST_CASE_BODY_MAX_LENGTH = 700;
+
 const createEmptyFormState = (): TestCaseFormState => ({
   title: '',
   scenario: '',
@@ -59,6 +65,7 @@ const createEmptyFormState = (): TestCaseFormState => ({
   expectedResult: '',
   testType: 'FUNCTIONAL',
   testDesignTechnique: 'REQUIREMENTS_BASED',
+  testDesignTechniques: ['REQUIREMENTS_BASED'],
   priority: 'MEDIUM',
   riskLevel: 'MEDIUM',
   qualityAttribute: 'FUNCTIONALITY',
@@ -69,9 +76,68 @@ const createEmptyFormState = (): TestCaseFormState => ({
   flowId: '',
 });
 
+const TestCaseContextAccordion: React.FC<{
+  requirement?: Requirement | undefined;
+  flow?: Flow | undefined;
+  testRequest?: TestRequest | undefined;
+}> = ({ requirement, flow, testRequest }) => {
+  if (!requirement && !flow) return null;
+
+  return (
+    <details className="rounded-lg border border-indigo-200 bg-indigo-50/60" open>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-right">
+        <div className="flex min-w-0 items-center gap-2">
+          <FileText className="h-4 w-4 shrink-0 text-indigo-600" />
+          <span className="truncate text-sm font-medium text-indigo-900">
+            اطلاعات نیازمندی و جریان انتخاب‌شده
+          </span>
+        </div>
+      </summary>
+      <div className="space-y-3 border-t border-indigo-100 bg-white px-4 py-3 text-sm">
+        {requirement && (
+          <div className="rounded-lg bg-gray-50 p-3">
+            <p className="text-xs text-gray-500">نیازمندی</p>
+            <p className="font-medium text-gray-900">{requirement.title}</p>
+            {testRequest && <p className="mt-1 text-xs text-gray-500">درخواست تست: {testRequest.title}</p>}
+            {requirement.description && <p className="mt-2 whitespace-pre-wrap text-gray-700">{requirement.description}</p>}
+            {requirement.acceptanceCriteria && (
+              <div className="mt-2 rounded border border-green-200 bg-green-50 p-2">
+                <p className="text-xs text-green-700">معیارهای پذیرش</p>
+                <p className="mt-1 whitespace-pre-wrap text-gray-800">{requirement.acceptanceCriteria}</p>
+              </div>
+            )}
+            {requirement.riskNotes && (
+              <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2">
+                <p className="text-xs text-amber-700">ریسک‌ها</p>
+                <p className="mt-1 whitespace-pre-wrap text-gray-800">{requirement.riskNotes}</p>
+              </div>
+            )}
+          </div>
+        )}
+        {flow && (
+          <div className="rounded-lg bg-purple-50 p-3">
+            <div className="flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-purple-600" />
+              <p className="font-medium text-purple-900">جریان: {flow.title}</p>
+            </div>
+            {flow.description && <p className="mt-2 whitespace-pre-wrap text-gray-700">{flow.description}</p>}
+            {flow.steps && (
+              <div className="mt-2 rounded border border-purple-200 bg-white p-2">
+                <p className="text-xs text-purple-700">مراحل جریان</p>
+                <p className="mt-1 whitespace-pre-wrap text-gray-800">{flow.steps}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+};
+
 export const TestCasesPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const { appId, defaultApplicationId } = useDataScope();
+  const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [data, setData] = useState<PaginatedResponse<TestCase> | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<CartableFilterParams>({
@@ -174,6 +240,9 @@ export const TestCasesPage: React.FC = () => {
       expectedResult: testCase.expectedResult || '',
       testType: testCase.testType || 'FUNCTIONAL',
       testDesignTechnique: testCase.testDesignTechnique || 'REQUIREMENTS_BASED',
+      testDesignTechniques: testCase.testDesignTechniques?.length
+        ? testCase.testDesignTechniques
+        : [testCase.testDesignTechnique || 'REQUIREMENTS_BASED'],
       priority: testCase.priority || 'MEDIUM',
       riskLevel: testCase.riskLevel || 'MEDIUM',
       qualityAttribute: testCase.qualityAttribute || 'FUNCTIONALITY',
@@ -194,6 +263,50 @@ export const TestCasesPage: React.FC = () => {
       || testRequests.find(tr => tr.selectedRequirementIds?.includes(requirement.id));
   };
   const selectedTestRequest = resolveTestRequestForRequirement(selectedRequirement);
+
+  const updateLimitedTextField = (
+    field: 'title' | 'scenario' | 'preconditions' | 'testData' | 'steps' | 'expectedResult',
+    value: string,
+    maxLength: number
+  ) => {
+    setFormData(prev => ({ ...prev, [field]: value.slice(0, maxLength) }));
+  };
+
+  const toggleDesignTechnique = (technique: TestDesignTechnique) => {
+    setFormData(prev => {
+      const nextTechniques = prev.testDesignTechniques.includes(technique)
+        ? prev.testDesignTechniques.filter(item => item !== technique)
+        : [...prev.testDesignTechniques, technique];
+      const safeTechniques = nextTechniques.length ? nextTechniques : [technique];
+      return {
+        ...prev,
+        testDesignTechniques: safeTechniques,
+        testDesignTechnique: safeTechniques[0] || technique,
+      };
+    });
+  };
+
+  const getRequirementTitle = (testCase: TestCase) =>
+    testCase.requirement?.title
+    || requirements.find(requirement => requirement.id === testCase.requirementId)?.title
+    || testCase.requirementId
+    || '-';
+
+  const getFlowTitle = (testCase: TestCase) =>
+    testCase.flow?.title
+    || flows.find(flow => flow.id === testCase.flowId)?.title
+    || testCase.flowId
+    || '-';
+
+  const getDesignTechniqueLabel = (testCase: TestCase) => {
+    const techniques = testCase.testDesignTechniques?.length
+      ? testCase.testDesignTechniques
+      : [testCase.testDesignTechnique];
+    return techniques
+      .filter(Boolean)
+      .map(technique => TEST_DESIGN_TECHNIQUE_LABELS[technique as TestDesignTechnique])
+      .join('، ');
+  };
 
   const clearFormError = (field: string) => {
     setFormErrors(prev => {
@@ -220,11 +333,20 @@ export const TestCasesPage: React.FC = () => {
     }
 
     if (!formData.title.trim()) errors.title = 'عنوان تست کیس الزامی است.';
+    else if (formData.title.length > TEST_CASE_TITLE_MAX_LENGTH) errors.title = `عنوان حداکثر ${TEST_CASE_TITLE_MAX_LENGTH} کاراکتر است.`;
     if (!formData.scenario.trim()) errors.scenario = 'سناریو الزامی است.';
     if (!formData.preconditions.trim()) errors.preconditions = 'پیش‌شرط‌ها الزامی است.';
     if (!formData.testData.trim()) errors.testData = 'داده‌های تست الزامی است.';
     if (!formData.steps.trim()) errors.steps = 'مراحل تست الزامی است.';
     if (!formData.expectedResult.trim()) errors.expectedResult = 'نتیجه مورد انتظار الزامی است.';
+    (['scenario', 'preconditions', 'testData', 'steps', 'expectedResult'] as const).forEach(field => {
+      if (formData[field].length > TEST_CASE_BODY_MAX_LENGTH) {
+        errors[field] = `حداکثر ${TEST_CASE_BODY_MAX_LENGTH} کاراکتر مجاز است.`;
+      }
+    });
+    if (!formData.testDesignTechniques.length) {
+      errors.testDesignTechniques = 'حداقل یک تکنیک طراحی انتخاب کنید.';
+    }
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -242,6 +364,7 @@ export const TestCasesPage: React.FC = () => {
           testRequestId: selectedTestRequest?.id || '',
           testType: formData.testType,
           testDesignTechnique: formData.testDesignTechnique,
+          testDesignTechniques: formData.testDesignTechniques,
           priority: formData.priority,
           riskLevel: formData.riskLevel,
           qualityAttribute: formData.qualityAttribute,
@@ -275,6 +398,7 @@ export const TestCasesPage: React.FC = () => {
           testRequestId: selectedTestRequest?.id || '',
           testType: formData.testType,
           testDesignTechnique: formData.testDesignTechnique,
+          testDesignTechniques: formData.testDesignTechniques,
           priority: formData.priority,
           riskLevel: formData.riskLevel,
           qualityAttribute: formData.qualityAttribute,
@@ -291,6 +415,26 @@ export const TestCasesPage: React.FC = () => {
       loadData();
     } catch {
       toast.error('خطا در ویرایش تست کیس.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteTestCase = async () => {
+    if (!activeContext || !deleteTarget) return;
+    setActionLoading(true);
+    try {
+      const removed = await testCaseApi.delete(deleteTarget.id, activeContext.userId);
+      if (!removed) {
+        toast.error('حذف تست کیس ممکن نیست؛ تست کیس یا اجراهای وابسته قفل VersionHistory دارند.');
+        return;
+      }
+      toast.success(`تست کیس «${deleteTarget.title}» حذف شد.`);
+      setShowDeleteConfirm(false);
+      setDeleteTarget(null);
+      loadData();
+    } catch {
+      toast.error('خطا در حذف تست کیس.');
     } finally {
       setActionLoading(false);
     }
@@ -324,6 +468,11 @@ export const TestCasesPage: React.FC = () => {
       title: 'نوع تست',
       render: (item: TestCase) => TEST_TYPE_LABELS[item.testType],
     },
+    ...(shouldShowSystemColumn ? [{
+      key: 'applicationId',
+      title: 'سامانه',
+      render: (item: TestCase) => <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{getApplicationName(item.applicationId)}</span>,
+    }] : []),
     {
       key: 'priority',
       title: 'اولویت',
@@ -419,30 +568,24 @@ export const TestCasesPage: React.FC = () => {
         <Card className="mb-6" padding="sm">
           <div className="flex flex-wrap gap-4 items-center">
             {canCreate && <Button icon={<Plus className="w-4 h-4" />} onClick={() => { resetForm(); setShowCreateModal(true); }}>تست کیس جدید</Button>}
-            <ExportButton onClick={() => exportToExcel(data?.data || [], [
-              { key: 'title', title: 'عنوان' }, { key: 'testType', title: 'نوع تست' },
-              { key: 'priority', title: 'اولویت' }, { key: 'status', title: 'وضعیت' },
-            ], 'test-cases')} disabled={!data?.data?.length} />
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="جستجو..."
-                value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
-                className="w-full pr-10 pl-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <select
+            <CartableExcelExportButton
+              data={data?.data || []}
+              columns={[
+                { key: 'title', title: 'عنوان' }, { key: 'testType', title: 'نوع تست' },
+                { key: 'priority', title: 'اولویت' }, { key: 'status', title: 'وضعیت' },
+              ]}
+              filename="test-cases"
+              disabled={!data?.data?.length}
+            />
+            <CartableSearchInput
+              value={filters.search || ''}
+              onChange={(search) => setFilters({ ...filters, search, page: 1 })}
+            />
+            <CartableSelectFilter
               value={filters.status || ''}
-              onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg"
-            >
-              <option value="">همه وضعیت‌ها</option>
-              {Object.entries(TEST_CASE_STATUS_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
+              onChange={(status) => setFilters({ ...filters, status, page: 1 })}
+              options={Object.entries(TEST_CASE_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+            />
           </div>
         </Card>
 
@@ -464,6 +607,9 @@ export const TestCasesPage: React.FC = () => {
             setSelectedCase(item);
             setShowDetailModal(true);
           }}
+          enableClientFilter={false}
+          enableExport={false}
+          enableColumnChooser={false}
         />
 
         {data && <Pagination page={data.page} totalPages={data.totalPages || 1} total={data.total} limit={data.limit || filters.limit}
@@ -503,7 +649,7 @@ export const TestCasesPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-gray-500">تکنیک طراحی</p>
-                <p className="font-medium">{TEST_DESIGN_TECHNIQUE_LABELS[selectedCase.testDesignTechnique]}</p>
+                <p className="font-medium">{getDesignTechniqueLabel(selectedCase)}</p>
               </div>
               <div>
                 <p className="text-gray-500">سطح ریسک</p>
@@ -517,12 +663,12 @@ export const TestCasesPage: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="text-xs text-gray-500 mb-1">Requirement</p>
-                <p className="font-medium">{selectedCase.requirementId}</p>
+                <p className="text-xs text-gray-500 mb-1">نیازمندی</p>
+                <p className="font-medium">{getRequirementTitle(selectedCase)}</p>
               </div>
               <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="text-xs text-gray-500 mb-1">Flow</p>
-                <p className="font-medium">{selectedCase.flowId || '-'}</p>
+                <p className="text-xs text-gray-500 mb-1">جریان</p>
+                <p className="font-medium">{getFlowTitle(selectedCase)}</p>
               </div>
             </div>
 
@@ -586,49 +732,62 @@ export const TestCasesPage: React.FC = () => {
             <p className="text-xs text-amber-600">⚠ هر تست کیس باید به یک نیازمندی موجود متصل باشد.</p>
           )}
           <Select
-            label="Flow *"
+            label="جریان *"
             value={formData.flowId}
             onChange={(e) => { clearFormError('flowId'); setFormData({ ...formData, flowId: e.target.value }); }}
             options={flows.map(f => ({ value: f.id, label: f.title }))}
-            placeholder="جریان مرتبط با Requirement را انتخاب کنید"
+            placeholder="جریان مرتبط با نیازمندی را انتخاب کنید"
             disabled={!formData.requirementId}
             error={formErrors.flowId}
           />
+          <TestCaseContextAccordion requirement={selectedRequirement} flow={selectedFlow} testRequest={selectedTestRequest} />
           <Input
             label="عنوان *"
             value={formData.title}
-            onChange={(e) => { clearFormError('title'); setFormData({ ...formData, title: e.target.value }); }}
+            maxLength={TEST_CASE_TITLE_MAX_LENGTH}
+            onChange={(e) => { clearFormError('title'); updateLimitedTextField('title', e.target.value, TEST_CASE_TITLE_MAX_LENGTH); }}
             placeholder="عنوان تست کیس را وارد کنید"
+            hint={`${formData.title.length}/${TEST_CASE_TITLE_MAX_LENGTH}`}
             error={formErrors.title}
           />
           <Textarea
             label="سناریو *"
             value={formData.scenario}
-            onChange={(e) => { clearFormError('scenario'); setFormData({ ...formData, scenario: e.target.value }); }}
+            maxLength={TEST_CASE_BODY_MAX_LENGTH}
+            showCounter
+            onChange={(e) => { clearFormError('scenario'); updateLimitedTextField('scenario', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.scenario}
           />
           <Textarea
             label="پیش‌شرط‌ها *"
             value={formData.preconditions}
-            onChange={(e) => { clearFormError('preconditions'); setFormData({ ...formData, preconditions: e.target.value }); }}
+            maxLength={TEST_CASE_BODY_MAX_LENGTH}
+            showCounter
+            onChange={(e) => { clearFormError('preconditions'); updateLimitedTextField('preconditions', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.preconditions}
           />
           <Textarea
             label="داده‌های تست *"
             value={formData.testData}
-            onChange={(e) => { clearFormError('testData'); setFormData({ ...formData, testData: e.target.value }); }}
+            maxLength={TEST_CASE_BODY_MAX_LENGTH}
+            showCounter
+            onChange={(e) => { clearFormError('testData'); updateLimitedTextField('testData', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.testData}
           />
           <Textarea
             label="مراحل *"
             value={formData.steps}
-            onChange={(e) => { clearFormError('steps'); setFormData({ ...formData, steps: e.target.value }); }}
+            maxLength={TEST_CASE_BODY_MAX_LENGTH}
+            showCounter
+            onChange={(e) => { clearFormError('steps'); updateLimitedTextField('steps', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.steps}
           />
           <Textarea
             label="نتیجه مورد انتظار *"
             value={formData.expectedResult}
-            onChange={(e) => { clearFormError('expectedResult'); setFormData({ ...formData, expectedResult: e.target.value }); }}
+            maxLength={TEST_CASE_BODY_MAX_LENGTH}
+            showCounter
+            onChange={(e) => { clearFormError('expectedResult'); updateLimitedTextField('expectedResult', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.expectedResult}
           />
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -637,12 +796,6 @@ export const TestCasesPage: React.FC = () => {
               value={formData.testType}
               onChange={(e) => setFormData({ ...formData, testType: e.target.value as TestType })}
               options={Object.entries(TEST_TYPE_LABELS).map(([value, label]) => ({ value, label }))}
-            />
-            <Select
-              label="تکنیک طراحی"
-              value={formData.testDesignTechnique}
-              onChange={(e) => setFormData({ ...formData, testDesignTechnique: e.target.value as TestDesignTechnique })}
-              options={Object.entries(TEST_DESIGN_TECHNIQUE_LABELS).map(([value, label]) => ({ value, label }))}
             />
             <Select
               label="اولویت"
@@ -662,6 +815,27 @@ export const TestCasesPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, qualityAttribute: e.target.value as QualityAttribute })}
               options={Object.entries(QUALITY_ATTRIBUTE_LABELS).map(([value, label]) => ({ value, label }))}
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">تکنیک‌های طراحی تست</label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {Object.entries(TEST_DESIGN_TECHNIQUE_LABELS).map(([value, label]) => {
+                const typedValue = value as TestDesignTechnique;
+                const checked = formData.testDesignTechniques.includes(typedValue);
+                return (
+                  <label key={value} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${checked ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-700'}`}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleDesignTechnique(typedValue)}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span>{label}</span>
+                  </label>
+                );
+              })}
+            </div>
+            {formErrors.testDesignTechniques && <p className="mt-1 text-sm text-red-600">{formErrors.testDesignTechniques}</p>}
           </div>
           <div className="flex gap-4">
             <label className="flex items-center gap-2">
@@ -713,49 +887,62 @@ export const TestCasesPage: React.FC = () => {
             error={formErrors.requirementId}
           />
           <Select
-            label="Flow *"
+            label="جریان *"
             value={formData.flowId}
             onChange={(e) => { clearFormError('flowId'); setFormData({ ...formData, flowId: e.target.value }); }}
             options={flows.map(f => ({ value: f.id, label: f.title }))}
-            placeholder="جریان مرتبط با Requirement را انتخاب کنید"
+            placeholder="جریان مرتبط با نیازمندی را انتخاب کنید"
             disabled={!formData.requirementId}
             error={formErrors.flowId}
           />
+          <TestCaseContextAccordion requirement={selectedRequirement} flow={selectedFlow} testRequest={selectedTestRequest} />
           <Input
             label="عنوان *"
             value={formData.title}
-            onChange={(e) => { clearFormError('title'); setFormData({ ...formData, title: e.target.value }); }}
+            maxLength={TEST_CASE_TITLE_MAX_LENGTH}
+            onChange={(e) => { clearFormError('title'); updateLimitedTextField('title', e.target.value, TEST_CASE_TITLE_MAX_LENGTH); }}
             placeholder="عنوان تست کیس را وارد کنید"
+            hint={`${formData.title.length}/${TEST_CASE_TITLE_MAX_LENGTH}`}
             error={formErrors.title}
           />
           <Textarea
             label="سناریو *"
             value={formData.scenario}
-            onChange={(e) => { clearFormError('scenario'); setFormData({ ...formData, scenario: e.target.value }); }}
+            maxLength={TEST_CASE_BODY_MAX_LENGTH}
+            showCounter
+            onChange={(e) => { clearFormError('scenario'); updateLimitedTextField('scenario', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.scenario}
           />
           <Textarea
             label="پیش‌شرط‌ها *"
             value={formData.preconditions}
-            onChange={(e) => { clearFormError('preconditions'); setFormData({ ...formData, preconditions: e.target.value }); }}
+            maxLength={TEST_CASE_BODY_MAX_LENGTH}
+            showCounter
+            onChange={(e) => { clearFormError('preconditions'); updateLimitedTextField('preconditions', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.preconditions}
           />
           <Textarea
             label="داده‌های تست *"
             value={formData.testData}
-            onChange={(e) => { clearFormError('testData'); setFormData({ ...formData, testData: e.target.value }); }}
+            maxLength={TEST_CASE_BODY_MAX_LENGTH}
+            showCounter
+            onChange={(e) => { clearFormError('testData'); updateLimitedTextField('testData', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.testData}
           />
           <Textarea
             label="مراحل *"
             value={formData.steps}
-            onChange={(e) => { clearFormError('steps'); setFormData({ ...formData, steps: e.target.value }); }}
+            maxLength={TEST_CASE_BODY_MAX_LENGTH}
+            showCounter
+            onChange={(e) => { clearFormError('steps'); updateLimitedTextField('steps', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.steps}
           />
           <Textarea
             label="نتیجه مورد انتظار *"
             value={formData.expectedResult}
-            onChange={(e) => { clearFormError('expectedResult'); setFormData({ ...formData, expectedResult: e.target.value }); }}
+            maxLength={TEST_CASE_BODY_MAX_LENGTH}
+            showCounter
+            onChange={(e) => { clearFormError('expectedResult'); updateLimitedTextField('expectedResult', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.expectedResult}
           />
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -764,12 +951,6 @@ export const TestCasesPage: React.FC = () => {
               value={formData.testType}
               onChange={(e) => setFormData({ ...formData, testType: e.target.value as TestType })}
               options={Object.entries(TEST_TYPE_LABELS).map(([value, label]) => ({ value, label }))}
-            />
-            <Select
-              label="تکنیک طراحی"
-              value={formData.testDesignTechnique}
-              onChange={(e) => setFormData({ ...formData, testDesignTechnique: e.target.value as TestDesignTechnique })}
-              options={Object.entries(TEST_DESIGN_TECHNIQUE_LABELS).map(([value, label]) => ({ value, label }))}
             />
             <Select
               label="اولویت"
@@ -789,6 +970,27 @@ export const TestCasesPage: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, qualityAttribute: e.target.value as QualityAttribute })}
               options={Object.entries(QUALITY_ATTRIBUTE_LABELS).map(([value, label]) => ({ value, label }))}
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">تکنیک‌های طراحی تست</label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {Object.entries(TEST_DESIGN_TECHNIQUE_LABELS).map(([value, label]) => {
+                const typedValue = value as TestDesignTechnique;
+                const checked = formData.testDesignTechniques.includes(typedValue);
+                return (
+                  <label key={value} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${checked ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-700'}`}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleDesignTechnique(typedValue)}
+                      className="w-4 h-4 rounded"
+                    />
+                    <span>{label}</span>
+                  </label>
+                );
+              })}
+            </div>
+            {formErrors.testDesignTechniques && <p className="mt-1 text-sm text-red-600">{formErrors.testDesignTechniques}</p>}
           </div>
           <div className="flex gap-4">
             <label className="flex items-center gap-2">
@@ -827,13 +1029,7 @@ export const TestCasesPage: React.FC = () => {
       <ConfirmModal
         isOpen={showDeleteConfirm}
         onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={async () => {
-          if (!deleteTarget) return;
-          toast.success(`تست کیس «${deleteTarget.title}» حذف شد.`);
-          setShowDeleteConfirm(false);
-          setDeleteTarget(null);
-          loadData();
-        }}
+        onConfirm={handleDeleteTestCase}
         title="حذف تست کیس"
         message={`آیا از حذف تست کیس «${deleteTarget?.title}» اطمینان دارید؟`}
         variant="danger"

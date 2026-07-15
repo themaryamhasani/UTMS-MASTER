@@ -1,27 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Eye, Edit, CheckCircle, XCircle, UserPlus, Search, ChevronDown, ChevronUp, GitBranch, PlusCircle, Trash2 } from 'lucide-react';
+import { Plus, Eye, Edit, CheckCircle, XCircle, UserPlus, ChevronDown, ChevronUp, GitBranch, PlusCircle, Trash2 } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Table, Pagination, ExportButton, exportToExcel } from '../components/ui/Table';
+import { Table, Pagination } from '../components/ui/Table';
+import { CartableExcelExportButton, CartableSearchInput, CartableSelectFilter } from '../components/ui/CartableToolbar';
 import { StatusBadge, PriorityBadge } from '../components/ui/Badge';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Input, Textarea, Select } from '../components/ui/Input';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
-import { testRequestApi, requirementApi, userApi, flowApi } from '../services/api';
+import { useApplicationLookup } from '../utils/useApplicationLookup';
+import { auditLogApi, testRequestApi, requirementApi, userApi, flowApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
 import { isSemVer, SEMVER_HINT } from '../utils/semver';
 import {
   BUILD_NUMBER_INPUT_HINT,
-  REQUEST_TITLE_HINT,
+  isValidSystemUrl,
   sanitizeBuildNumberInput,
   sanitizeRequestTitleInput,
   sanitizeVersionInput,
+  SYSTEM_URL_INPUT_HINT,
   validateRequestTitle,
-  VERSION_INPUT_HINT,
 } from '../utils/inputRules';
-import type { TestRequest, User, Requirement, Flow, CartableFilterParams, PaginatedResponse, Priority } from '../types';
+import type { TestRequest, User, Requirement, Flow, CartableFilterParams, PaginatedResponse, Priority, AuditLog } from '../types';
 import { TEST_REQUEST_STATUS_LABELS, PRIORITY_LABELS, REQUIREMENT_STATUS_LABELS, QA_QUALITY_STATUS_LABELS, RELEASE_PUBLISH_STATUS_LABELS } from '../types';
 
 interface OtherReqEntry {
@@ -36,6 +38,7 @@ let otherReqCounter = 1;
 export const TestRequestsPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const { appId, defaultApplicationId } = useDataScope();
+  const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [data, setData] = useState<PaginatedResponse<TestRequest> | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<CartableFilterParams>({ page: 1, limit: 10, search: '', status: '', sortBy: 'createdAt', sortOrder: 'desc' });
@@ -49,6 +52,7 @@ export const TestRequestsPage: React.FC = () => {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ action: string; message: string } | null>(null);
   const [detailTab, setDetailTab] = useState<'info' | 'history'>('info');
+  const [requestAuditLogs, setRequestAuditLogs] = useState<AuditLog[]>([]);
 
   // Form — separate state per field to avoid focus loss
   const [fTitle, setFTitle] = useState('');
@@ -84,6 +88,16 @@ export const TestRequestsPage: React.FC = () => {
   useEffect(() => { if (activeContext) { loadData(); loadRequirements(); } }, [activeContext, filters]);
   useEffect(() => { if (activeContext && (showAssignModal || showAcceptAssignModal)) loadQASpecialists(); }, [activeContext, showAssignModal, showAcceptAssignModal]);
   useEffect(() => {
+    if (!selectedRequest || !showDetailModal) {
+      setRequestAuditLogs([]);
+      return;
+    }
+    auditLogApi
+      .getByEntity('TEST_REQUEST', selectedRequest.id)
+      .then(logs => setRequestAuditLogs(logs))
+      .catch(() => setRequestAuditLogs([]));
+  }, [selectedRequest?.id, showDetailModal]);
+  useEffect(() => {
     if (expandedReqId && !reqFlows[expandedReqId]) {
       flowApi
         .getByRequirement(expandedReqId)
@@ -97,7 +111,7 @@ export const TestRequestsPage: React.FC = () => {
 
   const loadRequirements = async () => {
     if (!activeContext) return;
-    try { const r = await requirementApi.getAll(appId, { page: 1, limit: 200 }); setAvailableReqs(r.data.filter(req => req.status !== 'DRAFT')); } catch { setAvailableReqs([]); toast.error('خطا در بارگذاری نیازمندی‌ها.'); }
+    try { const r = await requirementApi.getAll(appId, { page: 1, limit: 200 }); setAvailableReqs(r.data); } catch { setAvailableReqs([]); toast.error('خطا در بارگذاری نیازمندی‌ها.'); }
   };
   const loadData = async () => {
     if (!activeContext) return; setLoading(true);
@@ -125,13 +139,18 @@ export const TestRequestsPage: React.FC = () => {
   const handleVersionChange = (value: string) => {
     const sanitized = sanitizeVersionInput(value);
     setFVersion(sanitized.value);
-    setFieldErrors(prev => ({ ...prev, version: sanitized.error || '' }));
+    setFieldErrors(prev => ({ ...prev, version: '' }));
   };
 
   const handleBuildChange = (value: string) => {
     const sanitized = sanitizeBuildNumberInput(value);
     setFBuild(sanitized.value);
     setFieldErrors(prev => ({ ...prev, buildNumber: sanitized.error || '' }));
+  };
+
+  const handleSystemUrlChange = (value: string) => {
+    setFUrl(value);
+    setFieldErrors(prev => ({ ...prev, systemUrl: '' }));
   };
 
   const addOtherRequirement = () => {
@@ -163,8 +182,8 @@ export const TestRequestsPage: React.FC = () => {
     if (titleError) errors.title = titleError;
     if (!fVersion.trim()) errors.version = 'نسخه الزامی است.';
     else if (!isSemVer(fVersion)) errors.version = SEMVER_HINT;
-    if (sanitizeVersionInput(fVersion).error) errors.version = VERSION_INPUT_HINT;
     if (sanitizeBuildNumberInput(fBuild).error) errors.buildNumber = BUILD_NUMBER_INPUT_HINT;
+    if (!isValidSystemUrl(fUrl)) errors.systemUrl = SYSTEM_URL_INPUT_HINT;
     if (selectedReqIds.length === 0 && otherReqs.length === 0) errors.requirements = 'حداقل یک نیازمندی انتخاب یا اضافه کنید.';
     const selectedWithoutFlow = availableReqs.filter(req => selectedReqIds.includes(req.id) && (req.flows?.length || 0) === 0);
     if (selectedWithoutFlow.length > 0) errors.requirements = 'نیازمندی انتخاب‌شده باید حداقل یک جریان داشته باشد.';
@@ -189,7 +208,9 @@ export const TestRequestsPage: React.FC = () => {
           await flowApi.create({ title: flow.title.trim(), description: flow.description.trim(), requirementId: createdReq.id }, activeContext.userId);
         }
       }
-      setShowCreateModal(false); resetForm(); toast.success('درخواست تست ایجاد شد.'); loadData();
+      setShowCreateModal(false); resetForm(); toast.success('درخواست تست ایجاد شد.');
+      await loadRequirements();
+      loadData();
     } catch { setActionError('خطا.'); } finally { setActionLoading(false); }
   };
 
@@ -200,8 +221,8 @@ export const TestRequestsPage: React.FC = () => {
     if (titleError) errors.title = titleError;
     if (!fVersion.trim()) errors.version = 'نسخه الزامی است.';
     else if (!isSemVer(fVersion)) errors.version = SEMVER_HINT;
-    if (sanitizeVersionInput(fVersion).error) errors.version = VERSION_INPUT_HINT;
     if (sanitizeBuildNumberInput(fBuild).error) errors.buildNumber = BUILD_NUMBER_INPUT_HINT;
+    if (!isValidSystemUrl(fUrl)) errors.systemUrl = SYSTEM_URL_INPUT_HINT;
     const selectedWithoutFlow = availableReqs.filter(req => selectedReqIds.includes(req.id) && (req.flows?.length || 0) === 0);
     if (selectedWithoutFlow.length > 0) errors.requirements = 'نیازمندی انتخاب‌شده باید حداقل یک جریان داشته باشد.';
     setFieldErrors(errors);
@@ -214,7 +235,7 @@ export const TestRequestsPage: React.FC = () => {
   };
 
   const handleSubmit = async (req: TestRequest) => { if (!activeContext) return; setActionLoading(true); try { await testRequestApi.submit(req.id, activeContext.userId); setShowDetailModal(false); toast.success('ارسال شد.'); loadData(); } catch { toast.error('خطا.'); } finally { setActionLoading(false); } };
-  const handleReview = async (d: 'ACCEPTED' | 'REJECTED') => { if (!activeContext || !selectedRequest) return; setActionLoading(true); try { await testRequestApi.review(selectedRequest.id, activeContext.userId, d); if (d === 'ACCEPTED' && selectedRequest.requirement) { try { await requirementApi.update(selectedRequest.requirement.id, { status: 'APPROVED' }, activeContext.userId); } catch { toast.warning('درخواست پذیرفته شد، اما تایید نیازمندی ثبت نشد.'); } } setShowConfirmModal(false); setShowDetailModal(false); toast.success(d === 'ACCEPTED' ? 'پذیرفته شد.' : 'رد شد.'); loadData(); } catch { toast.error('خطا.'); } finally { setActionLoading(false); } };
+  const handleReview = async (d: 'ACCEPTED' | 'REJECTED') => { if (!activeContext || !selectedRequest) return; setActionLoading(true); try { await testRequestApi.review(selectedRequest.id, activeContext.userId, d); if (d === 'ACCEPTED' && selectedRequest.requirement) { try { await requirementApi.update(selectedRequest.requirement.id, { status: 'APPROVED' }, activeContext.userId); } catch { toast.warning('درخواست پذیرفته شد، اما تایید نیازمندی ثبت نشد.'); } } setShowConfirmModal(false); setShowDetailModal(false); toast.success(d === 'ACCEPTED' ? 'پذیرفته شد.' : 'رد شد.'); await loadRequirements(); loadData(); } catch { toast.error('خطا.'); } finally { setActionLoading(false); } };
   const handleAcceptAndAssign = async () => {
     if (!activeContext || !selectedRequest || !selectedAssignee) return;
     setActionLoading(true);
@@ -228,6 +249,7 @@ export const TestRequestsPage: React.FC = () => {
       setShowAcceptAssignModal(false);
       setShowDetailModal(false);
       toast.success('درخواست پذیرفته و به تستر ارجاع شد.');
+      await loadRequirements();
       loadData();
     } catch {
       toast.error('خطا در پذیرش یا انتخاب تستر.');
@@ -243,11 +265,30 @@ export const TestRequestsPage: React.FC = () => {
   if (!activeContext) return null;
 
   const envLabels: Record<string, string> = { development: 'توسعه', staging: 'آزمایشی', production: 'تولید' };
-  const appNames: Record<string, string> = { 'app-1': 'بانکداری آنلاین', 'app-2': 'منابع انسانی', 'app-3': 'پورتال کارمندان' };
+  const selectableRequirements = availableReqs.filter(req => req.status !== 'DRAFT' || selectedReqIds.includes(req.id));
+  const selectedRequirementList = selectedRequest?.selectedRequirementIds
+    ? availableReqs.filter(req => selectedRequest.selectedRequirementIds!.includes(req.id))
+    : [];
+  const auditActionLabels: Record<string, string> = {
+    CREATE: 'ایجاد',
+    UPDATE: 'ویرایش',
+    SUBMIT: 'ارسال',
+    REVIEW: 'بررسی',
+    ASSIGN: 'ارجاع',
+    CANCEL: 'لغو',
+  };
+  const renderAuditSummary = (log: AuditLog) => {
+    if (log.action === 'UPDATE') return 'ویرایش اطلاعات درخواست';
+    if (log.action === 'SUBMIT') return 'ارسال درخواست';
+    if (log.action === 'REVIEW') return 'بررسی درخواست';
+    if (log.action === 'ASSIGN') return 'ارجاع درخواست';
+    if (log.action === 'CANCEL') return 'لغو درخواست';
+    return auditActionLabels[log.action] || log.action;
+  };
 
   const columns = [
     { key: 'title', title: 'عنوان', sortable: true, render: (item: TestRequest) => <div><p className="font-medium text-gray-900">{item.title}</p><p className="text-xs text-gray-500 mt-0.5">نسخه: {item.version}</p></div> },
-    ...(isSystemAdmin ? [{ key: 'app', title: 'سامانه', render: (item: TestRequest) => <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{appNames[item.applicationId] || item.applicationId}</span> }] : []),
+    ...((isSystemAdmin || shouldShowSystemColumn) ? [{ key: 'applicationId', title: 'سامانه', render: (item: TestRequest) => <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{getApplicationName(item.applicationId)}</span> }] : []),
     { key: 'status', title: 'وضعیت', render: (item: TestRequest) => <StatusBadge status={item.status} labels={TEST_REQUEST_STATUS_LABELS} /> },
     { key: 'releaseDecision', title: 'تصمیم انتشار', render: (item: TestRequest) => item.releaseDecision ? <StatusBadge status={item.releaseDecision} labels={RELEASE_PUBLISH_STATUS_LABELS} /> : <span className="text-gray-400">-</span> },
     { key: 'priority', title: 'اولویت', render: (item: TestRequest) => <PriorityBadge priority={item.priority} /> },
@@ -270,13 +311,13 @@ export const TestRequestsPage: React.FC = () => {
   // Inline form fields JSX — NOT a component, to prevent focus loss
   const formFieldsJSX = (
     <div className="space-y-4">
-      <Input label="عنوان درخواست *" value={fTitle} onChange={(e) => handleTitleChange(e.target.value)} placeholder="عنوان درخواست تست" hint={REQUEST_TITLE_HINT} error={fieldErrors.title} />
+      <Input label="عنوان درخواست *" value={fTitle} onChange={(e) => handleTitleChange(e.target.value)} placeholder="عنوان درخواست تست" error={fieldErrors.title} />
       <Textarea label="توضیحات" value={fDesc} onChange={(e) => setFDesc(e.target.value)} placeholder="توضیحات" />
       <div className="grid grid-cols-2 gap-4">
-        <Input label="نسخه *" value={fVersion} onChange={(e) => handleVersionChange(e.target.value)} placeholder="مثال: 2.5.0" hint={SEMVER_HINT} error={fieldErrors.version} />
-        <Input label="شماره بیلد" value={fBuild} onChange={(e) => handleBuildChange(e.target.value)} placeholder="مثال: build-1234" hint={BUILD_NUMBER_INPUT_HINT} error={fieldErrors.buildNumber} />
+        <Input label="نسخه *" value={fVersion} onChange={(e) => handleVersionChange(e.target.value)} placeholder="مثال: 2.5.0" error={fieldErrors.version} />
+        <Input label="شماره بیلد" value={fBuild} onChange={(e) => handleBuildChange(e.target.value)} placeholder="مثال: build-1234" error={fieldErrors.buildNumber} />
       </div>
-      <Input label="آدرس سامانه" value={fUrl} onChange={(e) => setFUrl(e.target.value)} placeholder="https://app.example.com" />
+      <Input label="آدرس سامانه" value={fUrl} onChange={(e) => handleSystemUrlChange(e.target.value)} placeholder="https://app.example.com" error={fieldErrors.systemUrl} />
       <div className="grid grid-cols-3 gap-4">
         <Select label="محیط" value={fEnv} onChange={(e) => setFEnv(e.target.value)} options={[{ value: 'development', label: 'توسعه' }, { value: 'staging', label: 'آزمایشی' }, { value: 'production', label: 'تولید' }]} />
         <Select label="اولویت" value={fPriority} onChange={(e) => setFPriority(e.target.value as Priority)} options={Object.entries(PRIORITY_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
@@ -329,19 +370,39 @@ export const TestRequestsPage: React.FC = () => {
         <Card className="mb-6" padding="sm">
           <div className="flex flex-wrap gap-4 items-center">
             {canCreate && <Button icon={<Plus className="w-4 h-4" />} onClick={() => { resetForm(); setShowCreateModal(true); }}>درخواست جدید</Button>}
-            <ExportButton onClick={() => exportToExcel(data?.data || [], [
-              { key: 'title', title: 'عنوان' }, { key: 'version', title: 'نسخه' },
-              { key: 'status', title: 'وضعیت' }, { key: 'priority', title: 'اولویت' },
-            ], 'test-requests')} disabled={!data?.data?.length} />
-            <div className="relative flex-1 min-w-[200px]"><Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" placeholder="جستجو..." value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })} className="w-full pr-10 pl-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
-            <select value={filters.status || ''} onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })} className="px-3 py-2 text-sm border border-gray-300 rounded-lg"><option value="">همه وضعیت‌ها</option>{Object.entries(TEST_REQUEST_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-            <select value={filters.priority || ''} onChange={(e) => setFilters({ ...filters, priority: e.target.value ? e.target.value as Priority : undefined, page: 1 })} className="px-3 py-2 text-sm border border-gray-300 rounded-lg"><option value="">همه اولویت‌ها</option>{Object.entries(PRIORITY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+            <CartableExcelExportButton
+              data={data?.data || []}
+              columns={[
+                { key: 'title', title: 'عنوان' }, { key: 'version', title: 'نسخه' },
+                { key: 'status', title: 'وضعیت' }, { key: 'priority', title: 'اولویت' },
+              ]}
+              filename="test-requests"
+              disabled={!data?.data?.length}
+            />
+            <CartableSearchInput
+              value={filters.search || ''}
+              onChange={(search) => setFilters({ ...filters, search, page: 1 })}
+            />
+            <CartableSelectFilter
+              value={filters.status || ''}
+              onChange={(status) => setFilters({ ...filters, status, page: 1 })}
+              options={Object.entries(TEST_REQUEST_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+            />
+            <CartableSelectFilter
+              value={filters.priority || ''}
+              onChange={(priority) => setFilters({ ...filters, priority: priority ? priority as Priority : undefined, page: 1 })}
+              options={Object.entries(PRIORITY_LABELS).map(([value, label]) => ({ value, label }))}
+              allLabel="همه اولویت‌ها"
+              ariaLabel="فیلتر اولویت"
+            />
           </div>
         </Card>
         <Table columns={columns} data={data?.data || []} loading={loading} emptyMessage="درخواست تستی یافت نشد" sortBy={filters.sortBy} sortOrder={filters.sortOrder}
           onSort={(key) => setFilters({ ...filters, sortBy: key, sortOrder: filters.sortBy === key && filters.sortOrder === 'asc' ? 'desc' : 'asc' })}
-          onRowClick={(item) => { setSelectedRequest(item); setDetailTab('info'); setShowDetailModal(true); }} />
+          onRowClick={(item) => { setSelectedRequest(item); setDetailTab('info'); setShowDetailModal(true); }}
+          enableClientFilter={false}
+          enableExport={false}
+          enableColumnChooser={false} />
         {data && <Pagination page={data.page} totalPages={data.totalPages || 1} total={data.total} limit={data.limit || filters.limit}
           onPageChange={(p) => setFilters({ ...filters, page: p })}
           onLimitChange={(l) => setFilters({ ...filters, limit: l, page: 1 })} />}
@@ -353,7 +414,7 @@ export const TestRequestsPage: React.FC = () => {
           {formFieldsJSX}
           <div><label className="block text-sm font-medium text-gray-700 mb-2">نیازمندی‌های مرتبط <span className="text-red-500">*</span></label>
             <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-2">
-              {availableReqs.map(req => <div key={req.id}>
+              {selectableRequirements.map(req => <div key={req.id}>
                 <label className={`flex items-center gap-2 p-2 rounded cursor-pointer ${selectedReqIds.includes(req.id) ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-50'}`}>
                   <input type="checkbox" checked={selectedReqIds.includes(req.id)} onChange={() => { setFieldErrors(prev => ({ ...prev, requirements: '' })); setSelectedReqIds(prev => prev.includes(req.id) ? prev.filter(id => id !== req.id) : [...prev, req.id]); }} className="w-4 h-4 rounded border-gray-300 text-blue-600" />
                   <span className="text-sm text-gray-900 flex-1">{req.title}</span>
@@ -361,7 +422,7 @@ export const TestRequestsPage: React.FC = () => {
                 </label>
                 {expandedReqId === req.id && <div className="mr-6 mt-1 p-2 bg-blue-50 rounded text-xs space-y-1">{req.description && <p>{req.description}</p>}{req.acceptanceCriteria && <p className="text-green-700">معیارها: {req.acceptanceCriteria}</p>}{(reqFlows[req.id]||[]).map(f=><div key={f.id} className="p-1 bg-purple-50 rounded"><span className="text-purple-700">{f.title}</span></div>)}</div>}
               </div>)}
-              {availableReqs.length === 0 && <p className="text-sm text-gray-500 text-center py-2">نیازمندی فعالی نیست</p>}
+              {selectableRequirements.length === 0 && <p className="text-sm text-gray-500 text-center py-2">نیازمندی فعالی نیست</p>}
             </div>
             {fieldErrors.requirements && <p className="mt-1 text-sm text-red-600">{fieldErrors.requirements}</p>}
           </div>
@@ -451,7 +512,7 @@ export const TestRequestsPage: React.FC = () => {
           {/* Requirements selection — same as create */}
           <div><label className="block text-sm font-medium text-gray-700 mb-2">نیازمندی‌های مرتبط</label>
             <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-2">
-              {availableReqs.map(req => <div key={req.id}>
+              {selectableRequirements.map(req => <div key={req.id}>
                 <label className={`flex items-center gap-2 p-2 rounded cursor-pointer ${selectedReqIds.includes(req.id) ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-50'}`}>
                   <input type="checkbox" checked={selectedReqIds.includes(req.id)} onChange={() => { setFieldErrors(prev => ({ ...prev, requirements: '' })); setSelectedReqIds(prev => prev.includes(req.id) ? prev.filter(id => id !== req.id) : [...prev, req.id]); }} className="w-4 h-4 rounded border-gray-300 text-blue-600" />
                   <span className="text-sm text-gray-900 flex-1">{req.title}</span>
@@ -459,7 +520,7 @@ export const TestRequestsPage: React.FC = () => {
                 </label>
                 {expandedReqId === req.id && <div className="mr-6 mt-1 p-2 bg-blue-50 rounded text-xs space-y-1">{req.description && <p>{req.description}</p>}{req.acceptanceCriteria && <p className="text-green-700">معیارها: {req.acceptanceCriteria}</p>}{(reqFlows[req.id]||[]).map(f=><div key={f.id} className="p-1 bg-purple-50 rounded"><span className="text-purple-700">{f.title}</span></div>)}</div>}
               </div>)}
-              {availableReqs.length === 0 && <p className="text-sm text-gray-500 text-center py-2">نیازمندی فعالی نیست</p>}
+              {selectableRequirements.length === 0 && <p className="text-sm text-gray-500 text-center py-2">نیازمندی فعالی نیست</p>}
             </div>
           </div>
 
@@ -512,11 +573,11 @@ export const TestRequestsPage: React.FC = () => {
             )}
 
             {/* نیازمندی‌های انتخاب شده */}
-            {selectedRequest.selectedRequirementIds && selectedRequest.selectedRequirementIds.length > 0 && (
+            {selectedRequirementList.length > 0 && (
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-2">نیازمندی‌های انتخاب شده:</p>
                 <div className="space-y-2">
-                  {availableReqs.filter(r => selectedRequest.selectedRequirementIds!.includes(r.id)).map(req => renderReqAccordion(req))}
+                  {selectedRequirementList.map(req => renderReqAccordion(req))}
                 </div>
               </div>
             )}
@@ -525,9 +586,18 @@ export const TestRequestsPage: React.FC = () => {
             {selectedRequest.reviewNotes && <div className="p-3 bg-gray-50 rounded-lg"><p className="text-xs text-gray-500 mb-1">یادداشت بررسی</p><p className="text-sm">{selectedRequest.reviewNotes}</p></div>}
           </>}
           {detailTab === 'history' && <div className="space-y-2">
-            <div className="p-3 bg-gray-50 rounded-lg text-sm"><span className="text-gray-500">{new Date(selectedRequest.createdAt).toLocaleString('fa-IR')}</span> — ایجاد</div>
-            {selectedRequest.submittedAt && <div className="p-3 bg-blue-50 rounded-lg text-sm"><span className="text-gray-500">{new Date(selectedRequest.submittedAt).toLocaleString('fa-IR')}</span> — ارسال</div>}
-            {selectedRequest.reviewedAt && <div className="p-3 bg-green-50 rounded-lg text-sm"><span className="text-gray-500">{new Date(selectedRequest.reviewedAt).toLocaleString('fa-IR')}</span> — بررسی</div>}
+            {requestAuditLogs.length === 0 && (
+              <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-500">تاریخچه‌ای ثبت نشده است.</div>
+            )}
+            {requestAuditLogs.map(log => (
+              <div key={log.id} className="p-3 bg-gray-50 rounded-lg text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium text-gray-900">{renderAuditSummary(log)}</span>
+                  <span className="text-gray-500">{new Date(log.createdAt).toLocaleString('fa-IR')}</span>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">کاربر: {log.user?.fullName || log.userId}</p>
+              </div>
+            ))}
           </div>}
           <div className="flex flex-wrap gap-3 pt-4 border-t">
             {selectedRequest.status === 'DRAFT' && selectedRequest.requesterId === activeContext?.userId && <Button onClick={() => handleSubmit(selectedRequest)} loading={actionLoading}>ارسال</Button>}

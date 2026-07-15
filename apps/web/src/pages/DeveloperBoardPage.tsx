@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type DragEvent } from 'react';
-import { ArrowRight, Bug as BugIcon, CheckCircle, Clock, CornerDownRight, GripVertical, PlayCircle, Send, XCircle } from 'lucide-react';
+import { ArrowRight, Bug as BugIcon, CheckCircle, Clock, CornerDownRight, GripVertical, PlayCircle, RotateCcw, Send, XCircle } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -59,6 +59,13 @@ const BOARD_COLUMNS: BoardColumn[] = [
     statuses: ['NO_ACTION_NEEDED'],
     accent: 'border-slate-200 bg-slate-50',
   },
+  {
+    id: 'not-bug',
+    title: 'باگ نیست',
+    subtitle: 'موارد ردشده توسط Developer',
+    statuses: ['REJECTED'],
+    accent: 'border-gray-200 bg-gray-50',
+  },
 ];
 
 export const DeveloperBoardPage: React.FC = () => {
@@ -108,6 +115,11 @@ export const DeveloperBoardPage: React.FC = () => {
     }, {});
   }, [bugs]);
 
+  const getBugRunLabel = (bug: Bug) =>
+    bug.testRun?.testCase?.title
+    || (bug.testRun?.version ? `اجرای نسخه ${bug.testRun.version}` : '')
+    || bug.testRunId;
+
   const changeStatus = async (bug: Bug, status: BugStatus, notes = '') => {
     if (!activeContext) return;
     setActionLoading(true);
@@ -119,6 +131,25 @@ export const DeveloperBoardPage: React.FC = () => {
       await loadBugs();
     } catch {
       toast.error('تغییر وضعیت باگ ممکن نیست.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const canRestoreBug = (bug: Bug) =>
+    !bug.isLocked && !!bug.previousStatus && ['REJECTED', 'NO_ACTION_NEEDED'].includes(bug.status);
+
+  const restorePreviousStatus = async (bug: Bug) => {
+    if (!activeContext || !canRestoreBug(bug)) return;
+    setActionLoading(true);
+    try {
+      const restored = await bugApi.restorePreviousStatus(bug.id, activeContext.userId);
+      if (!restored) throw new Error('RESTORE_FAILED');
+      await commentApi.create('BUG', bug.id, `بازگردانی وضعیت از ${BUG_STATUS_LABELS[bug.status]} به ${BUG_STATUS_LABELS[restored.status]}`, activeContext.userId);
+      toast.success('وضعیت قبلی باگ بازگردانده شد.');
+      await loadBugs();
+    } catch {
+      toast.error('بازگردانی وضعیت باگ ممکن نیست.');
     } finally {
       setActionLoading(false);
     }
@@ -276,8 +307,15 @@ export const DeveloperBoardPage: React.FC = () => {
     if (bug.isLocked) {
       return <Badge variant="warning" size="sm">قفل شده</Badge>;
     }
-    if (bug.status === 'NO_ACTION_NEEDED') {
-      return <Badge variant="default" size="sm">بدون نیاز به اقدام</Badge>;
+    if (canRestoreBug(bug)) {
+      return (
+        <Button size="sm" variant="secondary" icon={<RotateCcw className="w-4 h-4" />} onClick={() => restorePreviousStatus(bug)} loading={actionLoading}>
+          بازگردانی به {BUG_STATUS_LABELS[bug.previousStatus!]}
+        </Button>
+      );
+    }
+    if (['NO_ACTION_NEEDED', 'REJECTED'].includes(bug.status)) {
+      return <Badge variant="default" size="sm">{BUG_STATUS_LABELS[bug.status]}</Badge>;
     }
     const noActionButton = (
       <Button size="sm" variant="ghost" icon={<CornerDownRight className="w-4 h-4" />} onClick={() => openNoAction(bug)}>
@@ -337,7 +375,7 @@ export const DeveloperBoardPage: React.FC = () => {
       />
 
       <main className="p-4 sm:p-6 space-y-5">
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
           {BOARD_COLUMNS.map(column => (
             <Card key={column.id} className={column.accent} padding="sm">
               <div className="flex items-center justify-between">
@@ -351,7 +389,7 @@ export const DeveloperBoardPage: React.FC = () => {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 items-start">
           {BOARD_COLUMNS.map(column => {
             const columnBugs = bugs.filter(bug => column.statuses.includes(bug.status));
             return (
@@ -390,7 +428,7 @@ export const DeveloperBoardPage: React.FC = () => {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <h4 className="font-medium text-gray-900 leading-6">{bug.title}</h4>
-                          <p className="text-xs text-gray-500 mt-1">Run: {bug.testRun?.id || bug.testRunId}</p>
+                          <p className="text-xs text-gray-500 mt-1">اجرا: {getBugRunLabel(bug)}</p>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <span
@@ -431,7 +469,7 @@ export const DeveloperBoardPage: React.FC = () => {
             <p className="text-sm font-medium text-gray-900">{selectedBug?.title}</p>
             <p className="text-xs text-gray-500 mt-1">بعد از ثبت، باگ خودکار به صف Retest/Regression می‌رود.</p>
           </div>
-          <Input label="نسخه رفع *" value={fixVersion} onChange={(e) => handleFixVersionChange(e.target.value)} placeholder="2.5.1" hint={SEMVER_HINT} error={formErrors.fixVersion} />
+          <Input label="نسخه رفع *" value={fixVersion} onChange={(e) => handleFixVersionChange(e.target.value)} placeholder="2.5.1" error={formErrors.fixVersion} />
           <Textarea label="یادداشت رفع" value={fixNotes} onChange={(e) => setFixNotes(e.target.value)} placeholder="توضیح کوتاه درباره تغییر انجام‌شده..." />
           <div className="flex justify-end gap-3 pt-3 border-t">
             <Button variant="secondary" onClick={() => setShowFixModal(false)}>انصراف</Button>

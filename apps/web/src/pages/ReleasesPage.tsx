@@ -12,6 +12,7 @@ import { Modal } from '../components/ui/Modal';
 import { Input, Textarea, Select } from '../components/ui/Input';
 import { useAuthStore, canPerformWorkflowAction, getWorkflowPolicyForContext } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
+import { useApplicationLookup } from '../utils/useApplicationLookup';
 import { releasePublishApi, commentApi, testRequestApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
 import type { ReleasePublish, Bug, Comment, TestRequest, VersionHistoryEvidence, CartableFilterParams, PaginatedResponse, QAQualityStatus, VersionHistoryDecision } from '../types';
@@ -27,6 +28,7 @@ import {
 export const ReleasesPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const { appId, defaultApplicationId } = useDataScope();
+  const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [data, setData] = useState<PaginatedResponse<ReleasePublish> | null>(null);
   const [developerRequests, setDeveloperRequests] = useState<TestRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -413,6 +415,34 @@ export const ReleasesPage: React.FC = () => {
   const qaQualityOptions = Object.entries(QA_QUALITY_STATUS_LABELS)
     .filter(([value]) => !['NOT_STARTED', 'IN_PROGRESS'].includes(value))
     .map(([value, label]) => ({ value, label }));
+  const renderTestOutcome = (item: ReleasePublish) => {
+    const snapshot = item.snapshot;
+    if (!snapshot) return <Badge variant="secondary" size="sm">در انتظار تست</Badge>;
+
+    const executed = snapshot.executedTestRuns ?? (
+      snapshot.passedTestRuns + snapshot.failedTestRuns + snapshot.blockedTestRuns + (snapshot.skippedTestRuns || 0)
+    );
+    const pending = snapshot.pendingTestRuns || 0;
+    const openIssues = snapshot.openRunIssues || 0;
+    if (
+      executed > 0 &&
+      pending === 0 &&
+      snapshot.failedTestRuns === 0 &&
+      snapshot.blockedTestRuns === 0 &&
+      (snapshot.skippedTestRuns || 0) === 0 &&
+      snapshot.openBugs === 0 &&
+      openIssues === 0
+    ) {
+      return <Badge variant="success" size="sm">تست موفق</Badge>;
+    }
+    if (snapshot.failedTestRuns > 0 || snapshot.openBugs > 0 || openIssues > 0) {
+      return <Badge variant="danger" size="sm">نیازمند اقدام</Badge>;
+    }
+    if (pending > 0) {
+      return <Badge variant="warning" size="sm">تست در جریان</Badge>;
+    }
+    return <Badge variant="default" size="sm">نامشخص</Badge>;
+  };
 
   const columns = [
     {
@@ -448,12 +478,22 @@ export const ReleasesPage: React.FC = () => {
         );
       },
     },
+    ...(shouldShowSystemColumn ? [{
+      key: 'applicationId',
+      title: 'سامانه',
+      render: (item: ReleasePublish) => <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{getApplicationName(item.applicationId)}</span>,
+    }] : []),
     {
       key: 'status',
       title: 'وضعیت',
       render: (item: ReleasePublish) => (
         <StatusBadge status={item.status} labels={RELEASE_PUBLISH_STATUS_LABELS} />
       ),
+    },
+    {
+      key: 'testOutcome',
+      title: 'نتیجه تست',
+      render: renderTestOutcome,
     },
     {
       key: 'qaQualityStatus',
@@ -592,6 +632,9 @@ export const ReleasesPage: React.FC = () => {
             data={developerRequests}
             loading={loading}
             emptyMessage="برای درخواست‌های شما وضعیت انتشاری ثبت نشده است"
+            enableClientFilter={false}
+            enableExport={false}
+            enableColumnChooser={false}
           />
         </main>
       </div>
@@ -698,6 +741,9 @@ export const ReleasesPage: React.FC = () => {
             item.isEmergency ? 'bg-red-50' : 
             item.status === 'PUBLISHED' ? 'bg-green-50' : ''
           }
+          enableClientFilter={false}
+          enableExport={false}
+          enableColumnChooser={false}
         />
 
         {data && data.total > 0 && (

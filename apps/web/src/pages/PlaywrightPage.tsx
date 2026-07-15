@@ -10,6 +10,7 @@ import { Input, Select } from '../components/ui/Input';
 import { toast } from '../components/ui/Toast';
 import { useAuthStore, canPerformAction, canUseAutomatedTests } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
+import { useApplicationLookup } from '../utils/useApplicationLookup';
 import { playwrightApi, systemSettingsApi } from '../services/api';
 import type {
   PlaywrightRun,
@@ -52,6 +53,7 @@ type PlaywrightRunForm = ReturnType<typeof createDefaultPlaywrightForm>;
 export const PlaywrightPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const { appId, defaultApplicationId } = useDataScope();
+  const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [data, setData] = useState<PaginatedResponse<PlaywrightRun> | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<CartableFilterParams>({
@@ -290,6 +292,11 @@ export const PlaywrightPage: React.FC = () => {
         <StatusBadge status={item.status} labels={PLAYWRIGHT_RUN_STATUS_LABELS} />
       ),
     },
+    ...(shouldShowSystemColumn ? [{
+      key: 'applicationId',
+      title: 'سامانه',
+      render: (item: PlaywrightRun) => <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{getApplicationName(item.applicationId)}</span>,
+    }] : []),
     {
       key: 'results',
       title: 'نتایج',
@@ -473,6 +480,9 @@ export const PlaywrightPage: React.FC = () => {
             item.status === 'FAILED' ? 'bg-red-50' :
             item.status === 'RUNNING' ? 'bg-blue-50' : ''
           }
+          enableClientFilter={false}
+          enableExport={false}
+          enableColumnChooser={false}
         />
 
         {data && data.total > 0 && (

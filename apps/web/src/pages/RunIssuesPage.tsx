@@ -10,6 +10,7 @@ import { Textarea } from '../components/ui/Input';
 import { toast } from '../components/ui/Toast';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
+import { useApplicationLookup } from '../utils/useApplicationLookup';
 import { runIssueApi } from '../services/api';
 import type { RunIssue, CartableFilterParams, PaginatedResponse } from '../types';
 import { RUN_ISSUE_STATUS_LABELS, RUN_ISSUE_TYPE_LABELS } from '../types';
@@ -17,6 +18,7 @@ import { RUN_ISSUE_STATUS_LABELS, RUN_ISSUE_TYPE_LABELS } from '../types';
 export const RunIssuesPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const { appId } = useDataScope();
+  const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [data, setData] = useState<PaginatedResponse<RunIssue> | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<CartableFilterParams>({
@@ -112,6 +114,11 @@ export const RunIssuesPage: React.FC = () => {
         <StatusBadge status={item.status} labels={RUN_ISSUE_STATUS_LABELS} />
       ),
     },
+    ...(shouldShowSystemColumn ? [{
+      key: 'applicationId',
+      title: 'سامانه',
+      render: (item: RunIssue) => <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{getApplicationName(item.applicationId)}</span>,
+    }] : []),
     {
       key: 'reportedBy',
       title: 'گزارش‌دهنده',
@@ -223,6 +230,9 @@ export const RunIssuesPage: React.FC = () => {
             item.status === 'RESOLVED' || item.status === 'CLOSED' ? 'bg-green-50' :
             item.status === 'OPEN' ? 'bg-amber-50' : ''
           }
+          enableClientFilter={false}
+          enableExport={false}
+          enableColumnChooser={false}
         />
 
         {data && data.total > 0 && (

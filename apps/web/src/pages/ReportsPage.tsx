@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { format as formatJalali, isValid as isValidDate, parse as parseJalali } from 'date-fns-jalali';
 import {
   BarChart3, FileText, Bug, PlayCircle, ShieldCheck, Rocket, Users,
   History, Paperclip, Terminal, TrendingUp, AlertTriangle, CheckCircle,
@@ -7,18 +8,21 @@ import {
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, StatCard } from '../components/ui/Card';
-import { Table, exportToExcel } from '../components/ui/Table';
+import { Table as BaseTable, Pagination, exportToExcel } from '../components/ui/Table';
 import { Badge, StatusBadge, PriorityBadge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { useAuthStore } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
 import { toast } from '../components/ui/Toast';
+import { applicationApi } from '../services/api';
 import { reportsApi } from '../services/reportsApi';
 import { apiConsoleApi } from '../services/apiConsoleApi';
 import {
   TEST_REQUEST_STATUS_LABELS, BUG_STATUS_LABELS, BUG_SEVERITY_LABELS,
   TEST_RUN_STATUS_LABELS, REQUIREMENT_STATUS_LABELS, ROLE_LABELS,
   RELEASE_PUBLISH_STATUS_LABELS, QA_QUALITY_STATUS_LABELS, PLAYWRIGHT_RUN_STATUS_LABELS,
+  TEST_CASE_STATUS_LABELS, CHECKLIST_STATUS_LABELS, ATTACHMENT_STATUS_LABELS,
+  RETEST_TASK_STATUS_LABELS, RUN_ISSUE_STATUS_LABELS,
 } from '../types';
 
 type ReportKey =
@@ -227,6 +231,71 @@ interface ReportData extends Record<string, unknown> {
   };
 }
 
+type ReportColumn<T extends object> = {
+  key: string;
+  title: string;
+  sortable?: boolean | undefined;
+  render?: ((item: T, index: number) => React.ReactNode) | undefined;
+  className?: string | undefined;
+};
+
+type PaginatedReportTableProps<T extends object> = {
+  columns: ReportColumn<T>[];
+  data: T[];
+  emptyMessage?: string | undefined;
+  pageSize?: number | undefined;
+};
+
+function PaginatedReportTable<T extends object>({
+  columns,
+  data,
+  emptyMessage = 'داده‌ای یافت نشد',
+  pageSize = 10,
+}: PaginatedReportTableProps<T>) {
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(pageSize);
+  const totalPages = Math.max(1, Math.ceil(data.length / limit));
+  const safePage = Math.min(page, totalPages);
+  const pagedData = useMemo(
+    () => data.slice((safePage - 1) * limit, safePage * limit),
+    [data, safePage, limit]
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [data.length, limit]);
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
+  return (
+    <>
+      <BaseTable
+        columns={columns}
+        data={pagedData}
+        emptyMessage={emptyMessage}
+        enableClientFilter={false}
+        enableExport={false}
+        enableColumnChooser={false}
+      />
+      {data.length > 0 && (
+        <Pagination
+          page={safePage}
+          totalPages={totalPages}
+          total={data.length}
+          limit={limit}
+          onPageChange={setPage}
+          onLimitChange={(nextLimit) => {
+            setLimit(nextLimit);
+            setPage(1);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 const REPORTS: ReportDef[] = [
   { key: 'overview', title: 'داشبورد کلان سامانه', icon: <BarChart3 className="w-5 h-5" />, description: 'نمای کلی وضعیت تمام موجودیت‌ها', roles: ['SYSTEM_ADMIN','QA_LEAD','TECH_LEAD','PRODUCT_OWNER'], category: 'مدیریتی' },
   { key: 'quality-health', title: 'سلامت کیفیت سامانه', icon: <TrendingUp className="w-5 h-5" />, description: 'نرخ موفقیت، شکست، پوشش و ریسک', roles: ['SYSTEM_ADMIN','QA_LEAD','TECH_LEAD','PRODUCT_OWNER'], category: 'مدیریتی' },
@@ -271,8 +340,144 @@ function getReportRowDate(row: ReportRow): string {
   return row.createdAt || row.updatedAt || row.executedAt || row.publishedAt || row.startedAt || row.capturedAt || row.date || '';
 }
 
+const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
+const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+
+function normalizeDateDigits(value: string): string {
+  return value.replace(/[۰-۹٠-٩]/g, digit => {
+    const persianIndex = PERSIAN_DIGITS.indexOf(digit);
+    if (persianIndex >= 0) return String(persianIndex);
+    const arabicIndex = ARABIC_DIGITS.indexOf(digit);
+    return arabicIndex >= 0 ? String(arabicIndex) : digit;
+  });
+}
+
+function sanitizeJalaliDateInput(value: string): string {
+  return normalizeDateDigits(value)
+    .replace(/[.\-\s]+/g, '/')
+    .replace(/[^\d/]/g, '')
+    .replace(/\/{2,}/g, '/')
+    .slice(0, 10);
+}
+
+function parseJalaliFilterDate(value: string, endOfDay = false): Date | null {
+  const normalized = sanitizeJalaliDateInput(value);
+  if (!normalized || normalized.length < 8) return null;
+  const parsed = parseJalali(normalized, 'yyyy/MM/dd', new Date());
+  if (!isValidDate(parsed)) return null;
+  parsed.setHours(endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+  return parsed;
+}
+
+function formatReportDate(value: string | undefined): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : formatJalali(date, 'yyyy/MM/dd');
+}
+
+function formatReportDateTime(value: string | undefined): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : formatJalali(date, 'yyyy/MM/dd HH:mm');
+}
+
 function getReportRowStatus(row: ReportRow): string {
   return row.status || row.qaStatus || row.qaQualityStatus || row.requirementStatus || row.coverageStatus || '';
+}
+
+const REPORT_STATUS_LABEL_GROUPS = [
+  TEST_REQUEST_STATUS_LABELS,
+  REQUIREMENT_STATUS_LABELS,
+  TEST_CASE_STATUS_LABELS,
+  TEST_RUN_STATUS_LABELS,
+  RETEST_TASK_STATUS_LABELS,
+  BUG_STATUS_LABELS,
+  RUN_ISSUE_STATUS_LABELS,
+  CHECKLIST_STATUS_LABELS,
+  RELEASE_PUBLISH_STATUS_LABELS,
+  QA_QUALITY_STATUS_LABELS,
+  PLAYWRIGHT_RUN_STATUS_LABELS,
+  ATTACHMENT_STATUS_LABELS,
+] as Array<Record<string, string>>;
+
+const REPORT_STATUS_LABEL_GROUPS_BY_REPORT: Partial<Record<ReportKey, Array<Record<string, string>>>> = {
+  overview: [TEST_REQUEST_STATUS_LABELS, TEST_RUN_STATUS_LABELS, BUG_STATUS_LABELS, RELEASE_PUBLISH_STATUS_LABELS],
+  'quality-health': [TEST_RUN_STATUS_LABELS, BUG_STATUS_LABELS, REQUIREMENT_STATUS_LABELS, PLAYWRIGHT_RUN_STATUS_LABELS],
+  'test-requests': [TEST_REQUEST_STATUS_LABELS],
+  requirements: [REQUIREMENT_STATUS_LABELS],
+  'flow-coverage': [REQUIREMENT_STATUS_LABELS],
+  traceability: [REQUIREMENT_STATUS_LABELS],
+  'test-cases': [TEST_CASE_STATUS_LABELS, QA_QUALITY_STATUS_LABELS],
+  'test-runs': [TEST_RUN_STATUS_LABELS, RETEST_TASK_STATUS_LABELS],
+  'open-bugs': [BUG_STATUS_LABELS],
+  'developer-bugfix': [BUG_STATUS_LABELS],
+  checklists: [CHECKLIST_STATUS_LABELS],
+  releases: [RELEASE_PUBLISH_STATUS_LABELS, QA_QUALITY_STATUS_LABELS],
+  emergency: [RELEASE_PUBLISH_STATUS_LABELS],
+  playwright: [PLAYWRIGHT_RUN_STATUS_LABELS],
+  attachments: [ATTACHMENT_STATUS_LABELS],
+};
+
+const REPORT_STATUS_FALLBACK_LABELS: Record<string, string> = {
+  ACCEPTED: 'پذیرفته شده',
+  APPROVED: 'تایید شده',
+  ASSIGNED: 'تخصیص یافته',
+  BLOCKED: 'مسدود',
+  CANCELLED: 'لغو شده',
+  CLOSED: 'بسته',
+  COMPLETED: 'تکمیل شده',
+  CONDITIONAL: 'تایید مشروط',
+  DELETED: 'حذف شده',
+  DRAFT: 'پیش‌نویس',
+  EMERGENCY: 'اضطراری',
+  ERROR: 'خطا',
+  FAILED: 'ناموفق',
+  FIXED: 'رفع شده',
+  IN_PROGRESS: 'در حال انجام',
+  INVALID: 'نامعتبر',
+  NEW: 'جدید',
+  NO_ACTION_NEEDED: 'بدون نیاز به اقدام',
+  NOT_APPLICABLE: 'غیرقابل اعمال',
+  NOT_READY: 'آماده نیست',
+  NOT_STARTED: 'شروع نشده',
+  OBSOLETE: 'منسوخ',
+  OPEN: 'باز',
+  PASSED: 'موفق',
+  PENDING: 'در انتظار',
+  PENDING_DECISION: 'در انتظار تصمیم',
+  PUBLISHED: 'منتشر شده',
+  QA_REVIEW: 'بررسی QA',
+  READY: 'آماده',
+  REJECTED: 'رد شده',
+  REOPENED: 'بازگشایی شده',
+  RESOLVED: 'حل شده',
+  RETEST_FAILED: 'تست مجدد ناموفق',
+  RETEST_PASSED: 'تست مجدد موفق',
+  RETEST_READY: 'آماده تست مجدد',
+  RUNNING: 'در حال اجرا',
+  SKIPPED: 'نادیده',
+  SUBMITTED: 'ارسال شده',
+  UNDER_REVIEW: 'در حال بررسی',
+  UPLOADED: 'آپلود شده',
+  VALID: 'معتبر',
+};
+
+function normalizeReportStatusKey(status: unknown): string {
+  return String(status || '').trim().replace(/[\s-]+/g, '_').toUpperCase();
+}
+
+function getReportStatusLabel(status: string, reportKey: ReportKey | null): string {
+  const normalizedStatus = normalizeReportStatusKey(status);
+  if (!normalizedStatus) return '';
+  const scopedGroups = reportKey ? REPORT_STATUS_LABEL_GROUPS_BY_REPORT[reportKey] || [] : [];
+  const labelGroups = [...scopedGroups, ...REPORT_STATUS_LABEL_GROUPS];
+  for (const labels of labelGroups) {
+    if (labels[status]) return labels[status];
+    if (labels[normalizedStatus]) return labels[normalizedStatus];
+    const matched = Object.entries(labels).find(([key]) => normalizeReportStatusKey(key) === normalizedStatus);
+    if (matched) return matched[1];
+  }
+  return REPORT_STATUS_FALLBACK_LABELS[normalizedStatus] || status;
 }
 
 export const ReportsPage: React.FC = () => {
@@ -294,10 +499,20 @@ export const ReportsPage: React.FC = () => {
   // Load applications from the active access scope.
   useEffect(() => {
     if (isAppLevel || isMultiSystem) {
-      setApplications(scopeApplicationIds.map(id => ({
-        id,
-        name: id === activeContext?.applicationId ? activeContext.application.name : id,
-      })));
+      applicationApi
+        .getAll()
+        .then(rows => {
+          const allowed = isAppLevel
+            ? rows
+            : rows.filter(app => scopeApplicationIds.includes(app.id));
+          setApplications(allowed.map(app => ({ id: app.id, name: app.name })));
+        })
+        .catch(() => {
+          setApplications(scopeApplicationIds.map(id => ({
+            id,
+            name: id === activeContext?.applicationId ? activeContext.application.name : id,
+          })));
+        });
       return;
     }
     setApplications([]);
@@ -305,8 +520,6 @@ export const ReportsPage: React.FC = () => {
 
   if (!activeContext) return null;
   const role = activeContext.role;
-  // Item #5: Use selected system or user's app
-  const appId = selectedSystemId || scopedAppId;
 
   const accessibleReports = REPORTS.filter(r =>
     role === 'SYSTEM_ADMIN' || r.roles.includes(role)
@@ -325,18 +538,30 @@ export const ReportsPage: React.FC = () => {
   };
 
   const filterReportRows = (rows: ReportRow[] = []) => rows.filter(row => {
+    const fromDate = parseJalaliFilterDate(reportFilters.dateFrom);
+    const toDate = parseJalaliFilterDate(reportFilters.dateTo, true);
     const rowDate = getReportRowDate(row);
+    const parsedRowDate = rowDate ? new Date(rowDate) : null;
     const rowStatus = getReportRowStatus(row);
     const rowText = flattenReportValue(row).toLowerCase();
-    if (reportFilters.dateFrom && rowDate && new Date(rowDate) < new Date(reportFilters.dateFrom)) return false;
-    if (reportFilters.dateTo && rowDate && new Date(rowDate) > new Date(`${reportFilters.dateTo}T23:59:59`)) return false;
-    if (reportFilters.status && rowStatus !== reportFilters.status) return false;
+    if (fromDate && parsedRowDate && parsedRowDate < fromDate) return false;
+    if (toDate && parsedRowDate && parsedRowDate > toDate) return false;
+    if (reportFilters.status && normalizeReportStatusKey(rowStatus) !== normalizeReportStatusKey(reportFilters.status)) return false;
     if (reportFilters.person && !rowText.includes(reportFilters.person.toLowerCase())) return false;
     return true;
   });
 
   const filteredPrimaryRows = filterReportRows(getPrimaryReportRows());
-  const availableStatuses = [...new Set(getPrimaryReportRows().map(getReportRowStatus).filter(Boolean))];
+  const availableStatuses = Array.from(
+    getPrimaryReportRows().reduce((statuses, row) => {
+      const rawStatus = getReportRowStatus(row);
+      const normalizedStatus = normalizeReportStatusKey(rawStatus);
+      if (normalizedStatus && !statuses.has(normalizedStatus)) {
+        statuses.set(normalizedStatus, String(rawStatus).trim());
+      }
+      return statuses;
+    }, new Map<string, string>()).values()
+  );
 
   const downloadReportBlob = (content: BlobPart, type: string, extension: string, prefix = 'report') => {
     const blob = new Blob([content], { type });
@@ -348,33 +573,34 @@ export const ReportsPage: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  const loadReport = async (key: ReportKey) => {
+  const loadReport = async (key: ReportKey, targetSystemId = selectedSystemId) => {
+    const targetAppId = targetSystemId || scopedAppId;
     setLoading(true);
     setSelectedReport(key);
     try {
       let data;
       switch (key) {
-        case 'overview': data = await reportsApi.getSystemOverview(appId); break;
-        case 'quality-health': data = await reportsApi.getQualityHealth(appId); break;
+        case 'overview': data = await reportsApi.getSystemOverview(targetAppId); break;
+        case 'quality-health': data = await reportsApi.getQualityHealth(targetAppId); break;
         case 'product-quality': data = await reportsApi.getProductQualityOverview(); break;
-        case 'test-requests': data = await reportsApi.getTestRequestReport(appId); break;
-        case 'requirements': data = await reportsApi.getRequirementReport(appId); break;
-        case 'flow-coverage': data = await reportsApi.getFlowCoverage(appId); break;
-        case 'traceability': data = await reportsApi.getTraceabilityReport(appId); break;
-        case 'test-cases': data = await reportsApi.getTestCaseReport(appId); break;
-        case 'test-runs': data = await reportsApi.getTestRunReport(appId); break;
-        case 'open-bugs': data = await reportsApi.getOpenBugsList(appId); break;
-        case 'developer-performance': data = await reportsApi.getDeveloperPerformance(appId); break;
-        case 'developer-bugfix': data = await reportsApi.getDeveloperBugFixReport(appId); break;
-        case 'checklists': data = await reportsApi.getChecklistReport(appId); break;
-        case 'releases': data = await reportsApi.getReleaseReport(appId); break;
-        case 'emergency': data = await reportsApi.getEmergencyPublishReport(appId); break;
-        case 'playwright': data = await reportsApi.getPlaywrightReport(appId); break;
+        case 'test-requests': data = await reportsApi.getTestRequestReport(targetAppId); break;
+        case 'requirements': data = await reportsApi.getRequirementReport(targetAppId); break;
+        case 'flow-coverage': data = await reportsApi.getFlowCoverage(targetAppId); break;
+        case 'traceability': data = await reportsApi.getTraceabilityReport(targetAppId); break;
+        case 'test-cases': data = await reportsApi.getTestCaseReport(targetAppId); break;
+        case 'test-runs': data = await reportsApi.getTestRunReport(targetAppId); break;
+        case 'open-bugs': data = await reportsApi.getOpenBugsList(targetAppId); break;
+        case 'developer-performance': data = await reportsApi.getDeveloperPerformance(targetAppId); break;
+        case 'developer-bugfix': data = await reportsApi.getDeveloperBugFixReport(targetAppId); break;
+        case 'checklists': data = await reportsApi.getChecklistReport(targetAppId); break;
+        case 'releases': data = await reportsApi.getReleaseReport(targetAppId); break;
+        case 'emergency': data = await reportsApi.getEmergencyPublishReport(targetAppId); break;
+        case 'playwright': data = await reportsApi.getPlaywrightReport(targetAppId); break;
         case 'attachments': data = await reportsApi.getAttachmentReport(); break;
         case 'users-roles': data = await reportsApi.getUsersRolesReport(); break;
-        case 'audit': data = await reportsApi.getAuditReport(appId); break;
+        case 'audit': data = await reportsApi.getAuditReport(targetAppId); break;
         case 'comments': data = await reportsApi.getCommentReport(); break;
-        case 'api-usage': data = await apiConsoleApi.getApiUsageReport({ page: 1, limit: 100, applicationId: appId || 'ALL' }, activeContext); break;
+        case 'api-usage': data = await apiConsoleApi.getApiUsageReport({ page: 1, limit: 100, applicationId: targetAppId || 'ALL' }, activeContext); break;
       }
       setReportData(normalizeReportData(data));
     } catch { toast.error('خطا در بارگذاری گزارش.'); }
@@ -494,12 +720,12 @@ export const ReportsPage: React.FC = () => {
           <div className="mb-6 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
             <label className="block text-sm font-medium text-indigo-800 mb-2">فیلتر سامانه</label>
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => { setSelectedSystemId(''); if (selectedReport) loadReport(selectedReport); }}
+              <button onClick={() => { setSelectedSystemId(''); if (selectedReport) loadReport(selectedReport, ''); }}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium ${!selectedSystemId ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-700 border border-indigo-300'}`}>
                 همه سامانه‌ها
               </button>
               {applications.map(app => (
-                <button key={app.id} onClick={() => { setSelectedSystemId(app.id); if (selectedReport) loadReport(selectedReport); }}
+                <button key={app.id} onClick={() => { setSelectedSystemId(app.id); if (selectedReport) loadReport(selectedReport, app.id); }}
                   className={`px-3 py-1.5 rounded-lg text-sm font-medium ${selectedSystemId === app.id ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-700 border border-indigo-300'}`}>
                   {app.name}
                 </button>
@@ -512,14 +738,20 @@ export const ReportsPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <label className="space-y-1">
               <span className="text-xs font-medium text-gray-600">از تاریخ</span>
-              <input type="date" value={reportFilters.dateFrom}
-                onChange={(e) => setReportFilters({ ...reportFilters, dateFrom: e.target.value })}
+              <input type="text" value={reportFilters.dateFrom}
+                dir="ltr"
+                inputMode="numeric"
+                placeholder={`مثال ${formatJalali(new Date(), 'yyyy/MM/dd')}`}
+                onChange={(e) => setReportFilters({ ...reportFilters, dateFrom: sanitizeJalaliDateInput(e.target.value) })}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
             </label>
             <label className="space-y-1">
               <span className="text-xs font-medium text-gray-600">تا تاریخ</span>
-              <input type="date" value={reportFilters.dateTo}
-                onChange={(e) => setReportFilters({ ...reportFilters, dateTo: e.target.value })}
+              <input type="text" value={reportFilters.dateTo}
+                dir="ltr"
+                inputMode="numeric"
+                placeholder={`مثال ${formatJalali(new Date(), 'yyyy/MM/dd')}`}
+                onChange={(e) => setReportFilters({ ...reportFilters, dateTo: sanitizeJalaliDateInput(e.target.value) })}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
             </label>
             <label className="space-y-1">
@@ -527,8 +759,10 @@ export const ReportsPage: React.FC = () => {
               <select value={reportFilters.status}
                 onChange={(e) => setReportFilters({ ...reportFilters, status: e.target.value })}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                <option value="">همه وضعیت‌ها</option>
-                {availableStatuses.map(status => <option key={status} value={status}>{status}</option>)}
+                <option value="">همه وضعیت</option>
+                {availableStatuses.map(status => (
+                  <option key={status} value={status}>{getReportStatusLabel(status, selectedReport)}</option>
+                ))}
               </select>
             </label>
             <label className="space-y-1">
@@ -666,13 +900,13 @@ export const ReportsPage: React.FC = () => {
 
                 <Card>
                   <h3 className="font-semibold text-gray-900 mb-4">درخواست‌های باز</h3>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'title', title: 'عنوان', render: (i: ReportRow) => <span className="font-medium">{i.title}</span> },
                     { key: 'status', title: 'وضعیت', render: (i: ReportRow) => <StatusBadge status={i.status} labels={TEST_REQUEST_STATUS_LABELS} /> },
                     { key: 'priority', title: 'اولویت', render: (i: ReportRow) => <PriorityBadge priority={i.priority} /> },
                     { key: 'requester', title: 'درخواست‌دهنده', render: (i: ReportRow) => i.requester },
                     { key: 'version', title: 'نسخه', render: (i: ReportRow) => i.version },
-                    { key: 'date', title: 'تاریخ', render: (i: ReportRow) => new Date(i.createdAt).toLocaleDateString('fa-IR') },
+                    { key: 'date', title: 'تاریخ', render: (i: ReportRow) => formatReportDate(i.createdAt) },
                   ]} data={filterReportRows(reportData.openRequestsList || [])} emptyMessage="درخواست بازی وجود ندارد" />
                 </Card>
               </>
@@ -745,7 +979,7 @@ export const ReportsPage: React.FC = () => {
                 </div>
                 <Card>
                   <h3 className="font-semibold text-gray-900 mb-4">جزئیات نیازمندی‌ها</h3>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'title', title: 'عنوان', render: (i: ReportRow) => <span className="font-medium">{i.title}</span> },
                     { key: 'status', title: 'وضعیت', render: (i: ReportRow) => <StatusBadge status={i.status} labels={REQUIREMENT_STATUS_LABELS} /> },
                     { key: 'ba', title: 'BA', render: (i: ReportRow) => i.ba },
@@ -767,7 +1001,7 @@ export const ReportsPage: React.FC = () => {
                 </div>
                 <Card>
                   <h3 className="font-semibold text-gray-900 mb-4">جزئیات اجراها</h3>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'testCase', title: 'تست کیس', render: (i: ReportRow) => i.testCase },
                     { key: 'status', title: 'وضعیت', render: (i: ReportRow) => <StatusBadge status={i.status} labels={TEST_RUN_STATUS_LABELS} /> },
                     { key: 'version', title: 'نسخه', render: (i: ReportRow) => i.version },
@@ -781,13 +1015,13 @@ export const ReportsPage: React.FC = () => {
             {selectedReport === 'open-bugs' && (
               <Card>
                 <h3 className="font-semibold text-gray-900 mb-4">باگ‌های باز ({Array.isArray(reportData) ? reportData.length : 0})</h3>
-                <Table columns={[
+                <PaginatedReportTable columns={[
                   { key: 'title', title: 'عنوان', render: (i: ReportRow) => <span className="font-medium">{i.title}</span> },
                   { key: 'severity', title: 'شدت', render: (i: ReportRow) => <StatusBadge status={i.severity} labels={BUG_SEVERITY_LABELS} /> },
                   { key: 'priority', title: 'اولویت', render: (i: ReportRow) => <PriorityBadge priority={i.priority} /> },
                   { key: 'status', title: 'وضعیت', render: (i: ReportRow) => <StatusBadge status={i.status} labels={BUG_STATUS_LABELS} /> },
                   { key: 'developer', title: 'توسعه‌دهنده', render: (i: ReportRow) => i.developer },
-                  { key: 'date', title: 'تاریخ', render: (i: ReportRow) => new Date(i.createdAt).toLocaleDateString('fa-IR') },
+                  { key: 'date', title: 'تاریخ', render: (i: ReportRow) => formatReportDate(i.createdAt) },
                 ]} data={filterReportRows(Array.isArray(reportData) ? reportData : [])} emptyMessage="باگ بازی وجود ندارد ✓" />
               </Card>
             )}
@@ -803,7 +1037,7 @@ export const ReportsPage: React.FC = () => {
                 </div>
                 <Card>
                   <h3 className="font-semibold text-gray-900 mb-4">جزئیات درخواست‌های تست</h3>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'title', title: 'عنوان', render: (i: ReportRow) => <span className="font-medium">{i.title}</span> },
                     { key: 'status', title: 'وضعیت', render: (i: ReportRow) => <StatusBadge status={i.status} labels={TEST_REQUEST_STATUS_LABELS} /> },
                     { key: 'priority', title: 'اولویت', render: (i: ReportRow) => <PriorityBadge priority={i.priority} /> },
@@ -822,7 +1056,7 @@ export const ReportsPage: React.FC = () => {
             {selectedReport === 'developer-performance' && (
               <Card>
                 <h3 className="font-semibold text-gray-900 mb-4">عملکرد Developer</h3>
-                <Table columns={[
+                <PaginatedReportTable columns={[
                   { key: 'name', title: 'نام', render: (i: ReportRow) => <span className="font-medium">{i.developerName}</span> },
                   { key: 'total', title: 'درخواست‌ها', render: (i: ReportRow) => i.totalRequests },
                   { key: 'completed', title: 'تکمیل شده', render: (i: ReportRow) => <Badge variant="success" size="sm">{i.completed}</Badge> },
@@ -839,7 +1073,7 @@ export const ReportsPage: React.FC = () => {
             {selectedReport === 'developer-bugfix' && (
               <Card>
                 <h3 className="font-semibold text-gray-900 mb-4">عملکرد اصلاح باگ</h3>
-                <Table columns={[
+                <PaginatedReportTable columns={[
                   { key: 'name', title: 'Developer', render: (i: ReportRow) => <span className="font-medium">{i.developerName}</span> },
                   { key: 'assigned', title: 'تخصیصی', render: (i: ReportRow) => i.assigned },
                   { key: 'fixed', title: 'رفع شده', render: (i: ReportRow) => <Badge variant="success" size="sm">{i.fixed}</Badge> },
@@ -862,7 +1096,7 @@ export const ReportsPage: React.FC = () => {
                 </div>
                 <Card>
                   <h3 className="font-semibold text-gray-900 mb-4">به تفکیک QA Specialist</h3>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'name', title: 'QA Specialist', render: (i: ReportRow) => <span className="font-medium">{i.qaName}</span> },
                     { key: 'count', title: 'تعداد کل', render: (i: ReportRow) => i.count },
                     { key: 'ready', title: 'آماده اجرا', render: (i: ReportRow) => <Badge variant="success" size="sm">{i.ready}</Badge> },
@@ -882,7 +1116,7 @@ export const ReportsPage: React.FC = () => {
                 </div>
                 <Card>
                   <h3 className="font-semibold text-gray-900 mb-4">جزئیات VersionHistory</h3>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'version', title: 'نسخه', render: (i: ReportRow) => <span className="font-medium">{i.version}</span> },
                     { key: 'status', title: 'وضعیت', render: (i: ReportRow) => <StatusBadge status={i.status} labels={RELEASE_PUBLISH_STATUS_LABELS} /> },
                     { key: 'emergency', title: 'اضطراری', render: (i: ReportRow) => i.isEmergency ? <Badge variant="danger" size="sm">بله</Badge> : '-' },
@@ -892,7 +1126,7 @@ export const ReportsPage: React.FC = () => {
                 </Card>
                 <Card>
                   <h3 className="font-semibold text-gray-900 mb-4">گزارش تغییرات هر نسخه</h3>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'version', title: 'نسخه', render: (i: ReportRow) => <span className="font-medium">{i.version}</span> },
                     { key: 'buildNumber', title: 'بیلد', render: (i: ReportRow) => i.buildNumber || '-' },
                     { key: 'revisionNo', title: 'Revision', render: (i: ReportRow) => `#${i.revisionNo}` },
@@ -901,7 +1135,7 @@ export const ReportsPage: React.FC = () => {
                     { key: 'passed', title: 'موفق/ناموفق', render: (i: ReportRow) => `${i.passedTestRuns}/${i.failedTestRuns}` },
                     { key: 'bugs', title: 'باگ باز', render: (i: ReportRow) => `${i.openBugs} (C:${i.criticalBugs} / M:${i.majorBugs})` },
                     { key: 'qaNotes', title: 'یادداشت تغییر', render: (i: ReportRow) => i.qaNotes || '-' },
-                    { key: 'capturedAt', title: 'زمان Snapshot', render: (i: ReportRow) => i.capturedAt ? new Date(i.capturedAt).toLocaleDateString('fa-IR') : '-' },
+                    { key: 'capturedAt', title: 'زمان Snapshot', render: (i: ReportRow) => formatReportDate(i.capturedAt) },
                   ]} data={filterReportRows(reportData.changeHistory || [])} emptyMessage="تغییری برای نسخه‌ها ثبت نشده است" />
                 </Card>
               </>
@@ -917,7 +1151,7 @@ export const ReportsPage: React.FC = () => {
                 </div>
                 <Card>
                   <h3 className="font-semibold text-gray-900 mb-4">جزئیات Emergency</h3>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'version', title: 'نسخه', render: (i: ReportRow) => i.version },
                     { key: 'reason', title: 'دلیل اضطرار', render: (i: ReportRow) => i.reason },
                     { key: 'risk', title: 'ریسک', render: (i: ReportRow) => i.risk },
@@ -937,9 +1171,9 @@ export const ReportsPage: React.FC = () => {
                   <StatCard title="در حال بررسی" value={reportData.inProgress} variant="primary" icon={<ShieldCheck className="w-6 h-6" />} />
                 </div>
                 <Card>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'type', title: 'نوع', render: (i: ReportRow) => i.type },
-                    { key: 'status', title: 'وضعیت', render: (i: ReportRow) => i.status },
+                    { key: 'status', title: 'وضعیت', render: (i: ReportRow) => <StatusBadge status={i.status} labels={CHECKLIST_STATUS_LABELS} /> },
                     { key: 'result', title: 'نتیجه', render: (i: ReportRow) => i.result },
                     { key: 'reviewer', title: 'بازبین', render: (i: ReportRow) => i.reviewer },
                     { key: 'progress', title: 'پیشرفت', render: (i: ReportRow) => `${i.itemsDone}/${i.itemsTotal}` },
@@ -958,7 +1192,7 @@ export const ReportsPage: React.FC = () => {
                   <StatCard title="نرخ موفقیت" value={`${reportData.passRate}%`} variant="success" icon={<TrendingUp className="w-6 h-6" />} />
                 </div>
                 <Card>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'file', title: 'فایل تست', render: (i: ReportRow) => <span className="font-mono text-sm">{i.testFile.split('/').pop()}</span> },
                     { key: 'status', title: 'وضعیت', render: (i: ReportRow) => <StatusBadge status={i.status} labels={PLAYWRIGHT_RUN_STATUS_LABELS} /> },
                     { key: 'duration', title: 'مدت (ثانیه)', render: (i: ReportRow) => i.duration },
@@ -979,10 +1213,10 @@ export const ReportsPage: React.FC = () => {
                   <StatCard title="حذف شده" value={reportData.deleted} variant="danger" icon={<XCircle className="w-6 h-6" />} />
                 </div>
                 <Card>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'name', title: 'نام فایل', render: (i: ReportRow) => i.fileName },
                     { key: 'type', title: 'نوع', render: (i: ReportRow) => i.type },
-                    { key: 'status', title: 'وضعیت', render: (i: ReportRow) => i.status },
+                    { key: 'status', title: 'وضعیت', render: (i: ReportRow) => <StatusBadge status={i.status} labels={ATTACHMENT_STATUS_LABELS} /> },
                     { key: 'size', title: 'حجم', render: (i: ReportRow) => `${Math.round(i.fileSize / 1024)} KB` },
                     { key: 'uploader', title: 'آپلودکننده', render: (i: ReportRow) => i.uploader },
                   ]} data={filterReportRows(reportData.details || [])} emptyMessage="-" />
@@ -1000,7 +1234,7 @@ export const ReportsPage: React.FC = () => {
                   <StatCard title="چندنقشی" value={reportData.multiRoleUsers} icon={<Users className="w-6 h-6" />} />
                 </div>
                 <Card>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'name', title: 'نام', render: (i: ReportRow) => <span className="font-medium">{i.fullName}</span> },
                     { key: 'phone', title: 'تلفن', render: (i: ReportRow) => <span className="font-mono text-sm" dir="ltr">{i.phoneNumber}</span> },
                     { key: 'active', title: 'وضعیت', render: (i: ReportRow) => i.isActive ? <Badge variant="success" size="sm">فعال</Badge> : <Badge variant="danger" size="sm">غیرفعال</Badge> },
@@ -1026,11 +1260,11 @@ export const ReportsPage: React.FC = () => {
                   <StatCard title="ثبت تصمیم انتشار" value={reportData.byAction.publish ?? 0} icon={<Rocket className="w-6 h-6" />} />
                 </div>
                 <Card>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'user', title: 'کاربر', render: (i: ReportRow) => i.userName },
                     { key: 'action', title: 'عملیات', render: (i: ReportRow) => i.action },
                     { key: 'entity', title: 'موجودیت', render: (i: ReportRow) => i.entityType },
-                    { key: 'date', title: 'زمان', render: (i: ReportRow) => new Date(i.createdAt).toLocaleString('fa-IR') },
+                    { key: 'date', title: 'زمان', render: (i: ReportRow) => formatReportDateTime(i.createdAt) },
                   ]} data={filterReportRows(reportData.details || [])} emptyMessage="-" />
                 </Card>
               </>
@@ -1047,7 +1281,7 @@ export const ReportsPage: React.FC = () => {
                 </div>
                 <Card>
                   <h3 className="font-semibold text-gray-900 mb-4">سامانه‌های پرریسک</h3>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'app', title: 'سامانه', render: (i: ReportRow) => <span className="font-medium">{i.appName}</span> },
                     { key: 'bugs', title: 'باگ‌های باز', render: (i: ReportRow) => i.openBugs > 0 ? <Badge variant="danger" size="sm">{i.openBugs}</Badge> : '0' },
                     { key: 'fails', title: 'تست ناموفق', render: (i: ReportRow) => i.failedRuns > 0 ? <Badge variant="warning" size="sm">{i.failedRuns}</Badge> : '0' },
@@ -1065,7 +1299,7 @@ export const ReportsPage: React.FC = () => {
                   <StatCard title="بدون Test Case" value={reportData.withoutTestCase} variant="danger" icon={<XCircle className="w-6 h-6" />} />
                 </div>
                 <Card>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'title', title: 'عنوان Flow', render: (i: ReportRow) => i.title },
                     { key: 'req', title: 'نیازمندی', render: (i: ReportRow) => i.requirementTitle },
                     { key: 'tc', title: 'Test Case', render: (i: ReportRow) => i.hasTestCase ? <Badge variant="success" size="sm">{i.testCaseCount}</Badge> : <Badge variant="danger" size="sm">ندارد</Badge> },
@@ -1086,7 +1320,7 @@ export const ReportsPage: React.FC = () => {
                 </div>
                 <Card>
                   <h3 className="font-semibold text-gray-900 mb-4">ماتریس ردیابی نیازمندی تا انتشار</h3>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'requirementTitle', title: 'نیازمندی', render: (i: ReportRow) => <span className="font-medium">{i.requirementTitle}</span> },
                     { key: 'requirementStatus', title: 'وضعیت', render: (i: ReportRow) => <StatusBadge status={i.requirementStatus} labels={REQUIREMENT_STATUS_LABELS} /> },
                     { key: 'flows', title: 'Flow', render: (i: ReportRow) => i.flows },
@@ -1112,13 +1346,13 @@ export const ReportsPage: React.FC = () => {
                 </div>
                 <Card>
                   <h3 className="font-semibold text-gray-900 mb-4">جزئیات مصرف API Console</h3>
-                  <Table columns={[
+                  <PaginatedReportTable columns={[
                     { key: 'eventType', title: 'رویداد', render: (i: ReportRow) => <Badge variant={i.eventType === 'API_EXECUTED' ? 'success' : i.eventType === 'REMOVED_FROM_CONSOLE' ? 'danger' : 'default'} size="sm">{i.eventType}</Badge> },
                     { key: 'apiTitle', title: 'API', render: (i: ReportRow) => <span className="font-medium">{i.apiTitle}</span> },
                     { key: 'version', title: 'Version', render: (i: ReportRow) => <span className="font-mono text-xs" dir="ltr">v{i.version}</span> },
                     { key: 'userDisplayName', title: 'کاربر', render: (i: ReportRow) => i.userDisplayName || i.userId },
                     { key: 'activeRole', title: 'Role', render: (i: ReportRow) => ROLE_LABELS[i.activeRole as keyof typeof ROLE_LABELS] || i.activeRole },
-                    { key: 'eventAt', title: 'زمان', render: (i: ReportRow) => i.eventAt ? new Date(i.eventAt).toLocaleString('fa-IR') : '-' },
+                    { key: 'eventAt', title: 'زمان', render: (i: ReportRow) => formatReportDateTime(i.eventAt) },
                     { key: 'environmentId', title: 'Environment', render: (i: ReportRow) => i.environmentId || '-' },
                     { key: 'correlationId', title: 'Correlation ID', render: (i: ReportRow) => i.correlationId ? <span className="font-mono text-xs" dir="ltr">{i.correlationId}</span> : '-' },
                   ]} data={filterReportRows(reportData.data || [])} emptyMessage="رویداد مصرف API ثبت نشده است" />
@@ -1130,10 +1364,10 @@ export const ReportsPage: React.FC = () => {
             {selectedReport === 'comments' && (
               <Card>
                 <h3 className="font-semibold text-gray-900 mb-4">کامنت‌های VersionHistory ({reportData.total})</h3>
-                <Table columns={[
+                <PaginatedReportTable columns={[
                   { key: 'content', title: 'محتوا', render: (i: ReportRow) => i.content },
                   { key: 'author', title: 'نویسنده', render: (i: ReportRow) => i.author },
-                  { key: 'date', title: 'تاریخ', render: (i: ReportRow) => new Date(i.createdAt).toLocaleDateString('fa-IR') },
+                  { key: 'date', title: 'تاریخ', render: (i: ReportRow) => formatReportDate(i.createdAt) },
                 ]} data={filterReportRows(reportData.details || [])} emptyMessage="کامنتی ثبت نشده" />
               </Card>
             )}
