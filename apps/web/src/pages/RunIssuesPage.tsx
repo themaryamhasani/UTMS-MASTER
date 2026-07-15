@@ -181,7 +181,7 @@ export const RunIssuesPage: React.FC = () => {
         refreshing={loading}
       />
 
-      <main className="p-6">
+      <main className="p-4 sm:p-6">
         {/* Filters */}
         <Card className="mb-6" padding="sm">
           <div className="flex flex-wrap gap-4 items-center">
@@ -276,7 +276,7 @@ export const RunIssuesPage: React.FC = () => {
               <p className="text-sm">{selectedIssue.description}</p>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 md:grid-cols-4">
               <div>
                 <p className="text-gray-500">گزارش‌دهنده</p>
                 <p className="font-medium">{selectedIssue.reportedBy?.fullName || '-'}</p>

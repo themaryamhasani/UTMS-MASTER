@@ -323,7 +323,7 @@ export const BugsPage: React.FC = () => {
         refreshing={loading}
       />
 
-      <main className="p-6">
+      <main className="p-4 sm:p-6">
         {/* Filters */}
         <Card className="mb-6" padding="sm">
           <div className="flex flex-wrap gap-4 items-center">
@@ -424,7 +424,7 @@ export const BugsPage: React.FC = () => {
               <p className="text-sm text-gray-700">{selectedBug.description}</p>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
               <div>
                 <p className="text-xs text-gray-500">شدت</p>
                 <StatusBadge status={selectedBug.severity} labels={BUG_SEVERITY_LABELS} />

@@ -366,7 +366,7 @@ export const TestRunsPage: React.FC = () => {
         }
       />
 
-      <main className="p-6">
+      <main className="p-4 sm:p-6">
         {/* Filters */}
         <Card className="mb-6" padding="sm">
           <div className="flex flex-wrap gap-4 items-center">
@@ -515,7 +515,7 @@ export const TestRunsPage: React.FC = () => {
             {selectedRun.testCase && (
               <div className="p-4 bg-gray-50 rounded-lg">
                 <h4 className="font-medium text-gray-900 mb-2">اطلاعات تست کیس</h4>
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
                   <div>
                     <p className="text-gray-500">سناریو</p>
                     <p>{selectedRun.testCase.scenario}</p>
@@ -539,7 +539,7 @@ export const TestRunsPage: React.FC = () => {
               </div>
             )}
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 md:grid-cols-4">
               <div>
                 <p className="text-gray-500">اجراکننده</p>
                 <p className="font-medium">{selectedRun.executedBy?.fullName || '-'}</p>
@@ -682,7 +682,7 @@ export const TestRunsPage: React.FC = () => {
             value={bugFormData.stepsToReproduce}
             onChange={(e) => setBugFormData({ ...bugFormData, stepsToReproduce: e.target.value })}
           />
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Input
               label="نتیجه مورد انتظار"
               value={bugFormData.expectedResult}
@@ -694,7 +694,7 @@ export const TestRunsPage: React.FC = () => {
               onChange={(e) => setBugFormData({ ...bugFormData, actualResult: e.target.value })}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Select
               label="شدت"
               value={bugFormData.severity}

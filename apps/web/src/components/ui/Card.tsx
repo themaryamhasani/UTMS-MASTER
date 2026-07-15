@@ -12,7 +12,7 @@ export const Card: React.FC<CardProps> = ({ children, className, padding = 'md',
         md: 'p-4',
         lg: 'p-6',
     };
-    return (<div className={cn('bg-white rounded-xl border border-gray-200 shadow-sm', paddings[padding], className)}>
+    return (<div className={cn('min-w-0 max-w-full bg-white rounded-xl border border-gray-200 shadow-sm', paddings[padding], className)}>
       {children}
     </div>);
 };
@@ -23,12 +23,12 @@ interface CardHeaderProps {
     className?: string | undefined;
 }
 export const CardHeader: React.FC<CardHeaderProps> = ({ title, subtitle, action, className, }) => {
-    return (<div className={cn('flex items-center justify-between mb-4', className)}>
-      <div>
-        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+    return (<div className={cn('flex flex-wrap items-start justify-between gap-3 mb-4', className)}>
+      <div className="min-w-0 flex-1">
+        <h3 className="break-words text-lg font-semibold text-gray-900">{title}</h3>
         {subtitle && <p className="text-sm text-gray-500">{subtitle}</p>}
       </div>
-      {action && <div>{action}</div>}
+      {action && <div className="flex max-w-full flex-wrap items-center gap-2">{action}</div>}
     </div>);
 };
 interface StatCardProps {
@@ -57,9 +57,9 @@ export const StatCard: React.FC<StatCardProps> = ({ title, value, icon, trend, v
         warning: 'bg-amber-100 text-amber-600',
         danger: 'bg-red-100 text-red-600',
     };
-    return (<div className={cn('rounded-xl border p-4', variants[variant])}>
+    return (<div className={cn('min-w-0 rounded-xl border p-4', variants[variant])}>
       <div className="flex items-start justify-between">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm text-gray-700 mb-1">{title}</p>
           <p className="text-2xl font-bold text-gray-900">{value}</p>
           {trend && (<div className="flex items-center mt-1 text-sm">
@@ -69,7 +69,7 @@ export const StatCard: React.FC<StatCardProps> = ({ title, value, icon, trend, v
               <span className="text-gray-700 mr-1">{trend.label}</span>
             </div>)}
         </div>
-        {icon && (<div className={cn('p-2 rounded-lg', iconVariants[variant])}>
+        {icon && (<div className={cn('flex-shrink-0 p-2 rounded-lg', iconVariants[variant])}>
             {icon}
           </div>)}
       </div>

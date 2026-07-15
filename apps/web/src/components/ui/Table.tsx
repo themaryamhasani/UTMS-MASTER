@@ -109,13 +109,13 @@ export function Table<T extends object>({ columns, data, loading = false, emptyM
         <LoadingState className="m-4"/>
       </div>);
     }
-    return (<div className="bg-white rounded-xl border border-gray-200">
+    return (<div className="min-w-0 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white">
       {(enableClientFilter || enableColumnChooser || enableExport) && (<div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 bg-white px-3 py-3">
-          {enableClientFilter && (<label className="relative min-w-[220px] flex-1 max-w-md">
+          {enableClientFilter && (<label className="relative min-w-0 basis-full flex-1 sm:basis-auto sm:min-w-[220px] sm:max-w-md">
               <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"/>
               <input value={clientFilter} onChange={(event) => setClientFilter(event.target.value)} className="w-full rounded-lg border border-gray-300 bg-white py-2 pr-9 pl-3 text-sm outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-100" placeholder="فیلتر سریع جدول..."/>
             </label>)}
-          <div className="flex flex-wrap items-start gap-2">
+          <div className="flex max-w-full flex-wrap items-start gap-2">
             {enableExport && (<button type="button" onClick={handleTableExport} disabled={visibleData.length === 0} className="flex items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 transition-colors hover:bg-green-100 disabled:opacity-50">
                 <Download className="h-4 w-4"/>
                 خروجی اکسل
@@ -125,7 +125,7 @@ export function Table<T extends object>({ columns, data, loading = false, emptyM
                   <SlidersHorizontal className="h-4 w-4"/>
                   ستون‌ها
                 </summary>
-                <div className="absolute left-0 z-30 mt-2 w-56 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
+                <div className="absolute left-0 z-30 mt-2 w-[min(14rem,calc(100vw-2rem))] rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
                   <div className="mb-2 px-2 text-xs font-medium text-gray-500">نمایش ستون‌ها</div>
                   <div className="max-h-64 space-y-1 overflow-y-auto">
                     {columns.map(column => {
@@ -141,18 +141,18 @@ export function Table<T extends object>({ columns, data, loading = false, emptyM
               </details>)}
           </div>
         </div>)}
-      <div className="overflow-x-auto">
-        <table className="w-full">
+      <div className="responsive-scroll max-w-full overflow-x-auto" role="region" aria-label="جدول داده‌ها؛ برای مشاهده ستون‌های بیشتر به طرفین پیمایش کنید" tabIndex={0}>
+        <table className="w-max min-w-full">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
-              {visibleColumns.map((column) => (<th key={column.key} className={cn('px-4 py-3 text-right text-sm font-semibold text-gray-700', column.sortable && 'cursor-pointer hover:bg-gray-100', column.className)} onClick={() => column.sortable && onSort?.(column.key)}>
+              {visibleColumns.map((column) => (<th key={column.key} className={cn('px-3 py-3 text-right text-sm font-semibold text-gray-700 sm:px-4', column.sortable && 'cursor-pointer hover:bg-gray-100', column.className)} onClick={() => column.sortable && onSort?.(column.key)}>
                   <div className="flex items-center gap-1"><span>{column.title}</span>{renderSortIcon(column)}</div>
                 </th>))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {visibleData.length === 0 ? (<tr><td colSpan={visibleColumns.length} className="px-4 py-8 text-center text-gray-500">{emptyMessage}</td></tr>) : (visibleData.map((item, index) => (<tr key={getStableRowKey(item, index)} className={cn('hover:bg-gray-50 transition-colors', onRowClick && 'cursor-pointer', rowClassName?.(item))} onClick={() => onRowClick?.(item)}>
-                  {visibleColumns.map((column) => (<td key={column.key} className={cn('px-4 py-3 text-sm text-gray-900', column.className)}>
+                  {visibleColumns.map((column) => (<td key={column.key} className={cn('max-w-[20rem] px-3 py-3 text-sm text-gray-900 sm:px-4', column.className)}>
                       {column.render ? column.render(item, index) : flattenSearchValue(getRecordValue(item, column.key))}
                     </td>))}
                 </tr>)))}
@@ -174,14 +174,14 @@ export const Pagination: React.FC<PaginationProps> = ({ page, totalPages, total,
     const start = (page - 1) * limit + 1;
     const end = Math.min(page * limit, total);
     const pageSizes = [10, 30, 70, 100];
-    return (<div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-white border-t border-gray-200 rounded-b-xl">
-      <div className="flex items-center gap-3">
+    return (<div className="flex flex-col items-stretch justify-between gap-3 rounded-b-xl border-t border-gray-200 bg-white px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:px-4">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm text-gray-500">نمایش {start} تا {end} از {total}</span>
         {onLimitChange && (<select value={limit} onChange={(e) => onLimitChange(Number(e.target.value))} className="px-2 py-1 text-sm border border-gray-300 rounded-lg bg-white">
             {pageSizes.map(s => <option key={s} value={s}>{s} ردیف</option>)}
           </select>)}
       </div>
-      <div className="flex gap-1.5">
+      <div className="responsive-scroll flex max-w-full justify-between gap-1.5 overflow-x-auto sm:justify-start">
         <button onClick={() => onPageChange(1)} disabled={page === 1} className="px-2.5 py-1.5 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">«</button>
         <button onClick={() => onPageChange(page - 1)} disabled={page === 1} className="px-3 py-1.5 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">قبلی</button>
         <span className="px-3 py-1.5 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg">
@@ -218,7 +218,6 @@ export function exportToExcel<T extends object>(data: T[], columns: Array<{
 export const ExportButton: React.FC<{
     onClick: () => void;
     disabled?: boolean | undefined;
-}> = ({ onClick, disabled }) => (<button onClick={onClick} disabled={disabled} className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-50 transition-colors">
+}> = ({ onClick, disabled }) => (<button onClick={onClick} disabled={disabled} className="flex max-w-full items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 transition-colors hover:bg-green-100 disabled:opacity-50">
     <Download className="w-4 h-4"/> خروجی اکسل
   </button>);
-

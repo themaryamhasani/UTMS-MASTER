@@ -51,7 +51,7 @@ export const ToastContainer: React.FC = () => {
     };
     if (toasts.length === 0)
         return null;
-    return (<div className="fixed top-4 left-4 z-[100] flex flex-col gap-2 max-w-sm" dir="rtl" role="status" aria-live="polite">
+    return (<div className="fixed inset-x-3 top-3 z-[100] flex max-w-sm flex-col gap-2 sm:inset-x-auto sm:left-4 sm:top-4" dir="rtl" role="status" aria-live="polite">
       {toasts.map((t) => (<div key={t.id} className={cn('flex items-start gap-3 p-4 rounded-xl border shadow-lg animate-fadeIn', bgColors[t.type])}>
           {icons[t.type]}
           <p className="text-sm text-gray-800 flex-1">{t.message}</p>
@@ -61,4 +61,3 @@ export const ToastContainer: React.FC = () => {
         </div>))}
     </div>);
 };
-

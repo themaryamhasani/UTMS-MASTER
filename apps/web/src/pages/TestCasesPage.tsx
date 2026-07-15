@@ -569,7 +569,7 @@ export const TestCasesPage: React.FC = () => {
         refreshing={loading}
       />
 
-      <main className="p-6">
+      <main className="p-4 sm:p-6">
         <Card className="mb-6" padding="sm">
           <div className="flex flex-wrap gap-4 items-center">
             {canCreate && <Button icon={<Plus className="w-4 h-4" />} onClick={() => { resetForm(); setShowCreateModal(true); }}>تست کیس جدید</Button>}
@@ -647,7 +647,7 @@ export const TestCasesPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 md:grid-cols-4">
               <div>
                 <p className="text-gray-500">نوع تست</p>
                 <p className="font-medium">{TEST_TYPE_LABELS[selectedCase.testType]}</p>
@@ -795,7 +795,7 @@ export const TestCasesPage: React.FC = () => {
             onChange={(e) => { clearFormError('expectedResult'); updateLimitedTextField('expectedResult', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.expectedResult}
           />
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5">
             <Select
               label="نوع تست"
               value={formData.testType}
@@ -950,7 +950,7 @@ export const TestCasesPage: React.FC = () => {
             onChange={(e) => { clearFormError('expectedResult'); updateLimitedTextField('expectedResult', e.target.value, TEST_CASE_BODY_MAX_LENGTH); }}
             error={formErrors.expectedResult}
           />
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5">
             <Select
               label="نوع تست"
               value={formData.testType}

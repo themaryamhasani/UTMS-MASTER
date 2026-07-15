@@ -47,7 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate, onLogo
     const handleLogout = () => {
         onLogoutRequest();
     };
-    return (<aside className="w-64 bg-white border-l border-gray-200 h-screen flex flex-col shadow-sm">
+    return (<aside className="flex h-dvh w-[min(18rem,calc(100vw-2rem))] flex-col border-l border-gray-200 bg-white shadow-sm sm:w-64">
       {/* Logo + Close on mobile */}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
@@ -95,11 +95,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate, onLogo
         </p>
         <ul className="space-y-0.5">
           {accessibleNavItems.map((item) => (<li key={item.id}>
-              <button type="button" onClick={() => onNavigate(item.id)} className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors', activePage === item.id
+              <button type="button" onClick={() => onNavigate(item.id)} className={cn('w-full min-w-0 flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-right transition-colors', activePage === item.id
                 ? 'bg-blue-50 text-blue-700 border border-blue-100'
                 : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900')}>
                 {item.icon}
-                <span>{item.label}</span>
+                <span className="min-w-0 break-words">{item.label}</span>
               </button>
             </li>))}
         </ul>
@@ -111,11 +111,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate, onLogo
             </p>
             <ul className="space-y-0.5">
               {accessibleAdminItems.map((item) => (<li key={item.id}>
-                  <button type="button" onClick={() => onNavigate(item.id)} className={cn('w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors', activePage === item.id
+                  <button type="button" onClick={() => onNavigate(item.id)} className={cn('w-full min-w-0 flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-right transition-colors', activePage === item.id
                     ? 'bg-blue-50 text-blue-700 border border-blue-100'
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900')}>
                     {item.icon}
-                    <span>{item.label}</span>
+                    <span className="min-w-0 break-words">{item.label}</span>
                   </button>
                 </li>))}
             </ul>
@@ -131,4 +131,3 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate, onLogo
       </div>
     </aside>);
 };
-

@@ -129,11 +129,16 @@ function AppShell() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gray-50" dir="rtl">
+    <div className="flex min-h-screen min-w-0 bg-gray-50" dir="rtl">
       {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+        <button
+          type="button"
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="بستن منوی کناری"
+        />
       )}
-      <div className={`fixed right-0 top-0 z-50 h-screen transition-transform duration-300 lg:translate-x-0
+      <div className={`fixed right-0 top-0 z-50 h-dvh max-w-[calc(100vw-2rem)] transition-transform duration-300 lg:translate-x-0
         ${sidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
         <Sidebar
           activePage={activePage}
@@ -141,15 +146,15 @@ function AppShell() {
           onLogoutRequest={() => setShowLogoutModal(true)}
         />
       </div>
-      <div className="flex-1 lg:mr-64 flex flex-col min-h-screen">
-        <div className="lg:hidden flex items-center justify-between p-4 bg-white border-b border-gray-200">
-          <button type="button" onClick={() => setSidebarOpen(true)} className="p-2 rounded-lg hover:bg-gray-100" aria-label="باز کردن منو">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:mr-64">
+        <div className="sticky top-0 z-30 flex items-center justify-between border-b border-gray-200 bg-white/95 px-4 py-3 backdrop-blur lg:hidden">
+          <button type="button" onClick={() => setSidebarOpen(true)} className="-mr-2 min-h-11 min-w-11 rounded-lg p-2 hover:bg-gray-100" aria-label="باز کردن منو">
             <Menu className="w-6 h-6 text-gray-700" />
           </button>
           <h1 className="text-lg font-bold text-gray-900">UTMS</h1>
           <div className="w-10" />
         </div>
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <Routes>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             {appRoutes.map(route => (
@@ -193,7 +198,7 @@ function NotFoundPage() {
   const navigate = useNavigate();
 
   return (
-    <main className="p-6">
+    <main className="p-4 sm:p-6">
       <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <p className="text-sm font-medium text-blue-600">404</p>
         <h1 className="mt-2 text-xl font-bold text-gray-900">صفحه پیدا نشد</h1>

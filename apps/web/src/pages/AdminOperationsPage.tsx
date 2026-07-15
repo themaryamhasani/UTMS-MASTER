@@ -281,7 +281,7 @@ export const AdminOperationsPage: React.FC = () => {
         }
       />
 
-      <main className="p-6">
+      <main className="p-4 sm:p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <StatCard title="Command Trace" value={commandData?.total || 0} icon={<Fingerprint className="w-6 h-6" />} />
           <StatCard title="Outbox در صف" value={outboxItems.filter(item => item.status === 'QUEUED').length} icon={<Bell className="w-6 h-6" />} variant="warning" />

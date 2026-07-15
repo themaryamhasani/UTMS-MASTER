@@ -402,7 +402,7 @@ export const PlaywrightPage: React.FC = () => {
         }
       />
 
-      <main className="p-6">
+      <main className="p-4 sm:p-6">
         {runnerConfig && !runnerConfig.enabled && (
           <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
             Runner Playwright در تنظیمات سیستم غیرفعال است. برای اجرای تست، System Admin باید Feature Flag مربوطه را فعال کند.
@@ -718,7 +718,7 @@ export const PlaywrightPage: React.FC = () => {
 
             {/* Results */}
             {selectedRun.totalTests !== undefined && (
-              <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5">
                 <div className="text-center p-4 bg-gray-50 rounded-lg">
                   <p className="text-2xl font-bold text-gray-900">{selectedRun.totalTests}</p>
                   <p className="text-sm text-gray-500">کل تست‌ها</p>
@@ -743,7 +743,7 @@ export const PlaywrightPage: React.FC = () => {
             )}
 
             {/* Info */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 md:grid-cols-4">
               <div>
                 <p className="text-gray-500">محیط</p>
                 <p className="font-medium">{selectedRun.environment}</p>

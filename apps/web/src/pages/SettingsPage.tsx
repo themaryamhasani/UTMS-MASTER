@@ -210,7 +210,7 @@ export const SettingsPage: React.FC = () => {
         subtitle="پیکربندی و تنظیمات"
       />
 
-      <main className="p-6">
+      <main className="p-4 sm:p-6">
         <div className="max-w-3xl mx-auto space-y-6">
           {sections.map((section) => (
             <Card key={section.id}>
@@ -438,7 +438,7 @@ export const SettingsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
               <div>
                 <p className="text-gray-500">نسخه سیستم</p>
                 <p className="font-mono font-medium">1.0.0-MVP</p>

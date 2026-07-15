@@ -249,7 +249,7 @@ export const RequirementsPage: React.FC = () => {
       <Header title="کارتابل نیازمندی‌ها" subtitle={`${data?.total || 0} نیازمندی`}
         onRefresh={loadData} refreshing={loading} />
 
-      <main className="p-6">
+      <main className="p-4 sm:p-6">
         {/* Item #8: Add button moved next to search */}
         <Card className="mb-6" padding="sm">
           <div className="flex flex-wrap gap-4 items-center">

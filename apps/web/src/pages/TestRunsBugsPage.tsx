@@ -1072,7 +1072,7 @@ export const TestRunsBugsPage: React.FC = () => {
                     </button>
                     {wizardPrevRunExpanded && (() => { const pr = getPrevRun()!; return (
                       <div className="p-4 bg-white border-t space-y-2 text-sm">
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <DetailField label="تست کیس" value={pr.testCase?.title} />
                           <DetailField label="وضعیت" value={TEST_RUN_STATUS_LABELS[pr.status]} />
                           <DetailField label="نسخه" value={pr.version} />
@@ -1186,7 +1186,7 @@ export const TestRunsBugsPage: React.FC = () => {
                 <Input label="عنوان باگ *" placeholder="عنوان" value={bug.title} onChange={(e) => { clearWizardError(`bug-${bug.id}-title`); updateBugEntry(bug.id, 'title', e.target.value); }} error={wizardErrors[`bug-${bug.id}-title`]} />
                 <Textarea label="توضیحات *" placeholder="شرح" value={bug.description} onChange={(e) => { clearWizardError(`bug-${bug.id}-description`); updateBugEntry(bug.id, 'description', e.target.value); }} error={wizardErrors[`bug-${bug.id}-description`]} />
                 <Textarea label="مراحل بازتولید *" placeholder="مراحل" value={bug.stepsToReproduce} onChange={(e) => { clearWizardError(`bug-${bug.id}-steps`); updateBugEntry(bug.id, 'stepsToReproduce', e.target.value); }} error={wizardErrors[`bug-${bug.id}-steps`]} />
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Select label="شدت" value={bug.severity} onChange={(e) => updateBugEntry(bug.id, 'severity', e.target.value as BugSeverity)} options={Object.entries(BUG_SEVERITY_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
                   <Select label="اولویت" value={bug.priority} onChange={(e) => updateBugEntry(bug.id, 'priority', e.target.value as Priority)} options={Object.entries(PRIORITY_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
                 </div>

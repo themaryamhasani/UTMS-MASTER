@@ -602,7 +602,7 @@ export const ReleasesPage: React.FC = () => {
           onRefresh={loadDeveloperReleaseRequests}
           refreshing={loading}
         />
-        <main className="p-6">
+        <main className="p-4 sm:p-6">
           <Card className="mb-6" padding="sm">
             <div className="flex flex-wrap gap-4 items-center">
               <CartableSearchInput
@@ -659,7 +659,7 @@ export const ReleasesPage: React.FC = () => {
         }
       />
 
-      <main className="p-6">
+      <main className="p-4 sm:p-6">
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <StatCard
@@ -893,7 +893,7 @@ export const ReleasesPage: React.FC = () => {
                   <Activity className="w-5 h-5 text-blue-500" />
                   وضعیت کیفیت
                 </h4>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5">
                   <button type="button" onClick={() => openEvidenceList('تست کیس‌ها', testCaseItems)} className="text-center p-3 bg-white rounded-lg border hover:border-blue-300 hover:bg-blue-50 transition-colors">
                     <p className="text-2xl font-bold text-gray-900">{selectedRelease.snapshot.totalTestCases}</p>
                     <p className="text-xs text-gray-500">تست کیس</p>
@@ -939,7 +939,7 @@ export const ReleasesPage: React.FC = () => {
                     <p className="text-xs text-gray-500">Retest کامل</p>
                   </button>
                 </div>
-                <div className="grid grid-cols-3 gap-4 mt-4">
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-gray-500">امنیت:</span>
                     {selectedRelease.snapshot.securityChecklistResult ? (
@@ -1190,7 +1190,7 @@ export const ReleasesPage: React.FC = () => {
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
               <p className="font-medium text-blue-900 mb-2">{primaryRequestDetails.title}</p>
               {primaryRequestDetails.description && <p className="text-gray-700 mb-2">{primaryRequestDetails.description}</p>}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <span>نسخه: <strong>{primaryRequestDetails.version}</strong></span>
                 <span>بیلد: <strong>{primaryRequestDetails.buildNumber || '-'}</strong></span>
                 <span>محیط: <strong>{primaryRequestDetails.environment}</strong></span>

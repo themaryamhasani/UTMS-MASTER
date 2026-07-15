@@ -2455,7 +2455,7 @@ export const OnlineApiConsolePage: React.FC = () => {
                             label="Body"
                             value={selectedRequest.bodyTemplate}
                             onChange={(event) => updateDraft(request => ({ ...request, bodyTemplate: event.target.value }))}
-                            className="min-h-[320px] text-left font-mono"
+                            className="min-h-48 text-left font-mono sm:min-h-[320px]"
                             dir="ltr"
                           />
                         )}
@@ -2728,7 +2728,7 @@ export const OnlineApiConsolePage: React.FC = () => {
                 <p className="mt-2 text-sm text-gray-600">{repositoryDetail.description || '-'}</p>
                 <p className="mt-2 font-mono text-xs text-gray-500" dir="ltr">{repositoryDetail.method} {repositoryDetail.urlTemplate}</p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <InfoTile label="API ID" value={repositoryDetail.apiId} />
                 <InfoTile label="Version" value={repositoryDetail.version} />
                 <InfoTile label="Classification" value={repositoryDetail.classification.type} />
@@ -2754,7 +2754,7 @@ export const OnlineApiConsolePage: React.FC = () => {
                   consumers: repositoryDetail.consumers,
                   shareRequest: repositoryDetail.shareRequest,
                 }, null, 2)}
-                minHeight="min-h-[520px]"
+                minHeight="min-h-48 sm:min-h-[520px]"
               />
             </div>
           </div>
@@ -3011,7 +3011,7 @@ export const OnlineApiConsolePage: React.FC = () => {
       <Modal isOpen={selfCheckOpen} onClose={() => setSelfCheckOpen(false)} title="تست داخلی API Console" size="xl">
         {selfCheck && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <StatCard title="Passed" value={selfCheck.passed} variant="success" icon={<CheckCircle className="h-6 w-6" />} />
               <StatCard title="Failed" value={selfCheck.failed} variant={selfCheck.failed ? 'danger' : 'success'} icon={<XCircle className="h-6 w-6" />} />
             </div>
@@ -3056,7 +3056,7 @@ const KeyValueEditor = ({
       </div>
       <div className="space-y-2">
         {rows.map((row, index) => (
-          <div key={row.id} className="grid grid-cols-[44px_1fr_1fr_100px_44px] gap-2 rounded-lg border border-gray-200 p-2">
+          <div key={row.id} className="grid grid-cols-1 gap-2 rounded-lg border border-gray-200 p-2 lg:grid-cols-[44px_1fr_1fr_100px_44px]">
             <input type="checkbox" checked={row.enabled} onChange={(event) => update(row.id, { enabled: event.target.checked })} className="m-auto" />
             <input value={row.name} onChange={(event) => update(row.id, { name: event.target.value })} placeholder="name" className="rounded border border-gray-300 px-2 py-1 text-sm" />
             <input value={row[valueKey]} onChange={(event) => update(row.id, { [valueKey]: event.target.value })} placeholder="value" className="rounded border border-gray-300 px-2 py-1 text-sm" />
@@ -3256,7 +3256,7 @@ const ScriptsPanel = ({
           <Textarea
             value={scripts.preRequest}
             onChange={(event) => update({ preRequest: event.target.value })}
-            className="min-h-[360px] text-left font-mono"
+            className="min-h-48 text-left font-mono sm:min-h-[360px]"
             dir="ltr"
           />
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
@@ -3283,7 +3283,7 @@ const ScriptsPanel = ({
           <Textarea
             value={scripts.postResponse}
             onChange={(event) => update({ postResponse: event.target.value })}
-            className="min-h-[360px] text-left font-mono"
+            className="min-h-48 text-left font-mono sm:min-h-[360px]"
             dir="ltr"
           />
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
@@ -3615,7 +3615,7 @@ const ResponsePanel = ({
         <p className="text-sm text-gray-500">برای مشاهده response metadata و body، Request را Execute کنید.</p>
       ) : (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
             <InfoTile label="HTTP" value={execution.statusCode ? String(execution.statusCode) : '-'} />
             <InfoTile label="Duration" value={`${execution.durationMs || 0}ms`} />
             <InfoTile label="Size" value={`${execution.responseSize || 0} bytes`} />
@@ -3747,7 +3747,7 @@ const RevisionSnapshotPanel = ({ review }: { review: ApiShareRequest }) => {
   const latestExecution = executions[0];
 
   return (
-    <div className="max-h-[calc(100vh-13rem)] space-y-3 overflow-y-auto pl-1">
+    <div className="space-y-3 xl:max-h-[calc(100dvh-13rem)] xl:overflow-y-auto xl:pl-1">
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
@@ -3775,7 +3775,7 @@ const RevisionSnapshotPanel = ({ review }: { review: ApiShareRequest }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <SnapshotMetric label="API ID" value={asText(snapshot.apiId || review.apiId)} />
         <SnapshotMetric label="Version" value={`v${asText(snapshot.version || review.version)}`} />
         <SnapshotMetric label="Environment" value={asText(snapshot.environmentId)} />
@@ -3801,7 +3801,7 @@ const RevisionSnapshotPanel = ({ review }: { review: ApiShareRequest }) => {
 
       <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
         <SnapshotSection title="Classification و Transport">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <SnapshotMetric label="Type" value={asText(classification.type)} />
             <SnapshotMetric label="Service ID" value={asText(classification.serviceId)} />
             <SnapshotMetric label="Operation" value={asText(classification.operationPath)} />
@@ -3811,7 +3811,7 @@ const RevisionSnapshotPanel = ({ review }: { review: ApiShareRequest }) => {
         </SnapshotSection>
 
         <SnapshotSection title="Evidence">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <SnapshotMetric label="Execution" value={String(executions.length)} />
             <SnapshotMetric label="Manual Response" value={String(manualResponses.length)} />
             <SnapshotMetric label="Assertions" value={String(assertions.length)} />
@@ -3849,7 +3849,7 @@ const RevisionSnapshotPanel = ({ review }: { review: ApiShareRequest }) => {
 
         <SnapshotSection title="Body و Authentication">
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <SnapshotMetric label="Body Type" value={asText(requestBody.type || snapshot.bodyType || '-')} />
               <SnapshotMetric label="Auth Type" value={asText(authentication.type || 'none')} />
             </div>
@@ -3865,7 +3865,7 @@ const RevisionSnapshotPanel = ({ review }: { review: ApiShareRequest }) => {
         <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
           {documentationPreview ? (
             <SnapshotSection title="Documentation Preview">
-              <div className="mb-2 grid grid-cols-2 gap-2">
+              <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <SnapshotMetric label="Title" value={asText(documentation.title || snapshot.title || review.apiTitle)} mono={false} />
                 <SnapshotMetric label="Owner" value={asText(documentation.owner)} />
               </div>
@@ -4147,7 +4147,7 @@ const ImportPostmanCollectionModal = ({
           label="یا JSON کالکشن را paste کنید"
           value={text}
           onChange={(event) => onText(event.target.value)}
-          className="min-h-[420px] text-left font-mono"
+          className="min-h-48 text-left font-mono sm:min-h-[420px]"
           dir="ltr"
         />
         <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-700">
@@ -4160,12 +4160,12 @@ const ImportPostmanCollectionModal = ({
       </div>
       <div className="space-y-3">
         {!preview ? (
-          <div className="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed border-gray-300 text-sm text-gray-500">
+          <div className="flex min-h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 text-sm text-gray-500 sm:min-h-[520px]">
             فایل یا JSON را وارد کنید و Preview بزنید.
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <InfoTile label="Collection" value={preview.name} />
               <InfoTile label="Requests" value={String(preview.requestCount)} />
               <InfoTile label="Variables" value={String(preview.variables.length)} />
@@ -4286,7 +4286,7 @@ const ImportCurlModal = ({
           label="cURL command را وارد کنید"
           value={curlText}
           onChange={(event) => onText(event.target.value)}
-          className="min-h-[420px] text-left font-mono"
+          className="min-h-48 text-left font-mono sm:min-h-[420px]"
           dir="ltr"
         />
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600">
@@ -4310,13 +4310,13 @@ const ImportCurlModal = ({
           ))}
         </div>
         {!preview ? (
-          <div className="flex min-h-[420px] items-center justify-center rounded-lg border border-dashed border-gray-300 text-sm text-gray-500">
+          <div className="flex min-h-48 items-center justify-center rounded-lg border border-dashed border-gray-300 text-sm text-gray-500 sm:min-h-[420px]">
             برای review کردن normalized request قبل از Import، یک cURL command را Parse کنید.
           </div>
         ) : (
           <div className="space-y-3">
             {previewSubtab === 'summary' && (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <InfoTile label="Dialect" value={preview.detectedDialect} />
                 <InfoTile label="Method" value={preview.effectiveMethod} />
                 <InfoTile label="URL" value={preview.url} />
@@ -4331,10 +4331,10 @@ const ImportCurlModal = ({
                 <InfoTile label="Parser" value={preview.parserVersion} />
               </div>
             )}
-            {previewSubtab === 'original' && <CodeBlock value={preview.originalCurl} minHeight="min-h-[420px]" />}
-            {previewSubtab === 'normalized' && <CodeBlock value={JSON.stringify(preview.normalizedRequest, null, 2)} minHeight="min-h-[420px]" />}
+            {previewSubtab === 'original' && <CodeBlock value={preview.originalCurl} minHeight="min-h-48 sm:min-h-[420px]" />}
+            {previewSubtab === 'normalized' && <CodeBlock value={JSON.stringify(preview.normalizedRequest, null, 2)} minHeight="min-h-48 sm:min-h-[420px]" />}
             {previewSubtab === 'warnings' && (
-              <div className="min-h-[420px] space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="min-h-48 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3 sm:min-h-[420px]">
                 {preview.warnings.length || preview.unsupportedOptions.length ? (
                   [...preview.warnings, ...preview.unsupportedOptions.map(option => `Unsupported option: ${option}`)].map((warning, index) => (
                     <div key={`${warning}-${index}`} className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm text-amber-700">
@@ -4398,7 +4398,7 @@ const DocumentationModal = ({
           Markdown
         </Button>
       </div>
-      <CodeBlock value={markdown} minHeight="min-h-[560px]" />
+      <CodeBlock value={markdown} minHeight="min-h-48 sm:min-h-[560px]" />
     </div>
   </Modal>
 );

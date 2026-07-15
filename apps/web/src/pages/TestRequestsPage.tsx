@@ -314,12 +314,12 @@ export const TestRequestsPage: React.FC = () => {
     <div className="space-y-4">
       <Input label="عنوان درخواست *" value={fTitle} onChange={(e) => handleTitleChange(e.target.value)} placeholder="عنوان درخواست تست" error={fieldErrors.title} />
       <Textarea label="توضیحات" value={fDesc} onChange={(e) => setFDesc(e.target.value)} placeholder="توضیحات" />
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input label="نسخه *" value={fVersion} onChange={(e) => handleVersionChange(e.target.value)} placeholder="مثال: 2.5.0" error={fieldErrors.version} />
         <Input label="شماره بیلد" value={fBuild} onChange={(e) => handleBuildChange(e.target.value)} placeholder="مثال: build-1234" error={fieldErrors.buildNumber} />
       </div>
       <Input label="آدرس سامانه" value={fUrl} onChange={(e) => handleSystemUrlChange(e.target.value)} placeholder="https://app.example.com" error={fieldErrors.systemUrl} />
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Select label="محیط" value={fEnv} onChange={(e) => setFEnv(e.target.value)} options={[{ value: 'development', label: 'توسعه' }, { value: 'staging', label: 'آزمایشی' }, { value: 'production', label: 'تولید' }]} />
         <Select label="اولویت" value={fPriority} onChange={(e) => setFPriority(e.target.value as Priority)} options={Object.entries(PRIORITY_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
         <Select label="سطح ریسک" value={fRisk} onChange={(e) => setFRisk(e.target.value as Priority)} options={Object.entries(PRIORITY_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
@@ -367,7 +367,7 @@ export const TestRequestsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <Header title="کارتابل درخواست‌های تست" subtitle={`${data?.total || 0} درخواست`} onRefresh={loadData} refreshing={loading} />
-      <main className="p-6">
+      <main className="p-4 sm:p-6">
         <Card className="mb-6" padding="sm">
           <div className="flex flex-wrap gap-4 items-center">
             {canCreate && <Button icon={<Plus className="w-4 h-4" />} onClick={() => { resetForm(); setShowCreateModal(true); }}>درخواست جدید</Button>}
@@ -537,7 +537,7 @@ export const TestRequestsPage: React.FC = () => {
             <button onClick={() => setDetailTab('history')} className={`px-4 py-2 text-sm font-medium border-b-2 ${detailTab === 'history' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500'}`}>تاریخچه</button></div>
           {detailTab === 'info' && <>
             <div className="flex items-start justify-between"><div><h3 className="text-lg font-semibold text-gray-900">{selectedRequest.title}</h3>{selectedRequest.description && <p className="text-sm text-gray-500 mt-1">{selectedRequest.description}</p>}</div><StatusBadge status={selectedRequest.status} labels={TEST_REQUEST_STATUS_LABELS} /></div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+            <div className="grid grid-cols-1 gap-4 rounded-lg bg-gray-50 p-4 sm:grid-cols-2 md:grid-cols-4">
               <div><p className="text-xs text-gray-500">نسخه</p><p className="font-medium">{selectedRequest.version}</p></div>
               <div><p className="text-xs text-gray-500">شماره بیلد</p><p className="font-medium">{selectedRequest.buildNumber || '-'}</p></div>
               <div><p className="text-xs text-gray-500">محیط</p><p className="font-medium">{envLabels[selectedRequest.environment] || selectedRequest.environment}</p></div>

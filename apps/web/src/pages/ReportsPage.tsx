@@ -794,7 +794,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== OVERVIEW ===== */}
             {selectedReport === 'overview' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="درخواست‌های تست" value={reportData.testRequests.total} icon={<FileText className="w-6 h-6" />} />
                   <StatCard title="درخواست‌های باز" value={reportData.testRequests.open} icon={<Clock className="w-6 h-6" />} variant="warning" />
                   <StatCard title="تست کیس‌ها" value={reportData.testCases.total} icon={<CheckCircle className="w-6 h-6" />} />
@@ -915,7 +915,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== QUALITY HEALTH ===== */}
             {selectedReport === 'quality-health' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="نرخ موفقیت تست" value={`${reportData.passRate}%`} icon={<CheckCircle className="w-6 h-6" />} variant="success" />
                   <StatCard title="نرخ شکست تست" value={`${reportData.failRate}%`} icon={<XCircle className="w-6 h-6" />} variant="danger" />
                   <StatCard title="نرخ Blocked" value={`${reportData.blockedRate}%`} icon={<AlertTriangle className="w-6 h-6" />} variant="warning" />
@@ -971,7 +971,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== REQUIREMENTS ===== */}
             {selectedReport === 'requirements' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="کل نیازمندی‌ها" value={reportData.total} icon={<FileText className="w-6 h-6" />} />
                   <StatCard title="Draft" value={reportData.draft} variant="warning" icon={<Clock className="w-6 h-6" />} />
                   <StatCard title="تکمیل شده" value={reportData.completed} variant="success" icon={<CheckCircle className="w-6 h-6" />} />
@@ -993,7 +993,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== TEST RUNS ===== */}
             {selectedReport === 'test-runs' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="کل اجراها" value={reportData.total} icon={<PlayCircle className="w-6 h-6" />} />
                   <StatCard title="موفق" value={reportData.passed} variant="success" icon={<CheckCircle className="w-6 h-6" />} />
                   <StatCard title="ناموفق" value={reportData.failed} variant="danger" icon={<XCircle className="w-6 h-6" />} />
@@ -1029,7 +1029,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== TEST REQUESTS ===== */}
             {selectedReport === 'test-requests' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="کل درخواست‌ها" value={reportData.total} icon={<FileText className="w-6 h-6" />} />
                   <StatCard title="درخواست‌های باز" value={reportData.open} icon={<Clock className="w-6 h-6" />} variant="warning" />
                   <StatCard title="تکمیل شده" value={reportData.completed} icon={<CheckCircle className="w-6 h-6" />} variant="success" />
@@ -1088,7 +1088,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== TEST CASES ===== */}
             {selectedReport === 'test-cases' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="کل تست کیس‌ها" value={reportData.total} icon={<CheckCircle className="w-6 h-6" />} />
                   <StatCard title="آماده اجرا" value={reportData.ready} variant="success" icon={<PlayCircle className="w-6 h-6" />} />
                   <StatCard title="پرریسک" value={reportData.highRisk} variant="danger" icon={<AlertTriangle className="w-6 h-6" />} />
@@ -1108,7 +1108,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== RELEASES ===== */}
             {selectedReport === 'releases' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="کل VersionHistory" value={reportData.total} icon={<Rocket className="w-6 h-6" />} />
                   <StatCard title="تأیید شده" value={reportData.approved} variant="success" icon={<CheckCircle className="w-6 h-6" />} />
                   <StatCard title="مشروط" value={reportData.conditional} variant="warning" icon={<AlertTriangle className="w-6 h-6" />} />
@@ -1144,7 +1144,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== EMERGENCY PUBLISH ===== */}
             {selectedReport === 'emergency' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
                   <StatCard title="Tag اضطراری" value={reportData.total} variant="danger" icon={<AlertTriangle className="w-6 h-6" />} />
                   <StatCard title="کل VersionHistory" value={reportData.totalReleases} icon={<Rocket className="w-6 h-6" />} />
                   <StatCard title="نسبت اضطراری" value={`${reportData.emergencyRate}%`} icon={<TrendingUp className="w-6 h-6" />} />
@@ -1164,7 +1164,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== CHECKLISTS ===== */}
             {selectedReport === 'checklists' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="کل چک‌لیست‌ها" value={reportData.total} icon={<ShieldCheck className="w-6 h-6" />} />
                   <StatCard title="تکمیل شده" value={reportData.completed} variant="success" icon={<CheckCircle className="w-6 h-6" />} />
                   <StatCard title="در انتظار" value={reportData.pending} variant="warning" icon={<Clock className="w-6 h-6" />} />
@@ -1185,7 +1185,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== PLAYWRIGHT ===== */}
             {selectedReport === 'playwright' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="کل اجراها" value={reportData.total} icon={<Terminal className="w-6 h-6" />} />
                   <StatCard title="موفق" value={reportData.passed} variant="success" icon={<CheckCircle className="w-6 h-6" />} />
                   <StatCard title="ناموفق" value={reportData.failed} variant="danger" icon={<XCircle className="w-6 h-6" />} />
@@ -1206,7 +1206,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== ATTACHMENTS ===== */}
             {selectedReport === 'attachments' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="کل پیوست‌ها" value={reportData.total} icon={<Paperclip className="w-6 h-6" />} />
                   <StatCard title="حجم کل" value={`${Math.round(reportData.totalSize / 1024)} KB`} icon={<Paperclip className="w-6 h-6" />} />
                   <StatCard title="معتبر" value={reportData.valid} variant="success" icon={<CheckCircle className="w-6 h-6" />} />
@@ -1227,7 +1227,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== USERS & ROLES ===== */}
             {selectedReport === 'users-roles' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="کل کاربران" value={reportData.totalUsers} icon={<Users className="w-6 h-6" />} />
                   <StatCard title="فعال" value={reportData.activeUsers} variant="success" icon={<CheckCircle className="w-6 h-6" />} />
                   <StatCard title="غیرفعال" value={reportData.inactiveUsers} variant="danger" icon={<XCircle className="w-6 h-6" />} />
@@ -1253,7 +1253,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== AUDIT ===== */}
             {selectedReport === 'audit' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="کل رویدادها" value={reportData.total} icon={<History className="w-6 h-6" />} />
                   <StatCard title="ایجاد" value={reportData.byAction.create ?? 0} icon={<FileText className="w-6 h-6" />} />
                   <StatCard title="تغییر وضعیت" value={reportData.byAction.statusChange ?? 0} icon={<RefreshCw className="w-6 h-6" />} />
@@ -1273,7 +1273,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== PRODUCT QUALITY ===== */}
             {selectedReport === 'product-quality' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="درخواست‌های فعال" value={reportData.activeRequests} icon={<FileText className="w-6 h-6" />} />
                   <StatCard title="آماده تصمیم انتشار" value={reportData.readyForRelease} variant="success" icon={<Rocket className="w-6 h-6" />} />
                   <StatCard title="نرخ موفقیت" value={`${reportData.testPassRate}%`} variant="success" icon={<TrendingUp className="w-6 h-6" />} />
@@ -1293,7 +1293,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== FLOW COVERAGE ===== */}
             {selectedReport === 'flow-coverage' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3">
                   <StatCard title="کل Flowها" value={reportData.totalFlows} icon={<FileText className="w-6 h-6" />} />
                   <StatCard title="دارای Test Case" value={reportData.withTestCase} variant="success" icon={<CheckCircle className="w-6 h-6" />} />
                   <StatCard title="بدون Test Case" value={reportData.withoutTestCase} variant="danger" icon={<XCircle className="w-6 h-6" />} />
@@ -1311,7 +1311,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== TRACEABILITY ===== */}
             {selectedReport === 'traceability' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-5">
                   <StatCard title="نیازمندی‌ها" value={reportData.totalRequirements} icon={<FileText className="w-6 h-6" />} />
                   <StatCard title="دارای Flow" value={reportData.withFlow} icon={<GitBranch className="w-6 h-6" />} variant="success" />
                   <StatCard title="دارای Test Case" value={reportData.withTestCase} icon={<CheckCircle className="w-6 h-6" />} variant="success" />
@@ -1338,7 +1338,7 @@ export const ReportsPage: React.FC = () => {
             {/* ===== API USAGE ===== */}
             {selectedReport === 'api-usage' && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
                   <StatCard title="کل رویدادها" value={reportData.summary?.total || 0} icon={<Braces className="w-6 h-6" />} variant="primary" />
                   <StatCard title="API یکتا" value={reportData.summary?.uniqueApis || 0} icon={<GitBranch className="w-6 h-6" />} />
                   <StatCard title="کاربر یکتا" value={reportData.summary?.uniqueUsers || 0} icon={<Users className="w-6 h-6" />} />

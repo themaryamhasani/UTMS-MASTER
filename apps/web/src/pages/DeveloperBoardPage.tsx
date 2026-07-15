@@ -324,7 +324,7 @@ export const DeveloperBoardPage: React.FC = () => {
     );
     if (bug.status === 'ASSIGNED') {
       return (
-        <div className="flex flex-wrap gap-2">
+        <div className="developer-card-actions flex flex-wrap gap-2">
           <Button size="sm" icon={<PlayCircle className="w-4 h-4" />} onClick={() => changeStatus(bug, 'IN_PROGRESS')} loading={actionLoading}>
             شروع رفع
           </Button>
@@ -337,7 +337,7 @@ export const DeveloperBoardPage: React.FC = () => {
     }
     if (bug.status === 'IN_PROGRESS') {
       return (
-        <div className="flex flex-wrap gap-2">
+        <div className="developer-card-actions flex flex-wrap gap-2">
           <Button size="sm" icon={<Send className="w-4 h-4" />} onClick={() => openFix(bug)}>
             رفع شد
           </Button>
@@ -347,7 +347,7 @@ export const DeveloperBoardPage: React.FC = () => {
     }
     if (['RETEST_FAILED', 'REOPENED'].includes(bug.status)) {
       return (
-        <div className="flex flex-wrap gap-2">
+        <div className="developer-card-actions flex flex-wrap gap-2">
           <Button size="sm" icon={<ArrowRight className="w-4 h-4" />} onClick={() => changeStatus(bug, 'IN_PROGRESS')} loading={actionLoading}>
             شروع مجدد
           </Button>
@@ -356,7 +356,7 @@ export const DeveloperBoardPage: React.FC = () => {
       );
     }
     return (
-      <div className="flex flex-wrap gap-2 items-center">
+      <div className="developer-card-actions flex flex-wrap gap-2 items-center">
         <Badge variant="success" size="sm">منتظر QA</Badge>
         {noActionButton}
       </div>
@@ -375,7 +375,7 @@ export const DeveloperBoardPage: React.FC = () => {
       />
 
       <main className="p-4 sm:p-6 space-y-5">
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+        <div className="responsive-stat-grid gap-3" aria-label="خلاصه وضعیت ستون‌های برد">
           {BOARD_COLUMNS.map(column => (
             <Card key={column.id} className={column.accent} padding="sm">
               <div className="flex items-center justify-between">
@@ -389,7 +389,7 @@ export const DeveloperBoardPage: React.FC = () => {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-4 items-start">
+        <div className="responsive-grid items-start gap-4" aria-label="ستون‌های برد توسعه">
           {BOARD_COLUMNS.map(column => {
             const columnBugs = bugs.filter(bug => column.statuses.includes(bug.status));
             return (
@@ -398,7 +398,7 @@ export const DeveloperBoardPage: React.FC = () => {
                 onDragOver={(event) => { event.preventDefault(); setDropColumnId(column.id); }}
                 onDragLeave={() => setDropColumnId(prev => prev === column.id ? null : prev)}
                 onDrop={(event) => handleDropOnColumn(event, column)}
-                className={`rounded-xl border p-3 min-h-[360px] transition-all ${column.accent} ${dropColumnId === column.id ? 'ring-2 ring-blue-400 ring-offset-2' : ''}`}
+                className={`min-h-48 min-w-0 rounded-xl border p-3 transition-all sm:min-h-[360px] ${column.accent} ${dropColumnId === column.id ? 'ring-2 ring-blue-400 ring-offset-2' : ''}`}
               >
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div>
@@ -421,19 +421,19 @@ export const DeveloperBoardPage: React.FC = () => {
                       draggable={!bug.isLocked}
                       onDragStart={(event) => handleDragStart(event, bug.id)}
                       onDragEnd={() => { setDraggedBugId(null); setDropColumnId(null); }}
-                      className={`bg-white rounded-lg border border-gray-200 p-3 shadow-sm space-y-3 transition-all duration-200 cursor-grab active:cursor-grabbing ${
+                      className={`min-w-0 space-y-3 rounded-lg border border-gray-200 bg-white p-3 shadow-sm transition-all duration-200 md:cursor-grab md:active:cursor-grabbing ${
                         draggedBugId === bug.id ? 'opacity-75 scale-[0.98] rotate-1 ring-2 ring-blue-400 shadow-lg' : 'hover:-translate-y-0.5 hover:shadow-md'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <h4 className="font-medium text-gray-900 leading-6">{bug.title}</h4>
-                          <p className="text-xs text-gray-500 mt-1">اجرا: {getBugRunLabel(bug)}</p>
+                          <h4 className="break-words font-medium leading-6 text-gray-900">{bug.title}</h4>
+                          <p className="mt-1 break-words text-xs text-gray-500">اجرا: {getBugRunLabel(bug)}</p>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <span
                             title="کارت را بکشید و در ستون مقصد رها کنید"
-                            className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                            className="hidden rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 md:inline-flex"
                           >
                             <GripVertical className="w-4 h-4" />
                           </span>
@@ -471,9 +471,9 @@ export const DeveloperBoardPage: React.FC = () => {
           </div>
           <Input label="نسخه رفع *" value={fixVersion} onChange={(e) => handleFixVersionChange(e.target.value)} placeholder="2.5.1" error={formErrors.fixVersion} />
           <Textarea label="یادداشت رفع" value={fixNotes} onChange={(e) => setFixNotes(e.target.value)} placeholder="توضیح کوتاه درباره تغییر انجام‌شده..." />
-          <div className="flex justify-end gap-3 pt-3 border-t">
-            <Button variant="secondary" onClick={() => setShowFixModal(false)}>انصراف</Button>
-            <Button icon={<Send className="w-4 h-4" />} onClick={submitFix} loading={actionLoading} disabled={!fixVersion.trim() || actionLoading}>
+          <div className="flex flex-wrap justify-end gap-3 border-t pt-3">
+            <Button className="flex-1 sm:flex-none" variant="secondary" onClick={() => setShowFixModal(false)}>انصراف</Button>
+            <Button className="flex-1 sm:flex-none" icon={<Send className="w-4 h-4" />} onClick={submitFix} loading={actionLoading} disabled={!fixVersion.trim() || actionLoading}>
               آماده تست
             </Button>
           </div>
@@ -487,9 +487,9 @@ export const DeveloperBoardPage: React.FC = () => {
             <p className="text-xs text-red-600 mt-1">برای ثبت باگ نبودن، دلیل قابل پیگیری ثبت کنید.</p>
           </div>
           <Textarea label="دلیل باگ نبودن *" value={rejectReason} onChange={(e) => { setFormErrors({}); setRejectReason(e.target.value); }} placeholder="چرا این مورد باگ نیست؟" error={formErrors.rejectReason} />
-          <div className="flex justify-end gap-3 pt-3 border-t">
-            <Button variant="secondary" onClick={() => setShowRejectModal(false)}>انصراف</Button>
-            <Button variant="danger" icon={<XCircle className="w-4 h-4" />} onClick={submitReject} loading={actionLoading} disabled={!rejectReason.trim() || actionLoading}>
+          <div className="flex flex-wrap justify-end gap-3 border-t pt-3">
+            <Button className="flex-1 sm:flex-none" variant="secondary" onClick={() => setShowRejectModal(false)}>انصراف</Button>
+            <Button className="flex-1 sm:flex-none" variant="danger" icon={<XCircle className="w-4 h-4" />} onClick={submitReject} loading={actionLoading} disabled={!rejectReason.trim() || actionLoading}>
               ثبت باگ نیست
             </Button>
           </div>
@@ -509,9 +509,9 @@ export const DeveloperBoardPage: React.FC = () => {
             placeholder="چرا این مورد نیاز به اقدام توسعه ندارد؟"
             error={formErrors.noActionReason}
           />
-          <div className="flex justify-end gap-3 pt-3 border-t">
-            <Button variant="secondary" onClick={() => setShowNoActionModal(false)}>انصراف</Button>
-            <Button variant="secondary" icon={<CornerDownRight className="w-4 h-4" />} onClick={submitNoAction} loading={actionLoading} disabled={!noActionReason.trim() || actionLoading}>
+          <div className="flex flex-wrap justify-end gap-3 border-t pt-3">
+            <Button className="flex-1 sm:flex-none" variant="secondary" onClick={() => setShowNoActionModal(false)}>انصراف</Button>
+            <Button className="flex-1 sm:flex-none" variant="secondary" icon={<CornerDownRight className="w-4 h-4" />} onClick={submitNoAction} loading={actionLoading} disabled={!noActionReason.trim() || actionLoading}>
               ثبت بدون نیاز به اقدام
             </Button>
           </div>
