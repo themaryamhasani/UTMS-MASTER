@@ -60,13 +60,13 @@ export const StatCard: React.FC<StatCardProps> = ({ title, value, icon, trend, v
     return (<div className={cn('rounded-xl border p-4', variants[variant])}>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-gray-500 mb-1">{title}</p>
+          <p className="text-sm text-gray-700 mb-1">{title}</p>
           <p className="text-2xl font-bold text-gray-900">{value}</p>
           {trend && (<div className="flex items-center mt-1 text-sm">
               <span className={trend.positive ? 'text-green-600' : 'text-red-600'}>
                 {trend.positive ? '↑' : '↓'} {trend.value}%
               </span>
-              <span className="text-gray-500 mr-1">{trend.label}</span>
+              <span className="text-gray-700 mr-1">{trend.label}</span>
             </div>)}
         </div>
         {icon && (<div className={cn('p-2 rounded-lg', iconVariants[variant])}>
@@ -75,4 +75,3 @@ export const StatCard: React.FC<StatCardProps> = ({ title, value, icon, trend, v
       </div>
     </div>);
 };
-

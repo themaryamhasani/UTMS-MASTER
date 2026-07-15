@@ -6,7 +6,7 @@ const args = process.argv.slice(2);
 const write = args.includes('--write');
 const targetArg = args.find(arg => arg !== '--write') || '.';
 const target = path.resolve(root, targetArg);
-const ignoredDirectories = new Set(['node_modules', '.git', 'dist', 'coverage', 'artifacts', 'runtime']);
+const ignoredDirectories = new Set(['node_modules', '.git', 'dist', 'coverage', 'artifacts', 'runtime', '.auth', 'test-results', 'playwright-report']);
 const formattedExtensions = new Set(['.cjs', '.js', '.ts', '.tsx', '.json', '.md', '.yml', '.yaml']);
 const failures = [];
 

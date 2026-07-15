@@ -33,14 +33,17 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
     hint?: string | undefined;
 }
 export const Input: React.FC<InputProps> = ({ label, error, hint, className, id, onPaste, value, ...props }) => {
-    const inputId = id || label?.replace(/\s/g, '-').toLowerCase();
+    const generatedId = React.useId();
+    const inputId = id || `utms-input-${generatedId.replace(/:/g, '')}`;
+    const errorId = `${inputId}-error`;
+    const hintId = `${inputId}-hint`;
     return (<div className="w-full">
       {label && (<label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1">
           {label}
         </label>)}
-      <input id={inputId} className={cn('w-full px-3 py-2 border rounded-lg text-gray-900 placeholder-gray-400', 'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'disabled:bg-gray-100 disabled:cursor-not-allowed', error ? 'border-red-500' : 'border-gray-300', className)} value={value} onPaste={(event) => pasteIntoControlledField(event, value, onPaste)} {...props}/>
-      {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
-      {hint && !error && <p className="mt-1 text-sm text-gray-500">{hint}</p>}
+      <input id={inputId} aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : hint ? hintId : undefined} className={cn('w-full px-3 py-2 border rounded-lg text-gray-900 placeholder-gray-400', 'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'disabled:bg-gray-100 disabled:cursor-not-allowed', error ? 'border-red-500' : 'border-gray-300', className)} value={value} onPaste={(event) => pasteIntoControlledField(event, value, onPaste)} {...props}/>
+      {error && <p id={errorId} role="alert" className="mt-1 text-sm text-red-600">{error}</p>}
+      {hint && !error && <p id={hintId} className="mt-1 text-sm text-gray-500">{hint}</p>}
     </div>);
 };
 interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -49,7 +52,9 @@ interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement
     showCounter?: boolean | undefined;
 }
 export const Textarea: React.FC<TextareaProps> = ({ label, error, className, id, onPaste, value, maxLength, showCounter, ...props }) => {
-    const inputId = id || label?.replace(/\s/g, '-').toLowerCase();
+    const generatedId = React.useId();
+    const inputId = id || `utms-textarea-${generatedId.replace(/:/g, '')}`;
+    const errorId = `${inputId}-error`;
     const autoLimitDescription = !!label && (label.includes('توضیح') || label.includes('توضیحات'));
     const effectiveMaxLength = maxLength ?? (autoLimitDescription ? DESCRIPTION_MAX_LENGTH : undefined);
     const shouldShowCounter = showCounter ?? effectiveMaxLength !== undefined;
@@ -58,11 +63,11 @@ export const Textarea: React.FC<TextareaProps> = ({ label, error, className, id,
       {label && (<label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1">
           {label}
         </label>)}
-      <textarea id={inputId} className={cn('w-full px-3 py-2 border rounded-lg text-gray-900 placeholder-gray-400', 'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'disabled:bg-gray-100 disabled:cursor-not-allowed resize-y min-h-[100px]', error ? 'border-red-500' : 'border-gray-300', className)} value={value} maxLength={effectiveMaxLength} onPaste={(event) => pasteIntoControlledField(event, value, onPaste)} {...props}/>
+      <textarea id={inputId} aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined} className={cn('w-full px-3 py-2 border rounded-lg text-gray-900 placeholder-gray-400', 'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'disabled:bg-gray-100 disabled:cursor-not-allowed resize-y min-h-[100px]', error ? 'border-red-500' : 'border-gray-300', className)} value={value} maxLength={effectiveMaxLength} onPaste={(event) => pasteIntoControlledField(event, value, onPaste)} {...props}/>
       {shouldShowCounter && effectiveMaxLength && (<div className={cn('mt-1 text-xs text-left', currentLength >= effectiveMaxLength ? 'text-red-600' : 'text-gray-500')}>
           {currentLength}/{effectiveMaxLength}
         </div>)}
-      {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+      {error && <p id={errorId} role="alert" className="mt-1 text-sm text-red-600">{error}</p>}
     </div>);
 };
 interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
@@ -75,12 +80,14 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
     placeholder?: string | undefined;
 }
 export const Select: React.FC<SelectProps> = ({ label, error, options, placeholder, className, id, ...props }) => {
-    const inputId = id || label?.replace(/\s/g, '-').toLowerCase();
+    const generatedId = React.useId();
+    const inputId = id || `utms-select-${generatedId.replace(/:/g, '')}`;
+    const errorId = `${inputId}-error`;
     return (<div className="w-full">
       {label && (<label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1">
           {label}
         </label>)}
-      <select id={inputId} className={cn('w-full px-3 py-2 border rounded-lg text-gray-900', 'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'disabled:bg-gray-100 disabled:cursor-not-allowed', error ? 'border-red-500' : 'border-gray-300', className)} {...props}>
+      <select id={inputId} aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined} className={cn('w-full px-3 py-2 border rounded-lg text-gray-900', 'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent', 'disabled:bg-gray-100 disabled:cursor-not-allowed', error ? 'border-red-500' : 'border-gray-300', className)} {...props}>
         {placeholder && (<option value="" disabled>
             {placeholder}
           </option>)}
@@ -88,7 +95,6 @@ export const Select: React.FC<SelectProps> = ({ label, error, options, placehold
             {opt.label}
           </option>))}
       </select>
-      {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+      {error && <p id={errorId} role="alert" className="mt-1 text-sm text-red-600">{error}</p>}
     </div>);
 };
-

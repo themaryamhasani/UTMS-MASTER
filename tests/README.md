@@ -1,13 +1,19 @@
 # Tests
 
-Cross-cutting test suites live under `tests/`.
+Cross-cutting Playwright Test suites live under this directory. The root
+configuration defines separate projects for structural, smoke, E2E, system,
+accessibility, compatibility, performance, reliability, regression, and UAT
+evidence. API integration and security specs live under `apps/api/test` and
+share the same fixtures and traceability helpers.
 
-What belongs here:
+```text
+tests/
+  accessibility/ compatibility/ e2e/ performance/ regression/
+  reliability/ smoke/ structural/ system/ uat/
+  data/ fixtures/ helpers/
+```
 
-- Contract tests shared across apps and packages.
-- Performance tests.
-- Smoke tests.
-
-Unit tests should live close to the source they cover. API integration, E2E, and security tests belong under `apps/api/test`. Worker and runner tests belong under their app test folders.
-
-Shared fixtures and fakes belong in `packages/test-support`, not production packages.
+Every test carries a stable `UTMS-...` ID and ISO 29119-4 metadata. See
+`docs/testing/PLAYWRIGHT_TEST_STRATEGY.md` for isolation, Docker, browser, and
+artifact conventions. Shared builders and generators belong in
+`packages/test-support`, not production packages.

@@ -14,7 +14,9 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), viteSingleFile()],
   server: {
     proxy: {
-      "/api": {
+      // Match API paths only. A broad "/api" prefix also captures the
+      // client-side "/api-console" route and proxies it to the backend.
+      "^/api(?:/|$)": {
         target: apiProxyTarget,
         changeOrigin: true,
       },

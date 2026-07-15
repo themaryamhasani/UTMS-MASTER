@@ -141,10 +141,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
                     dir="ltr"
                     autoComplete="tel"
                     maxLength={11}
+                    aria-invalid={errors.phone ? true : undefined}
+                    aria-describedby={errors.phone ? 'phone-error' : undefined}
                   />
                 </div>
                 {errors.phone && (
-                  <p className="mt-1.5 text-sm text-red-600 flex items-center gap-1">
+                  <p id="phone-error" role="alert" className="mt-1.5 text-sm text-red-600 flex items-center gap-1">
                     <span>⚠</span> {errors.phone}
                   </p>
                 )}
@@ -170,17 +172,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
                     placeholder="رمز عبور خود را وارد کنید"
                     className={`w-full pr-10 pl-4 py-3 border ${errors.password ? 'border-red-500' : 'border-gray-300'} rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
                     autoComplete="current-password"
+                    aria-invalid={errors.password ? true : undefined}
+                    aria-describedby={errors.password ? 'password-error' : undefined}
                   />
                 </div>
                 {errors.password && (
-                  <p className="mt-1.5 text-sm text-red-600 flex items-center gap-1">
+                  <p id="password-error" role="alert" className="mt-1.5 text-sm text-red-600 flex items-center gap-1">
                     <span>⚠</span> {errors.password}
                   </p>
                 )}
               </div>
 
               {errors.general && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+                <div role="alert" className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
                   {errors.general}
                 </div>
               )}
@@ -206,7 +210,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
                 <p>سرپرست فنی: <span className="font-mono text-gray-800">09126789012</span></p>
                 <p>مدیر سیستم: <span className="font-mono text-gray-800">09120000000</span></p>
               </div>
-              <p className="text-xs text-gray-400 mt-2">رمز عبور: هر مقداری</p>
+              <p className="text-xs text-gray-600 mt-2">رمز عبور: هر مقداری</p>
             </div>
           </div>
         </div>
@@ -214,10 +218,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
       
       {/* Footer on login page */}
       <footer className="py-4 text-center">
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-600">
           کلیه حقوق مادی و معنوی این سامانه متعلق به رستانوین رایا می‌باشد.
         </p>
-        <p className="text-xs text-gray-400 mt-0.5">
+        <p className="text-xs text-gray-600 mt-0.5">
           طراحی، تولید و توسعه توسط مریم حسنی کلهری | نسخه ۰.۱.۰
         </p>
       </footer>

@@ -3303,6 +3303,20 @@ async function routeRequest(req, parsedUrl, body) {
     return { ok: true, service: 'api-console', parserVersion: PARSER_VERSION, now: nowIso() };
   }
 
+  if (first === '__test' && second === 'reset' && req.method === 'POST') {
+    if (process.env.NODE_ENV !== 'test') {
+      throw new ApiConsoleError('INVALID_URL', 'Endpoint not found.', 404);
+    }
+    store = normalizeStoreShape(defaultStore());
+    runtimeSecrets.clear();
+    [SECRET_VAULT_FILE, SECRET_KEY_FILE].forEach(file => {
+      if (fs.existsSync(file)) fs.rmSync(file, { force: true });
+    });
+    cachedSecretKey = null;
+    saveStore(store);
+    return { reset: true, storeVersion: store.version };
+  }
+
   if (first === 'policy' && req.method === 'GET') return API_CONSOLE_POLICY;
 
   if (first === 'environments' && req.method === 'GET') return safeClone(store.environments);

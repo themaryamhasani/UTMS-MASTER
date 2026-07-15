@@ -7,6 +7,9 @@ coverage/
 artifacts/
 runtime/
 logs/
+playwright-report/
+test-results/
+.auth/
 *.log
 *.tmp
 *.bak

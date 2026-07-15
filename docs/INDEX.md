@@ -21,6 +21,10 @@
 
 ## Testing
 
+- [Playwright test strategy](testing/PLAYWRIGHT_TEST_STRATEGY.md)
+- [Executable coverage matrix](testing/TEST_COVERAGE_MATRIX.md)
+- [Test case catalog](testing/TEST_CASE_CATALOG.md)
+- [Known test gaps](testing/KNOWN_TEST_GAPS.md)
 - [Cartable test plan](testing/CARTABLE_TEST_PLAN.md)
 - [Reports test plan](testing/REPORTS_TEST_PLAN.md)
 - [System QA checklist audit](testing/SYSTEM_QA_CHECKLIST_AUDIT.md)

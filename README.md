@@ -28,6 +28,34 @@ npm run build
 
 The web dev server proxies `/api` to the API server on port `4174`.
 
+## Automated QA
+
+The repository uses Playwright Test for browser, API, system, security,
+accessibility, compatibility, performance, reliability, regression, UAT, and
+structural decision suites. Start with
+[the test strategy](docs/testing/PLAYWRIGHT_TEST_STRATEGY.md), then run:
+
+```bash
+npm ci
+npx playwright install chromium firefox webkit
+npm run test:smoke
+npm run test:integration
+npm run test:e2e
+npm run test:system
+npm run test:security
+npm run test:accessibility
+npm run test:compatibility
+npm run test:structural
+npm run test:all
+```
+
+For the isolated Docker environment use `npm run test:stack:up`,
+`npm run test:stack:wait`, `npm run test:stack:seed`, and
+`npm run test:stack:down`. Reports are written to ignored `artifacts/tests/`,
+`test-results/`, `playwright-report/`, and `coverage/` directories. The
+[coverage matrix](docs/testing/TEST_COVERAGE_MATRIX.md) distinguishes executed
+evidence from known implementation gaps.
+
 ## Docker Compose
 
 Run the core system from the repository root:

@@ -156,7 +156,7 @@ export const DashboardPage: React.FC = () => {
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="font-medium text-gray-900">{req.title}</p>
-                        <p className="text-sm text-gray-500 mt-0.5">
+                        <p className="text-sm text-gray-700 mt-0.5">
                           نسخه: {req.version}
                         </p>
                       </div>
@@ -167,7 +167,7 @@ export const DashboardPage: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2 mt-2">
                       <PriorityBadge priority={req.priority} />
-                      <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-600">
                         {formatDate(req.createdAt)}
                       </span>
                     </div>
@@ -199,7 +199,7 @@ export const DashboardPage: React.FC = () => {
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="font-medium text-gray-900">{bug.title}</p>
-                        <p className="text-sm text-gray-500 mt-0.5">
+                        <p className="text-sm text-gray-700 mt-0.5">
                           گزارش‌دهنده: {bug.reportedBy?.fullName}
                         </p>
                       </div>
@@ -242,7 +242,7 @@ export const DashboardPage: React.FC = () => {
                         <p className="font-medium text-gray-900">
                           چک‌لیست {getChecklistTypeLabel(cl.type)}
                         </p>
-                        <p className="text-sm text-gray-500 mt-0.5">
+                        <p className="text-sm text-gray-700 mt-0.5">
                           {cl.items.filter(i => i.result).length} از {cl.items.length} مورد تکمیل شده
                         </p>
                       </div>
@@ -278,7 +278,7 @@ export const DashboardPage: React.FC = () => {
                           نسخه {rp.version}
                           {rp.buildNumber && ` (${rp.buildNumber})`}
                         </p>
-                        <p className="text-sm text-gray-500 mt-0.5">
+                        <p className="text-sm text-gray-700 mt-0.5">
                           {rp.isEmergency ? 'Tag اضطراری' : 'تصمیم عادی'}
                         </p>
                       </div>
