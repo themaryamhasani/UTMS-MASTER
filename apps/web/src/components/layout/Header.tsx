@@ -130,9 +130,6 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, onRefresh, refr
                         <p className="text-xs text-gray-400 mt-1">
                           {formatDate(notif.createdAt)}
                         </p>
-                        <p className="text-[11px] text-gray-400 mt-0.5">
-                          {(notif.channels || ['IN_APP']).join(' + ')} | {notif.deliveryStatus || 'DELIVERED'}
-                        </p>
                       </div>)))}
                 </div>
               </div>)}

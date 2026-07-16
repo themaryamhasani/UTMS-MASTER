@@ -34,6 +34,9 @@ function getStableRowKey(item: object, index: number): React.Key {
         ? stableKey
         : index;
 }
+function isActionColumn<T>(column: Column<T>): boolean {
+    return ['action', 'actions', 'operations'].includes(column.key) || column.title === 'عملیات';
+}
 function flattenSearchValue(value: unknown): string {
     if (value === null || value === undefined)
         return '';
@@ -145,14 +148,14 @@ export function Table<T extends object>({ columns, data, loading = false, emptyM
         <table className="w-max min-w-full">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
-              {visibleColumns.map((column) => (<th key={column.key} className={cn('px-3 py-3 text-right text-sm font-semibold text-gray-700 sm:px-4', column.sortable && 'cursor-pointer hover:bg-gray-100', column.className)} onClick={() => column.sortable && onSort?.(column.key)}>
+              {visibleColumns.map((column) => (<th key={column.key} className={cn('px-3 py-3 text-right text-sm font-semibold text-gray-700 sm:px-4', isActionColumn(column) && 'w-px whitespace-nowrap', column.sortable && 'cursor-pointer hover:bg-gray-100', column.className)} onClick={() => column.sortable && onSort?.(column.key)}>
                   <div className="flex items-center gap-1"><span>{column.title}</span>{renderSortIcon(column)}</div>
                 </th>))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {visibleData.length === 0 ? (<tr><td colSpan={visibleColumns.length} className="px-4 py-8 text-center text-gray-500">{emptyMessage}</td></tr>) : (visibleData.map((item, index) => (<tr key={getStableRowKey(item, index)} className={cn('hover:bg-gray-50 transition-colors', onRowClick && 'cursor-pointer', rowClassName?.(item))} onClick={() => onRowClick?.(item)}>
-                  {visibleColumns.map((column) => (<td key={column.key} className={cn('max-w-[20rem] px-3 py-3 text-sm text-gray-900 sm:px-4', column.className)}>
+                  {visibleColumns.map((column) => (<td key={column.key} className={cn(isActionColumn(column) ? 'w-px whitespace-nowrap px-3 py-3 text-sm text-gray-900 sm:px-4' : 'max-w-[20rem] px-3 py-3 text-sm text-gray-900 sm:px-4', column.className)}>
                       {column.render ? column.render(item, index) : flattenSearchValue(getRecordValue(item, column.key))}
                     </td>))}
                 </tr>)))}

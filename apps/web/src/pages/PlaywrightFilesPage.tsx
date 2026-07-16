@@ -11,7 +11,7 @@ import { Input, Select } from '../components/ui/Input';
 import { toast } from '../components/ui/Toast';
 import { useAuthStore, canPerformAction, canUseAutomatedTests } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
-import { applicationApi, playwrightApi } from '../services/api';
+import { playwrightApi } from '../services/api';
 import type {
   Application,
   CartableFilterParams,
@@ -93,19 +93,19 @@ export const PlaywrightFilesPage: React.FC = () => {
 
   const loadApplications = async () => {
     if (!activeContext) return;
-    try {
-      const all = await applicationApi.getAll();
-      const allowed = isAppLevel
-        ? all.filter(app => app.isActive)
-        : all.filter(app => app.isActive && scopeApplicationIds.includes(app.id));
-      setApplications(allowed);
-      setFormData(prev => ({
-        ...prev,
-        applicationId: prev.applicationId || defaultApplicationId || allowed[0]?.id || '',
-      }));
-    } catch {
-      toast.error('خطا در بارگذاری سامانه‌ها.');
-    }
+    const contextApplications = activeContext.applications?.length
+      ? activeContext.applications
+      : activeContext.application
+        ? [activeContext.application]
+        : [];
+    const allowed = isAppLevel
+      ? contextApplications.filter(app => app.isActive)
+      : contextApplications.filter(app => app.isActive && scopeApplicationIds.includes(app.id));
+    setApplications(allowed);
+    setFormData(prev => ({
+      ...prev,
+      applicationId: prev.applicationId || defaultApplicationId || allowed[0]?.id || '',
+    }));
   };
 
   const loadFolders = async (applicationId: string) => {

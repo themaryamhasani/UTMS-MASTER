@@ -1,63 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
-import { applicationApi } from '../services/api';
+import { useMemo } from 'react';
 import { useAuthStore } from '../stores/authStore';
-import type { Application } from '../types';
 import { useDataScope } from './useDataScope';
-
-const APPLICATION_LOOKUP_CACHE_TTL_MS = 10_000;
-let applicationLookupCache: { expiresAt: number; rows?: Application[]; promise?: Promise<Application[]> } | null = null;
-
-async function getApplicationLookupRows(): Promise<Application[]> {
-  const now = Date.now();
-  if (applicationLookupCache?.rows && applicationLookupCache.expiresAt > now) return applicationLookupCache.rows;
-  if (applicationLookupCache?.promise) return applicationLookupCache.promise;
-
-  const promise = applicationApi.getAll();
-  applicationLookupCache = { expiresAt: now + APPLICATION_LOOKUP_CACHE_TTL_MS, promise };
-
-  try {
-    const rows = await promise;
-    applicationLookupCache = { expiresAt: Date.now() + APPLICATION_LOOKUP_CACHE_TTL_MS, rows };
-    return rows;
-  } catch (error) {
-    applicationLookupCache = null;
-    throw error;
-  }
-}
 
 export function useApplicationLookup() {
   const { activeContext } = useAuthStore();
   const { scopeApplicationIds, isAppLevel, isMultiSystem } = useDataScope();
-  const [lookupRows, setLookupRows] = useState<Application[]>([]);
-  const [loading, setLoading] = useState(!!activeContext);
 
   const isSystemAdmin = activeContext?.role === 'SYSTEM_ADMIN';
   const shouldShowSystemColumn =
     !!activeContext && (isAppLevel || isMultiSystem || scopeApplicationIds.length > 1);
 
-  useEffect(() => {
-    if (!activeContext) {
-      setLookupRows([]);
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-    getApplicationLookupRows()
-      .then(rows => {
-        if (cancelled) return;
-        setLookupRows(rows);
-      })
-      .catch(() => {
-        if (!cancelled) setLookupRows([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+  const lookupRows = useMemo(() => {
+    if (!activeContext) return [];
+    const rows = activeContext.applications?.length
+      ? activeContext.applications
+      : activeContext.application
+        ? [activeContext.application]
+        : [];
+    return rows.filter(application => application.isActive);
   }, [activeContext]);
 
   const applications = useMemo(() => {
@@ -88,8 +48,8 @@ export function useApplicationLookup() {
       return activeContext.application.name;
     }
 
-    return loading ? 'در حال بارگذاری سامانه…' : 'سامانه نامشخص';
+    return 'سامانه نامشخص';
   };
 
-  return { applications, loading, shouldShowSystemColumn, getApplicationName };
+  return { applications, loading: false, shouldShowSystemColumn, getApplicationName };
 }

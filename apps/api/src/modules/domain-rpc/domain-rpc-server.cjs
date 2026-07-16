@@ -33,6 +33,116 @@ const SERVICE_NAMES = [
 ];
 
 let loadedServices = null;
+const inFlightQueries = new Map();
+const SINGLE_FLIGHT_MAX_AGE_MS = 30000;
+const SINGLE_FLIGHT_MAX_ENTRIES = 250;
+
+const QUERY_OPERATION_POLICIES = new Set([
+  'testRequestApi.getAll',
+  'testRequestApi.getVisibleForRole',
+  'testRequestApi.getById',
+  'testRequestApi.getPendingForReview',
+  'testRequestApi.getByRequester',
+  'testRequestApi.getByAssignee',
+  'requirementApi.getAll',
+  'requirementApi.getById',
+  'requirementApi.getIncomplete',
+  'flowApi.getByRequirement',
+  'testCaseApi.getAll',
+  'testCaseApi.getVisibleForRole',
+  'testCaseApi.getById',
+  'testCaseApi.getByTestRequest',
+  'testRunApi.getAll',
+  'testRunApi.getVisibleForRole',
+  'testRunApi.getById',
+  'testRunApi.getByTestRequest',
+  'testRunApi.getPending',
+  'bugApi.getAll',
+  'bugApi.getVisibleForRole',
+  'bugApi.getById',
+  'bugApi.getByAssignee',
+  'bugApi.getReadyForRetest',
+  'bugApi.getCriticalOpen',
+  'bugApi.getCriticalOpenVisible',
+  'retestTaskApi.getAll',
+  'retestTaskApi.getVisibleForRole',
+  'retestTaskApi.getByBug',
+  'runIssueApi.getAll',
+  'runIssueApi.getOpen',
+  'checklistApi.getAll',
+  'checklistApi.getById',
+  'checklistApi.getPending',
+  'playwrightApi.getAll',
+  'playwrightApi.getById',
+  'playwrightApi.getTestFiles',
+  'playwrightApi.discoverFolders',
+  'playwrightApi.discoverFiles',
+  'releasePublishApi.getAll',
+  'releasePublishApi.getById',
+  'releasePublishApi.getByPrimaryTestRequest',
+  'releasePublishApi.getPrimaryRequestCandidates',
+  'releasePublishApi.getEligiblePrimaryRequests',
+  'releasePublishApi.getRelatedCandidates',
+  'releasePublishApi.getEvidence',
+  'releasePublishApi.getCriticalOpenBugs',
+  'versionHistoryApi.getAll',
+  'versionHistoryApi.getById',
+  'versionHistoryApi.getByPrimaryTestRequest',
+  'versionHistoryApi.getPrimaryRequestCandidates',
+  'versionHistoryApi.getEligiblePrimaryRequests',
+  'versionHistoryApi.getRelatedCandidates',
+  'versionHistoryApi.getEvidence',
+  'versionHistoryApi.getCriticalOpenBugs',
+  'commandTraceApi.getAll',
+  'commandTraceApi.getByCorrelationId',
+  'commandTraceApi.getByIdempotencyKey',
+  'auditLogApi.getAll',
+  'auditLogApi.getByEntity',
+  'commentApi.getByEntity',
+  'notificationApi.getByUser',
+  'notificationApi.getUnreadCount',
+  'notificationApi.getOutbox',
+  'attachmentApi.getByEntity',
+  'userApi.getAll',
+  'userApi.getById',
+  'userApi.lookupByNationalCode',
+  'userApi.getDevelopers',
+  'userApi.getQASpecialists',
+  'systemSettingsApi.getIntegrationSettings',
+  'workflowPolicyApi.getAll',
+  'workflowPolicyApi.getForApplication',
+  'applicationApi.getAll',
+  'applicationApi.getById',
+  'securityChecklistApi.getById',
+  'securityChecklistApi.getTemplate',
+  'reportsApi.getSystemOverview',
+  'reportsApi.getTestRequestReport',
+  'reportsApi.getQualityHealth',
+  'reportsApi.getDeveloperPerformance',
+  'reportsApi.getDeveloperBugFixReport',
+  'reportsApi.getRequirementReport',
+  'reportsApi.getFlowCoverage',
+  'reportsApi.getTestCaseReport',
+  'reportsApi.getTestRunReport',
+  'reportsApi.getChecklistReport',
+  'reportsApi.getReleaseReport',
+  'reportsApi.getEmergencyPublishReport',
+  'reportsApi.getUsersRolesReport',
+  'reportsApi.getAuditReport',
+  'reportsApi.getAttachmentReport',
+  'reportsApi.getPlaywrightReport',
+  'reportsApi.getProductQualityOverview',
+  'reportsApi.getOpenBugsList',
+  'reportsApi.getCommentReport',
+  'reportsApi.getTraceabilityReport',
+]);
+
+const SINGLE_FLIGHT_OPERATION_POLICIES = new Set([
+  ...QUERY_OPERATION_POLICIES,
+  'dashboardApi.getStats',
+  'releasePublishApi.getPendingDecision',
+  'releasePublishApi.getPendingQAReview',
+]);
 
 class DomainRpcError extends Error {
   constructor(message, statusCode = 400) {
@@ -40,6 +150,113 @@ class DomainRpcError extends Error {
     this.statusCode = statusCode;
     this.category = 'DOMAIN_RPC_ERROR';
   }
+}
+
+function isPlainObject(value) {
+  return Object.prototype.toString.call(value) === '[object Object]';
+}
+
+function normalizeForFingerprint(value) {
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeForFingerprint);
+  }
+  if (isPlainObject(value)) {
+    return Object.keys(value).sort().reduce((normalized, key) => {
+      const child = value[key];
+      if (typeof child === 'function' || typeof child === 'symbol' || typeof child === 'undefined') {
+        throw new DomainRpcError(`Unsupported RPC argument value for fingerprint: ${key}`, 400);
+      }
+      normalized[key] = normalizeForFingerprint(child);
+      return normalized;
+    }, {});
+  }
+  throw new DomainRpcError(`Unsupported RPC argument type for fingerprint: ${typeof value}`, 400);
+}
+
+function safeHeaderValue(headers, name) {
+  const value = headers[name];
+  return Array.isArray(value) ? value.join(',') : value || '';
+}
+
+function parseContextHeader(req) {
+  const raw = safeHeaderValue(req.headers, 'x-utms-context');
+  if (!raw) return {};
+  try {
+    return JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+  } catch {
+    return { invalidContextHeader: true };
+  }
+}
+
+function buildQueryFingerprint(req, serviceName, methodName, args) {
+  const context = parseContextHeader(req);
+  const userId = safeHeaderValue(req.headers, 'x-user-id') || context.userId || context.user?.id || 'anonymous';
+  return JSON.stringify(normalizeForFingerprint({
+    service: serviceName,
+    method: methodName,
+    args,
+    auth: {
+      userId,
+      role: context.role || safeHeaderValue(req.headers, 'x-user-role') || '',
+    },
+    context: {
+      contextId: context.contextId || '',
+      assignmentId: context.assignmentId || '',
+      applicationId: context.applicationId || '',
+      scope: context.scope || '',
+      scopeApplicationIds: context.scopeApplicationIds || [],
+    },
+    tenant: safeHeaderValue(req.headers, 'x-tenant-id'),
+  }));
+}
+
+function evictExpiredSingleFlights(now = Date.now()) {
+  for (const [key, entry] of inFlightQueries) {
+    if (now - entry.startedAt > SINGLE_FLIGHT_MAX_AGE_MS) {
+      inFlightQueries.delete(key);
+    }
+  }
+  while (inFlightQueries.size > SINGLE_FLIGHT_MAX_ENTRIES) {
+    const oldestKey = inFlightQueries.keys().next().value;
+    if (!oldestKey) break;
+    inFlightQueries.delete(oldestKey);
+  }
+}
+
+async function executeSingleFlight(key, executor) {
+  evictExpiredSingleFlights();
+  const existing = inFlightQueries.get(key);
+  if (existing) {
+    existing.joined += 1;
+    return existing.promise;
+  }
+
+  let trackedPromise;
+  trackedPromise = Promise.resolve()
+    .then(executor)
+    .finally(() => {
+      const current = inFlightQueries.get(key);
+      if (current && current.promise === trackedPromise) {
+        inFlightQueries.delete(key);
+      }
+    });
+  inFlightQueries.set(key, {
+    promise: trackedPromise,
+    startedAt: Date.now(),
+    joined: 0,
+  });
+  return trackedPromise;
+}
+
+function isQueryOperation(serviceName, methodName) {
+  return QUERY_OPERATION_POLICIES.has(`${serviceName}.${methodName}`);
+}
+
+function allowsSingleFlightOperation(serviceName, methodName) {
+  return SINGLE_FLIGHT_OPERATION_POLICIES.has(`${serviceName}.${methodName}`);
 }
 
 function ensureGeneratedDirectory() {
@@ -140,8 +357,14 @@ async function handleDomainRpc(req, parsedUrl, body) {
     throw new DomainRpcError(`Unknown domain method: ${serviceName}.${methodName}`, 404);
   }
 
-  const data = await method(...args);
-  if (typeof persistCurrentDataState === 'function') {
+  const queryOperation = isQueryOperation(serviceName, methodName);
+  const singleFlightOperation = allowsSingleFlightOperation(serviceName, methodName);
+  const execute = () => method(...args);
+  const data = singleFlightOperation
+    ? await executeSingleFlight(buildQueryFingerprint(req, serviceName, methodName, args), execute)
+    : await execute();
+
+  if (!queryOperation && typeof persistCurrentDataState === 'function') {
     await persistCurrentDataState();
   }
   return { data };
@@ -150,4 +373,10 @@ async function handleDomainRpc(req, parsedUrl, body) {
 module.exports = {
   canHandleDomainRpc,
   handleDomainRpc,
+  __testing: {
+    isQueryOperation,
+    allowsSingleFlightOperation,
+    normalizeForFingerprint,
+    buildQueryFingerprint,
+  },
 };

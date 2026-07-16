@@ -98,6 +98,17 @@ label {
   overflow-wrap: anywhere;
 }
 
+button,
+.no-text-break,
+.no-text-break * {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.no-text-break {
+  white-space: nowrap;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

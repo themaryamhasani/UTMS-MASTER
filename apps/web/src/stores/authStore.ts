@@ -121,6 +121,36 @@ function findMatchingContext(
     );
 }
 
+function contextSignature(
+  context:
+    | Pick<ActiveContext, 'contextId' | 'userId' | 'assignmentIds' | 'applicationId' | 'scopeApplicationIds' | 'role' | 'scope' | 'automatedTestsEnabled'>
+    | null
+    | undefined
+): string {
+  if (!context) return '';
+  return JSON.stringify({
+    contextId: context.contextId,
+    userId: context.userId,
+    assignmentIds: [...(context.assignmentIds ?? [])].sort(),
+    applicationId: context.applicationId,
+    scopeApplicationIds: [...(context.scopeApplicationIds ?? [])].sort(),
+    role: context.role,
+    scope: context.scope,
+    automatedTestsEnabled: context.automatedTestsEnabled ?? null,
+  });
+}
+
+function availableContextSignature(contexts: AvailableContext[]): string {
+  return JSON.stringify(contexts.map(context => ({
+    contextId: context.contextId,
+    assignmentIds: [...context.assignmentIds].sort(),
+    applicationIds: [...context.scopeApplicationIds].sort(),
+    role: context.role,
+    scope: context.scope,
+    automatedTestsEnabled: context.automatedTestsEnabled ?? null,
+  })).sort((left, right) => left.contextId.localeCompare(right.contextId)));
+}
+
 export function getContextApplicationLabel(
   context: { applications?: Application[] | undefined; application?: Application | null | undefined }
 ): string {
@@ -174,14 +204,23 @@ export const useAuthStore = create<AuthState>()(
 
       refreshContexts: async () => {
         await ensureDataPersistenceReady();
-        const { activeContext, isAuthenticated, user } = get();
+        const { activeContext, availableContexts, isAuthenticated, user } = get();
         if (!isAuthenticated || !user) return;
 
         const contexts = buildAvailableContexts(user);
         const selectedContext = findMatchingContext(contexts, activeContext);
+        const nextActiveContext = selectedContext ? createActiveContext(user, selectedContext) : null;
+
+        if (
+          availableContextSignature(availableContexts) === availableContextSignature(contexts) &&
+          contextSignature(activeContext) === contextSignature(nextActiveContext)
+        ) {
+          return;
+        }
+
         set({
           availableContexts: contexts,
-          activeContext: selectedContext ? createActiveContext(user, selectedContext) : null,
+          activeContext: nextActiveContext,
         });
       },
 
@@ -194,14 +233,30 @@ export const useAuthStore = create<AuthState>()(
         const contexts = buildAvailableContexts(user);
         const selectedContext = contexts.find(context => context.contextId === contextId);
         if (!selectedContext) {
+          const { availableContexts, activeContext } = get();
+          if (
+            availableContextSignature(availableContexts) === availableContextSignature(contexts) &&
+            activeContext === null
+          ) {
+            return false;
+          }
           set({ availableContexts: contexts, activeContext: null });
           return false;
+        }
+
+        const nextActiveContext = createActiveContext(user, selectedContext);
+        const { availableContexts, activeContext } = get();
+        if (
+          availableContextSignature(availableContexts) === availableContextSignature(contexts) &&
+          contextSignature(activeContext) === contextSignature(nextActiveContext)
+        ) {
+          return true;
         }
 
         set({
           isAuthenticated: true,
           availableContexts: contexts,
-          activeContext: createActiveContext(user, selectedContext),
+          activeContext: nextActiveContext,
         });
         return true;
       },

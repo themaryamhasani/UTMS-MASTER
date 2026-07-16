@@ -2024,9 +2024,9 @@ export const OnlineApiConsolePage: React.FC = () => {
     {
       key: 'actions',
       title: 'عملیات',
-      className: 'w-28',
+      className: 'w-px whitespace-nowrap',
       render: (item: ApiRequestDefinition) => (
-        <div className="flex flex-wrap justify-end gap-1" onClick={(event) => event.stopPropagation()}>
+        <div className="flex flex-nowrap justify-end gap-1" onClick={(event) => event.stopPropagation()}>
           {item.sourceType !== 'REFERENCE' && (
             <Button
               size="sm"
