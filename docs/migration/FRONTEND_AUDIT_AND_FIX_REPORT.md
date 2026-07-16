@@ -2,6 +2,8 @@
 
 Date: 2026-07-13
 
+> Historical snapshot: the command availability, repository paths, changed-file list and remaining-test gaps below describe the pre-monorepo audit on this date. They are not the current checkout status. Use the root `README.md`, `package.json`, [test coverage matrix](../testing/TEST_COVERAGE_MATRIX.md), [system Context update](SYSTEM_CONTEXT_AND_APPLICATION_SCOPE.md), and [theme/accessibility update](THEME_AND_ACCESSIBILITY.md) for the current implementation.
+
 ## 1. Executive summary
 
 The UTMS frontend was audited across routing, RBAC surfaces, shared UI primitives, high-risk workflow pages, the mock API service layer, Reports, Release/VersionHistory, Playwright, and the Online API Console.

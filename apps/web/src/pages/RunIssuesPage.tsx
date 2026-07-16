@@ -190,6 +190,7 @@ export const RunIssuesPage: React.FC = () => {
               onChange={(search) => setFilters({ ...filters, search, page: 1 })}
             />
             <select
+              aria-label="فیلتر وضعیت مشکل"
               value={filters.status || ''}
               onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
               className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"

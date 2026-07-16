@@ -3,6 +3,13 @@
 ## Overview
 This document details the requirements for each Cartable in the UTMS system.
 
+### Current implementation boundary
+
+- Unless a section explicitly points to Online API Console, the listed Backend APIs are target contracts. In this checkout the cartables below use `apps/web/src/services/api.ts` with browser memory/IndexedDB/localStorage; the executable server does not expose these domain routes yet.
+- Visibility is evaluated against the active Context: `scope = APP OR applicationId IN scopeApplicationIds`. A single `activeContext.applicationId` is not the complete Scope for APP or multi-system Contexts.
+- Independent create flows require an explicit real Application in APP/multi-system Contexts. Child entities derive Application from their validated parent and may not create cross-system links.
+- `SYSTEM_ADMIN` may select all active Applications according to the current UI policy.
+
 ---
 
 ## 1. Developer Test Request Inbox (C01)
@@ -14,7 +21,7 @@ DEVELOPER
 Only see test requests created by self
 
 ### Visibility Rule
-`requesterId = currentUser.id AND applicationId = activeContext.applicationId`
+`requesterId = currentUser.id AND (activeContext.scope = APP OR applicationId IN activeContext.scopeApplicationIds)`
 
 ### Records Shown
 - Test requests created by the developer
@@ -60,7 +67,7 @@ DEVELOPER
 Only see bugs assigned to self
 
 ### Visibility Rule
-`assigneeId = currentUser.id AND applicationId = activeContext.applicationId`
+`assigneeId = currentUser.id AND (activeContext.scope = APP OR applicationId IN activeContext.scopeApplicationIds)`
 
 ### Records Shown
 - Bugs assigned to the developer
@@ -102,10 +109,10 @@ Only see bugs assigned to self
 QA_LEAD
 
 ### Access Rule
-All test requests in current application
+All test requests in the active Context scope
 
 ### Visibility Rule
-`applicationId = activeContext.applicationId`
+`activeContext.scope = APP OR applicationId IN activeContext.scopeApplicationIds`
 
 ### Records Shown
 - All test requests
@@ -142,10 +149,10 @@ All test requests in current application
 BA
 
 ### Access Rule
-Requirements in current application
+Requirements in the active Context scope
 
 ### Visibility Rule
-`applicationId = activeContext.applicationId`
+`activeContext.scope = APP OR applicationId IN activeContext.scopeApplicationIds`
 
 ### Records Shown
 - All requirements
@@ -188,7 +195,7 @@ SECURITY_REVIEWER
 Checklists assigned/in application
 
 ### Visibility Rule
-`applicationId = activeContext.applicationId`
+`activeContext.scope = APP OR applicationId IN activeContext.scopeApplicationIds`
 
 ### Records Shown
 - Security, Performance, Penetration checklists
@@ -224,7 +231,7 @@ TECH_LEAD
 Releases pending decision
 
 ### Visibility Rule
-`status = PENDING_DECISION AND applicationId = activeContext.applicationId`
+`status = PENDING_DECISION AND (activeContext.scope = APP OR applicationId IN activeContext.scopeApplicationIds)`
 
 ### Records Shown
 - Releases awaiting decision
@@ -261,10 +268,10 @@ Releases pending decision
 QA_LEAD, QA_SPECIALIST
 
 ### Access Rule
-Test runs in current application
+Test runs in the active Context scope
 
 ### Visibility Rule
-`applicationId = activeContext.applicationId`
+`activeContext.scope = APP OR applicationId IN activeContext.scopeApplicationIds`
 
 ### Records Shown
 - All test runs
@@ -281,6 +288,8 @@ Test runs in current application
 - Create Run Issue (from blocked)
 - Finalize
 
+The create wizard follows `Test Request → Application → Requirement → Test Case`. Requirement, Test Case, previous Run, Bug and Run Issue references must remain in the selected Test Request Application.
+
 ### Backend APIs
 - `POST /test-runs`
 - `PUT /test-runs/:id/status`
@@ -289,8 +298,9 @@ Test runs in current application
 - `POST /run-issues` (from test run)
 
 ### Frontend Route/Component
-- Route: `/test-runs`
-- Component: `TestRunsPage.tsx`
+- Canonical route: `/test-runs-bugs`
+- Compatibility alias: `/test-runs` redirects to `/test-runs-bugs`
+- Component: `apps/web/src/pages/TestRunsBugsPage.tsx`
 
 ---
 
@@ -303,7 +313,7 @@ QA_LEAD, QA_SPECIALIST
 QA Lead or QA Specialist with automated-test permission in the active context.
 
 ### Visibility Rule
-`applicationId = activeContext.applicationId`
+`activeContext.scope = APP OR applicationId IN activeContext.scopeApplicationIds`
 
 ### Records Shown
 - All Playwright runs
@@ -367,6 +377,8 @@ All users (system-wide)
 ### Available Actions
 - View Details
 - View Role Assignments
+- Add or update one Role without disabling the user's other Roles
+- Consolidate duplicate active Assignments for the same Role while preserving its Application set
 
 ### Backend APIs
 - `GET /users`
@@ -433,7 +445,7 @@ SYSTEM_ADMIN
 All audit logs
 
 ### Visibility Rule
-`applicationId = activeContext.applicationId` or all
+`activeContext.scope = APP OR applicationId IN activeContext.scopeApplicationIds`; System Admin may use the all-Applications view
 
 ### Records Shown
 - All audit events

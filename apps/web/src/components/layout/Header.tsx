@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Search, RefreshCw, ChevronDown } from 'lucide-react';
+import { Bell, Search, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { notificationApi } from '../../services/api';
 import { MinimalLoader } from '../ui/Loading';
 import type { Notification } from '../../types';
+import { ContextSwitcher } from './ContextSwitcher';
 
 const NOTIFICATION_CACHE_TTL_MS = 30_000;
 const notificationCache = new Map<string, { expiresAt: number; rows?: Notification[]; promise?: Promise<Notification[]> }>();
@@ -141,10 +142,7 @@ export const Header: React.FC<HeaderProps> = ({ title, subtitle, onRefresh, refr
           {actions && <div className="flex min-w-0 flex-wrap items-center gap-2">{actions}</div>}
 
           {/* Context Switcher */}
-          {activeContext && (<button type="button" className="flex min-w-0 max-w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 sm:px-3">
-              <span className="max-w-36 truncate font-medium sm:max-w-52">{activeContext.application.name}</span>
-              <ChevronDown className="h-4 w-4 flex-shrink-0"/>
-            </button>)}
+          {activeContext && <ContextSwitcher />}
         </div>
       </div>
     </header>);

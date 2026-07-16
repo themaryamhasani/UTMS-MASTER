@@ -116,14 +116,30 @@ export interface UserRoleAssignment {
     automatedTestsEnabled?: boolean | undefined; // Meaningful for QA_SPECIALIST access to automated-test cartables.
     isActive: boolean;
 }
+// A selectable working context. Assignments with the same role are grouped so
+// the user sees one role entry with the union of its permitted applications.
+export interface AvailableContext {
+    contextId: string;
+    assignmentId: string; // Primary assignment kept for compatibility with existing contracts.
+    assignmentIds: string[];
+    application: Application; // First real application in the context; never a synthetic display record.
+    applications: Application[];
+    role: UserRole;
+    scope: AccessScope;
+    scopeApplicationIds: string[];
+    automatedTestsEnabled?: boolean | undefined;
+}
 // Active Context (Session)
 export interface ActiveContext {
+    contextId: string;
     userId: string;
     user: User;
     assignmentId: string;
+    assignmentIds: string[];
     applicationId: string; // 'ALL' for APP scope, otherwise the default application in scope
     scopeApplicationIds: string[];
     application: Application;
+    applications: Application[];
     role: UserRole;
     scope: AccessScope; // APP = sees all systems, SYSTEMS = selected systems
     automatedTestsEnabled?: boolean | undefined;

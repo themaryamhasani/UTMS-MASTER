@@ -3,6 +3,9 @@
   "generatedAt": "2026-07-15",
   "routes": [
     { "method": "GET", "path": "/api/health", "auth": "none", "testIds": ["UTMS-SMOKE-STMT-001", "UTMS-API-INT-001"] },
+    { "method": "GET", "path": "/api/domain/health", "auth": "none", "testIds": ["UTMS-DOMAIN-INT-001"] },
+    { "method": "GET", "path": "/api/domain/services", "auth": "none", "testIds": ["UTMS-DOMAIN-INT-001"] },
+    { "method": "POST", "path": "/api/domain/rpc", "auth": "context", "testIds": ["UTMS-DOMAIN-INT-001", "UTMS-FE-BE-ALIGN-001"] },
     { "method": "GET", "path": "/api/api-console/policy", "auth": "context", "testIds": ["UTMS-API-BCC-009"] },
     { "method": "GET", "path": "/api/api-console/environments", "auth": "context", "testIds": ["UTMS-API-INT-001"] },
     { "method": "GET", "path": "/api/api-console/runners", "auth": "context", "testIds": ["UTMS-API-INT-001"] },

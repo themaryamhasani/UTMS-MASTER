@@ -105,7 +105,7 @@ Final verification result:
 - `npm run verify` passed.
 - `npm run backend:self-check` passed with 23 checks and 0 failures.
 - `npm audit --audit-level=high` reported 0 vulnerabilities.
-- Integration, E2E, security, and smoke commands are wired placeholders until concrete backend infrastructure specs are added.
+- Integration, E2E, system, security, smoke, accessibility, compatibility, performance, reliability, regression, UAT and structural Playwright suites now contain executable specs. They are invoked by their dedicated `test:*` commands; `npm run verify` does not run these browser/API Playwright projects.
 - Database commands are wired placeholders until Prisma and `DATABASE_URL` are introduced.
 
 ## Remaining Structural Limitations

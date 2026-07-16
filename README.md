@@ -27,6 +27,7 @@ npm run build
 ```
 
 The web dev server proxies `/api` to the API server on port `4174`.
+`npm run verify` covers formatting, lint, architecture, type checking, workspace unit/contract checks, and builds; it does not run the Playwright projects listed below.
 
 ## Automated QA
 
@@ -84,13 +85,15 @@ docker compose down -v
 
 ## Documentation
 
-Start with [docs/INDEX.md](docs/INDEX.md). The restructuring details are in:
+Start with [docs/INDEX.md](docs/INDEX.md). Restructuring and current implementation details are in:
 
 - [Repository restructure plan](docs/REPOSITORY_RESTRUCTURE_PLAN.md)
 - [Final repository structure](docs/architecture/FINAL_REPOSITORY_STRUCTURE.md)
 - [Dependency inventory](docs/architecture/DEPENDENCY_INVENTORY.md)
 - [Legacy component tracker](docs/migration/LEGACY_COMPONENT_TRACKER.md)
 - [Repository restructuring report](docs/migration/REPOSITORY_RESTRUCTURING_REPORT.md)
+- [System context and application scope](docs/migration/SYSTEM_CONTEXT_AND_APPLICATION_SCOPE.md)
+- [Theme and accessibility implementation](docs/migration/THEME_AND_ACCESSIBILITY.md)
 
 ## Runtime Data
 

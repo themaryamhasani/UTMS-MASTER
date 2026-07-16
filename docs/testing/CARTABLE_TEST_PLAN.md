@@ -20,7 +20,10 @@ This document outlines the test scenarios for the UTMS Cartable system.
 |----------|----------|
 | Page refresh | Session persists |
 | After logout | Session cleared |
-| Multiple contexts | Only active context used |
+| Same Role on multiple Assignments | One grouped Context lists the real Applications |
+| Multiple Roles | Only one Role Context is active; permissions are not unioned |
+| In-session Context switch | Dashboard opens without logout and previous route state is remounted |
+| Revoked Assignment on refresh | Persisted Context is rebuilt and invalid access is removed |
 
 ---
 
@@ -137,6 +140,18 @@ This document outlines the test scenarios for the UTMS Cartable system.
 | Role-based menu | Only allowed items shown |
 | Active highlight | Current page highlighted |
 | Context display | App + Role visible |
+| Multi-system Context display | Real Application names are shown; no synthetic combined ID appears |
+| Test Run alias | `/test-runs` redirects to `/test-runs-bugs` |
+
+### Theme and accessibility
+
+| Test | Expected |
+|------|----------|
+| OS theme fallback | With no stored value, light/dark follows `prefers-color-scheme` |
+| Persisted theme | Toggle survives refresh and synchronizes native `color-scheme` |
+| Keyboard and target size | Toggle works with Space/Enter and is at least 44×44 px |
+| Night route matrix | All cartables render with no serious/critical automated Axe finding |
+| Narrow viewport | No horizontal overflow at 320px |
 
 ### Tables
 | Test | Expected |
@@ -162,6 +177,8 @@ This document outlines the test scenarios for the UTMS Cartable system.
 | Required fields | Validation errors |
 | Submit disabled | Until valid |
 | Loading state | Button disabled |
+| Explicit Application | APP/multi-system create forms do not preselect the first Application |
+| Parent-derived Application | Test Case/Run/Bug/Run Issue cannot link parents from different Applications |
 
 ---
 

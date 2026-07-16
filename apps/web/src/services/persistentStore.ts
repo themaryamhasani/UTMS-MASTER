@@ -84,11 +84,57 @@ export interface PersistedUtmsState {
   securityReviews: PersistedSecurityReviewRecord[];
 }
 
-let saveTimerId: number | undefined;
+let saveTimerId: number | ReturnType<typeof setTimeout> | undefined;
 let pendingSave: Promise<void> = Promise.resolve();
 
 function getBrowserWindow(): Window | null {
   return typeof window === 'undefined' ? null : window;
+}
+
+function getNodeStateFile(): string | null {
+  if (getBrowserWindow()) return null;
+  const processLike = (globalThis as { process?: { versions?: { node?: string }; env?: Record<string, string | undefined>; cwd?: () => string } }).process;
+  if (!processLike?.versions?.node || !processLike.cwd) return null;
+  const nodeRequire = Function('return typeof require === "undefined" ? undefined : require')() as
+    | ((name: string) => { mkdirSync?: Function; readFileSync?: Function; writeFileSync?: Function; renameSync?: Function; join?: Function })
+    | undefined;
+  if (!nodeRequire) return null;
+  const path = nodeRequire('path') as { join: (...parts: string[]) => string };
+  return processLike.env?.UTMS_DOMAIN_STATE_FILE || path.join(processLike.cwd(), 'runtime', 'domain-rpc', 'utms-state.json');
+}
+
+function readStateFromNodeFile(): PersistedUtmsState | null {
+  const file = getNodeStateFile();
+  if (!file) return null;
+  try {
+    const nodeRequire = Function('return require')() as (name: string) => { readFileSync: (path: string, encoding: string) => string };
+    const fs = nodeRequire('fs');
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return isPersistedUtmsState(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStateToNodeFile(state: PersistedUtmsState): void {
+  const file = getNodeStateFile();
+  if (!file) return;
+  try {
+    const nodeRequire = Function('return require')() as (name: string) => {
+      mkdirSync: (path: string, options: { recursive: boolean }) => void;
+      writeFileSync: (path: string, data: string, encoding: string) => void;
+      renameSync: (from: string, to: string) => void;
+      dirname?: (path: string) => string;
+    };
+    const fs = nodeRequire('fs');
+    const path = nodeRequire('path') as unknown as { dirname: (target: string) => string };
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
+    fs.renameSync(tmp, file);
+  } catch {
+    // Server-side file persistence is best-effort; API calls should remain usable.
+  }
 }
 
 function isPersistedUtmsState(value: unknown): value is PersistedUtmsState {
@@ -170,6 +216,9 @@ function writeStateToDatabase(db: IDBDatabase, state: PersistedUtmsState): Promi
 }
 
 export async function loadPersistedUtmsState(): Promise<PersistedUtmsState | null> {
+  const nodeState = readStateFromNodeFile();
+  if (nodeState) return nodeState;
+
   let db: IDBDatabase | null = null;
 
   try {
@@ -189,13 +238,17 @@ export async function loadPersistedUtmsState(): Promise<PersistedUtmsState | nul
 
 export async function savePersistedUtmsState(state: PersistedUtmsState): Promise<void> {
   const browserWindow = getBrowserWindow();
-  if (!browserWindow) return;
 
   const stateToSave: PersistedUtmsState = {
     ...state,
     schemaVersion: 1,
     savedAt: new Date().toISOString(),
   };
+
+  if (!browserWindow) {
+    writeStateToNodeFile(stateToSave);
+    return;
+  }
 
   let db: IDBDatabase | null = null;
   try {
@@ -214,13 +267,20 @@ export async function savePersistedUtmsState(state: PersistedUtmsState): Promise
 
 export function schedulePersistedUtmsStateSave(stateFactory: () => PersistedUtmsState): void {
   const browserWindow = getBrowserWindow();
-  if (!browserWindow) return;
 
   if (saveTimerId !== undefined) {
-    browserWindow.clearTimeout(saveTimerId);
+    if (browserWindow) {
+      browserWindow.clearTimeout(saveTimerId as unknown as number);
+    } else {
+      clearTimeout(saveTimerId as ReturnType<typeof setTimeout>);
+    }
   }
 
-  saveTimerId = browserWindow.setTimeout(() => {
+  const schedule = browserWindow
+    ? browserWindow.setTimeout.bind(browserWindow)
+    : setTimeout;
+
+  saveTimerId = schedule(() => {
     saveTimerId = undefined;
     pendingSave = pendingSave
       .catch(() => undefined)

@@ -8,6 +8,7 @@ import { CartableSearchInput } from '../components/ui/CartableToolbar';
 import { StatusBadge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { Input, Select } from '../components/ui/Input';
+import { ApplicationSelect } from '../components/ui/ApplicationSelect';
 import { toast } from '../components/ui/Toast';
 import { useAuthStore, canPerformAction, canUseAutomatedTests } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
@@ -53,7 +54,7 @@ type PlaywrightRunForm = ReturnType<typeof createDefaultPlaywrightForm>;
 
 export const PlaywrightPage: React.FC = () => {
   const { activeContext } = useAuthStore();
-  const { appId, defaultApplicationId } = useDataScope();
+  const { appId, defaultApplicationId, isAppLevel, isMultiSystem } = useDataScope();
   const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [data, setData] = useState<PaginatedResponse<PlaywrightRun> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,6 +76,7 @@ export const PlaywrightPage: React.FC = () => {
 
   // Form state
   const [formData, setFormData] = useState<PlaywrightRunForm>(createDefaultPlaywrightForm());
+  const [formApplicationId, setFormApplicationId] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
@@ -90,10 +92,12 @@ export const PlaywrightPage: React.FC = () => {
   }, [activeContext]);
 
   useEffect(() => {
-    if (showStartModal && activeContext) {
+    if (showStartModal && activeContext && formApplicationId) {
       discoverFiles();
+    } else if (!formApplicationId) {
+      setDiscoveredFiles([]);
     }
-  }, [showStartModal, activeContext]);
+  }, [showStartModal, activeContext, formApplicationId]);
 
   useEffect(() => {
     if (!selectedRun || !data?.data.length) return;
@@ -165,7 +169,7 @@ export const PlaywrightPage: React.FC = () => {
       return;
     }
     try {
-      const files = await playwrightApi.discoverFiles(appId);
+      const files = await playwrightApi.discoverFiles(formApplicationId);
       setDiscoveredFiles(files);
     } catch {
       setDiscoveredFiles([]);
@@ -183,7 +187,10 @@ export const PlaywrightPage: React.FC = () => {
   };
 
   const handleStart = async () => {
-    if (!activeContext || !formData.testFilePath || formData.projects.length === 0) return;
+    if (!activeContext || !formApplicationId || !formData.testFilePath || formData.projects.length === 0) {
+      toast.error('سامانه، فایل تست و حداقل یک مرورگر را انتخاب کنید.');
+      return;
+    }
     setActionLoading(true);
     try {
       await playwrightApi.start(
@@ -202,10 +209,11 @@ export const PlaywrightPage: React.FC = () => {
           workingDirectory: runnerConfig?.defaultWorkingDirectory,
         },
         activeContext.userId,
-        defaultApplicationId
+        formApplicationId
       );
       setShowStartModal(false);
       setFormData(createDefaultPlaywrightForm(runnerConfig?.defaultTimeoutSeconds || 120));
+      setFormApplicationId(isAppLevel || isMultiSystem ? '' : defaultApplicationId);
       loadData();
     } catch {
       toast.error('خطا در شروع اجرای Playwright.');
@@ -394,7 +402,11 @@ export const PlaywrightPage: React.FC = () => {
           canRun && (
             <Button
               icon={<Play className="w-4 h-4" />}
-              onClick={() => setShowStartModal(true)}
+              onClick={() => {
+                setFormApplicationId(isAppLevel || isMultiSystem ? '' : defaultApplicationId);
+                setFormData(createDefaultPlaywrightForm(runnerConfig?.defaultTimeoutSeconds || 120));
+                setShowStartModal(true);
+              }}
             >
               اجرای جدید
             </Button>
@@ -444,6 +456,7 @@ export const PlaywrightPage: React.FC = () => {
               onChange={(search) => setFilters({ ...filters, search, page: 1 })}
             />
             <select
+              aria-label="فیلتر وضعیت اجرای Playwright"
               value={filters.status || ''}
               onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
               className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -505,6 +518,17 @@ export const PlaywrightPage: React.FC = () => {
         size="wide"
       >
         <div className="space-y-4">
+          <ApplicationSelect
+            label="سامانه اجرای Playwright"
+            required
+            value={formApplicationId}
+            onChange={(applicationId) => {
+              setFormApplicationId(applicationId);
+              setFormData(prev => ({ ...prev, testFilePath: '', manualPath: false }));
+              setDiscoveredFiles([]);
+            }}
+            hint="فایل‌های تست فقط از سامانه انتخاب‌شده بارگذاری می‌شوند."
+          />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <FolderOpen className="w-4 h-4 inline ml-1" />
@@ -615,7 +639,7 @@ export const PlaywrightPage: React.FC = () => {
                 <span className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
                   formData.headed ? 'bg-blue-600' : 'bg-gray-300'
                 }`}>
-                  <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition ${
+                  <span className={`theme-switch-thumb inline-block h-5 w-5 rounded-full bg-white shadow transition ${
                     formData.headed ? '-translate-x-5' : '-translate-x-1'
                   }`} />
                 </span>
@@ -682,7 +706,7 @@ export const PlaywrightPage: React.FC = () => {
               icon={<Play className="w-4 h-4" />}
               onClick={handleStart}
               loading={actionLoading}
-              disabled={!formData.testFilePath || formData.projects.length === 0}
+              disabled={!formApplicationId || !formData.testFilePath || formData.projects.length === 0}
             >
               اجرا
             </Button>

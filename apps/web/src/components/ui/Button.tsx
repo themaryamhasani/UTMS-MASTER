@@ -13,7 +13,7 @@ export const Button: React.FC<ButtonProps> = ({ children, variant = 'primary', s
         primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500',
         secondary: 'bg-gray-100 text-gray-700 hover:bg-gray-200 focus:ring-gray-500',
         danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
-        warning: 'bg-amber-500 text-white hover:bg-amber-600 focus:ring-amber-500',
+        warning: 'bg-amber-700 text-white hover:bg-amber-800 focus:ring-amber-500',
         ghost: 'bg-transparent text-gray-600 hover:bg-gray-100 focus:ring-gray-500',
         outline: 'border-2 border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-500',
     };

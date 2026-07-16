@@ -31,7 +31,17 @@ utms/
 │   ├── testing/
 │   └── workflows/
 ├── tests/
-│   └── contract/
+│   ├── accessibility/
+│   ├── compatibility/
+│   ├── contract/
+│   ├── e2e/
+│   ├── performance/
+│   ├── regression/
+│   ├── reliability/
+│   ├── smoke/
+│   ├── structural/
+│   ├── system/
+│   └── uat/
 ├── artifacts/
 ├── runtime/
 ├── package.json
@@ -53,7 +63,7 @@ utms/
 - `infrastructure` contains Docker, compose, observability, and deployment support.
 - `scripts` contains permanent root-runnable scripts.
 - `docs` contains categorized documentation.
-- `tests` contains cross-workspace contract, smoke, and performance suites.
+- `tests` contains cross-workspace contract, browser, system, accessibility, compatibility, performance, reliability, regression, UAT, and structural suites. API integration/security specs live under `apps/api/test`.
 - `artifacts` and `runtime` are ignored generated/runtime locations.
 
 ## Dependency Direction
@@ -80,6 +90,7 @@ Add permanent scripts under `scripts/development`, `scripts/database`, `scripts/
 - API integration/E2E/security tests go under `apps/api/test`.
 - Worker and runner tests go under their app `test` folders.
 - Cross-workspace contract tests go under `tests/contract`.
+- Cross-workspace browser/system suites go under the matching `tests/<suite>` directory and are mapped to Playwright projects in `playwright.config.ts`.
 - Shared fixtures go under `packages/test-support`.
 
 ## Adding Infrastructure

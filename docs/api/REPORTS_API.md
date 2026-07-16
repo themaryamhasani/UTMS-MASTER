@@ -1,8 +1,14 @@
 # UTMS Reports API Documentation
 
-Current report APIs are implemented in `src/services/reportsApi.ts` and consumed by `src/pages/ReportsPage.tsx`.
+Current report APIs are implemented in `apps/web/src/services/reportsApi.ts` and consumed by `apps/web/src/pages/ReportsPage.tsx`.
 
-The APIs are frontend/mock read models over in-memory data. Production should replace these with backend read models or query endpoints.
+The report read models now execute through the backend domain RPC route when the web app runs in backend mode:
+
+- Browser client: `apps/web/src/services/domainRpcClient.ts`
+- Backend route: `POST /api/domain/rpc`
+- Service: `reportsApi`
+
+The read-model calculations still reuse the current UTMS domain state and should be migrated to Prisma/PostgreSQL read models for final production hardening.
 
 ## API List
 
@@ -33,7 +39,7 @@ The APIs are frontend/mock read models over in-memory data. Production should re
 
 1. The Reports route is visible through dashboard access.
 2. Each report card has its own `roles` list in `ReportsPage.tsx`.
-3. Frontend visibility is role-based; production APIs must enforce the same role and application scope server-side.
+3. Frontend visibility is role-based; domain RPC moves report execution server-side, and final production APIs must enforce role and application scope through backend middleware.
 4. Application scope is passed to report APIs where implemented.
 
 ## Frontend Export And Filters
@@ -46,4 +52,4 @@ The APIs are frontend/mock read models over in-memory data. Production should re
 
 ## Backend Follow-Up
 
-Production still needs server-side PDF rendering, real Scheduled Report execution, real Alert evaluation/delivery and backend Audit Export.
+Production still needs Prisma/PostgreSQL read models, server-side PDF rendering, real Scheduled Report execution, real Alert evaluation/delivery and backend Audit Export.

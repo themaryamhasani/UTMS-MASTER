@@ -5,6 +5,7 @@ const path = require('path');
 const dns = require('dns').promises;
 const zlib = require('zlib');
 const { createCipheriv, createDecipheriv, randomBytes, randomUUID } = require('crypto');
+const { canHandleDomainRpc, handleDomainRpc } = require('../../../domain-rpc/domain-rpc-server.cjs');
 
 const REPOSITORY_ROOT = path.resolve(__dirname, '../../../../../../..');
 const resolveRepositoryPath = value => path.isAbsolute(value) ? value : path.join(REPOSITORY_ROOT, value);
@@ -1496,15 +1497,30 @@ function parseApplicationScope(value) {
   return [String(value)];
 }
 
-function firstApplicationId(scope, fallback = 'ALL') {
-  const ids = parseApplicationScope(scope);
-  return ids?.[0] || fallback;
-}
-
 function matchesApplicationScope(applicationId, scopeValue) {
   const ids = parseApplicationScope(scopeValue);
   if (!ids || !ids.length) return true;
   return ids.includes(applicationId);
+}
+
+function contextApplicationIds(context) {
+  const ids = Array.isArray(context?.scopeApplicationIds)
+    ? context.scopeApplicationIds
+    : parseApplicationScope(context?.scopeApplicationIds);
+  if (ids?.length) return [...new Set(ids.map(String).filter(id => id && id !== 'ALL'))];
+  if (context?.applicationId && context.applicationId !== 'ALL') return [String(context.applicationId)];
+  return [];
+}
+
+function assertApplicationInContext(applicationId, context) {
+  const normalized = String(applicationId || '').trim();
+  if (!normalized || normalized === 'ALL' || normalized.includes(',')) {
+    throw new ApiConsoleError('CORE_VALIDATION_ERROR', 'انتخاب یک سامانه معتبر الزامی است.', 422);
+  }
+  if (!contextApplicationIds(context).includes(normalized)) {
+    throw new ApiConsoleError('AUTHENTICATION_ERROR', 'سامانه خارج از محدوده دسترسی فعال است.', 403);
+  }
+  return normalized;
 }
 
 function belongsToUser(entity, context) {
@@ -3669,6 +3685,7 @@ async function routeRequest(req, parsedUrl, body) {
       if (!collection || !belongsToUser(collection, context)) {
         throw new ApiConsoleError('INVALID_URL', 'Collection not found.', 404);
       }
+      assertApplicationInContext(collection.applicationId, context);
       const rows = store.requests
         .filter(request =>
           request.collectionId === collection.id &&
@@ -3688,6 +3705,7 @@ async function routeRequest(req, parsedUrl, body) {
       return safeClone(store.collections.filter(collection =>
         collection.status === 'ACTIVE' &&
         matchesApplicationScope(collection.applicationId, scope) &&
+        contextApplicationIds(context).includes(collection.applicationId) &&
         belongsToUser(collection, context)
       ));
     }
@@ -3695,9 +3713,10 @@ async function routeRequest(req, parsedUrl, body) {
       const context = requireContext(req, body);
       if (!roleAllowed(context.role, API_CONSOLE_POLICY.canCreate)) throw new ApiConsoleError('AUTHENTICATION_ERROR', 'User is not authorized to create API collections.', 403);
       const data = body.data || body;
+      const applicationId = assertApplicationInContext(data.applicationId, context);
       const collection = {
         id: makeId('api-col'),
-        applicationId: data.applicationId || firstApplicationId(context.scopeApplicationIds || context.applicationId, 'ALL'),
+        applicationId,
         workspaceName: data.workspaceName || 'UTMS API Workspace',
         name: data.name || 'New Collection',
         description: data.description,
@@ -3747,6 +3766,7 @@ async function routeRequest(req, parsedUrl, body) {
       };
       let rows = store.requests.filter(request =>
         matchesApplicationScope(request.applicationId, scope) &&
+        contextApplicationIds(context).includes(request.applicationId) &&
         request.status !== 'ARCHIVED' &&
         belongsToUser(request, context)
       );
@@ -3772,9 +3792,13 @@ async function routeRequest(req, parsedUrl, body) {
       if (!collection || !belongsToUser(collection, context)) {
         throw new ApiConsoleError('AUTHENTICATION_ERROR', 'Target API collection does not belong to the active user.', 403);
       }
+      assertApplicationInContext(collection.applicationId, context);
+      if (data.applicationId && data.applicationId !== collection.applicationId) {
+        throw new ApiConsoleError('CORE_VALIDATION_ERROR', 'سامانه Request باید با سامانه Collection یکسان باشد.', 422);
+      }
       const request = definitionFromNormalized(data.normalizedRequest || createBlankNormalizedRequest(), {
         id: makeId('api-req'),
-        applicationId: data.applicationId,
+        applicationId: collection.applicationId,
         collectionId: data.collectionId,
         environmentId: data.environmentId,
         name: data.name || 'Untitled API Request',
@@ -3816,6 +3840,7 @@ async function routeRequest(req, parsedUrl, body) {
     if (!belongsToUser(request, viewContext)) {
       throw new ApiConsoleError('AUTHENTICATION_ERROR', 'Request does not belong to the active user.', 403);
     }
+    assertApplicationInContext(request.applicationId, viewContext);
 
     if (!third && req.method === 'GET') {
       logUsageEvent('API_OPENED', viewContext, request, { referenceId: request.referenceId });
@@ -3831,6 +3856,13 @@ async function routeRequest(req, parsedUrl, body) {
         if (!collection || !belongsToUser(collection, context)) {
           throw new ApiConsoleError('AUTHENTICATION_ERROR', 'Target API collection does not belong to the active user.', 403);
         }
+        assertApplicationInContext(collection.applicationId, context);
+        if (collection.applicationId !== request.applicationId) {
+          throw new ApiConsoleError('CORE_VALIDATION_ERROR', 'انتقال Request بین سامانه‌ها مجاز نیست.', 422);
+        }
+      }
+      if (patch.applicationId && patch.applicationId !== request.applicationId) {
+        throw new ApiConsoleError('CORE_VALIDATION_ERROR', 'سامانه Request پس از ایجاد قابل تغییر نیست.', 422);
       }
       const index = store.requests.findIndex(item => item.id === second);
       store.requests[index] = upsertRequestWithPatch(request, patch, context);
@@ -4183,8 +4215,14 @@ function createServer() {
           status: 'ok',
           service: 'utms-api',
           checkedAt: nowIso(),
-          modules: ['api-console'],
+          modules: ['api-console', 'domain-rpc'],
         });
+        return;
+      }
+      if (canHandleDomainRpc(parsedUrl.pathname)) {
+        const body = await readJsonBody(req);
+        const result = await handleDomainRpc(req, parsedUrl, body);
+        sendJson(res, 200, result);
         return;
       }
       if (!parsedUrl.pathname.startsWith('/api/api-console') && !parsedUrl.pathname.startsWith('/api/reports')) {

@@ -10,7 +10,7 @@ test('UTMS-API-SYS-001 @system flows API-created data into the authenticated UI'
     technique: 'Data Flow Testing', role: 'DEVELOPER', scope: 'SYSTEMS', risk: 'critical',
     data: 'Collection created through HTTP API under same active context as browser', expected: 'The UI reads and renders the persisted backend collection',
   }));
-  const name = 'مجموعه سیستم Playwright';
+  const name = `مجموعه سیستم Playwright ${Date.now()}`;
   const response = await api.post('/api/api-console/collections', {
     headers: { 'x-utms-context': contextHeader('DEVELOPER') },
     data: { name, applicationId: 'app-1' },
@@ -41,4 +41,31 @@ test('UTMS-API-SYS-002 @system preserves soft-delete and export semantics across
   await api.delete(`/api/api-console/requests/${created.id}`, { headers });
   const afterArchive = await (await api.get('/api/api-console/requests', { headers })).json();
   expect(afterArchive.total).toBe(before.total - 1);
+});
+
+test('UTMS-API-SCOPE-003 @system rejects collection and request application spoofing', async ({ api }, testInfo) => {
+  annotateTest(testInfo, metadata('UTMS-API-SCOPE-003', {
+    requirement: 'API Console server-side application scope', feature: 'API Console', level: 'system', type: 'security-negative',
+    technique: 'Authorization Testing', role: 'DEVELOPER', scope: 'SYSTEMS', risk: 'critical',
+    data: 'Context limited to app-1 with a forged app-2 collection/request', expected: 'Backend rejects out-of-scope collection and cross-application request IDs',
+  }));
+  const headers = { 'x-utms-context': contextHeader('DEVELOPER') };
+
+  const outOfScopeCollection = await api.post('/api/api-console/collections', {
+    headers,
+    data: { name: 'Forged app', applicationId: 'app-2' },
+  });
+  expect(outOfScopeCollection.status()).toBe(403);
+  await expect(outOfScopeCollection.json()).resolves.toMatchObject({ error: { category: 'AUTHENTICATION_ERROR' } });
+
+  const validCollection = await (await api.post('/api/api-console/collections', {
+    headers,
+    data: { name: 'Scoped app', applicationId: 'app-1' },
+  })).json();
+  const mismatchedRequest = await api.post('/api/api-console/requests', {
+    headers,
+    data: { name: 'Forged request', applicationId: 'app-2', collectionId: validCollection.id, environmentId: 'env-test' },
+  });
+  expect(mismatchedRequest.status()).toBe(422);
+  await expect(mismatchedRequest.json()).resolves.toMatchObject({ error: { category: 'CORE_VALIDATION_ERROR' } });
 });

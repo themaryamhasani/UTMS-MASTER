@@ -131,10 +131,18 @@ Usage telemetry برای این eventها ثبت می‌شود:
 
 ## Collections And Requests
 
-کاربر می‌تواند مثل Postman یک Collection بسازد و requestها را داخل Collection نگه دارد. اگر هنگام import یا ایجاد request، Collection انتخاب نشده باشد، frontend یک Collection پیش‌فرض می‌سازد.
+کاربر می‌تواند مانند Postman یک Collection بسازد و Requestها را داخل آن نگه دارد. هر Collection هنگام ساخت یا Import از Postman باید به یک سامانه واقعی و صریح در Context فعال متصل شود؛ `ALL`، مقدار خالی و شناسه ترکیبی معتبر نیستند.
+
+سامانه Request از Collection والد مشتق می‌شود و پس از ایجاد قابل تغییر نیست. در نتیجه:
+
+- ساخت Request جدید و Import از cURL بدون انتخاب Collection مجاز نیست.
+- Import مجموعه Postman ابتدا سامانه را می‌گیرد و Collection و تمام Requestهای Importشده را به همان سامانه متصل می‌کند.
+- انتقال Request به Collection سامانه دیگر و ارسال `applicationId` ناسازگار با Collection رد می‌شود.
+- نام Collectionها در selectorها همراه نام سامانه نمایش داده می‌شود تا مجموعه‌های هم‌نام در دو سامانه اشتباه نشوند.
 
 Request definition شامل این بخش‌ها است:
 
+- applicationId مشتق‌شده از Collection
 - name و description
 - method و urlTemplate
 - queryParameters
@@ -513,7 +521,18 @@ Frontend context از طریق header زیر به backend داده می‌شود
 x-utms-context: base64(JSON.stringify(activeContext))
 ```
 
-در production این بخش باید با auth middleware واقعی جایگزین یا harden شود.
+Backend توسعه‌ای علاوه بر مالکیت کاربر، `scopeApplicationIds` را برای list، read و mutation اعمال می‌کند:
+
+| وضعیت | نتیجه HTTP |
+| --- | --- |
+| Collection بدون سامانه واقعی | `422 CORE_VALIDATION_ERROR` |
+| سامانه Collection خارج از Context | `403 AUTHENTICATION_ERROR` |
+| Request با سامانه متفاوت از Collection | `422 CORE_VALIDATION_ERROR` |
+| انتقال Request بین Collectionهای دو سامانه | `422 CORE_VALIDATION_ERROR` |
+| list خارج از Scope | رکورد بیرون Scope فیلتر می‌شود |
+| دسترسی مستقیم یا mutation خارج از Context | `403 AUTHENTICATION_ERROR` |
+
+`x-utms-context` فقط adapter توسعه‌ای این checkout است. در production باید با auth middleware و session/JWT امضاشده جایگزین شود و payload ارسالی مرورگر به‌تنهایی منبع اعتماد نباشد.
 
 ## RBAC
 
@@ -647,6 +666,8 @@ Frontend errorها را به شکل safe و actionable نمایش می‌دهد 
 - template DOCX generation
 - SSRF localhost protection
 - Bash cURL export
+
+تست `UTMS-API-SCOPE-003` در `tests/system/api-console.system.spec.ts` با HTTP واقعی دو مسیر منفی را بررسی می‌کند: ساخت Collection خارج از Scope و جعل سامانه Request نسبت به Collection. تست‌های `UTMS-API-SYS-001/002` نیز جریان ماندگاری UI/API، export و archive را پوشش می‌دهند. وضعیت اجرای جاری در [ماتریس پوشش تست](../testing/TEST_COVERAGE_MATRIX.md) ثبت می‌شود.
 
 `npm run build` frontend TypeScript و production bundle را verify می‌کند.
 

@@ -238,13 +238,17 @@ export const SettingsPage: React.FC = () => {
                     </div>
                     {setting.type === 'toggle' && (
                       <button
+                        type="button"
+                        role="switch"
+                        aria-checked={Boolean(setting.value)}
+                        aria-label={setting.label}
                         onClick={() => handleToggle(setting.id)}
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                           setting.value ? 'bg-blue-600' : 'bg-gray-300'
                         }`}
                       >
                         <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          className={`theme-switch-thumb inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                             setting.value ? 'translate-x-1' : 'translate-x-6'
                           }`}
                         />

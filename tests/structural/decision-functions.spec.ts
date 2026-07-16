@@ -12,6 +12,11 @@ import {
 } from '../../apps/web/src/utils/inputRules';
 import { isSemVer } from '../../apps/web/src/utils/semver';
 import {
+  filterByRequestApplication,
+  filterTestCasesForExecution,
+  haveSameApplication,
+} from '../../apps/web/src/utils/testManagementScope';
+import {
   canAccessCartable,
   canPerformAction,
   canUseAutomatedTests,
@@ -166,6 +171,40 @@ test('UTMS-SCOPE-DATA-011 @data-flow preserves APP and SYSTEMS data scope', asyn
   expect(getDataApplicationId(context('APP', ['app-1', 'app-2']))).toBeUndefined();
   expect(getDataApplicationId(context('SYSTEMS', ['app-1']))).toBe('app-1');
   expect(getDataApplicationId(context('SYSTEMS', ['app-1', 'app-2']))).toEqual(['app-1', 'app-2']);
+});
+
+test('UTMS-RUN-SCOPE-015 @data-flow cascades request system into requirements and test cases', async ({}, testInfo) => {
+  annotateTest(testInfo, metadata('UTMS-RUN-SCOPE-015', {
+    requirement: 'Test Run request-to-application cascade', feature: 'Test execution wizard', level: 'structural',
+    type: 'data-integrity', technique: 'Data Flow Testing', role: 'QA_LEAD,QA_SPECIALIST', scope: 'SYSTEMS', risk: 'critical',
+    data: 'Requests, requirements and test cases from two applications', expected: 'Only records from the selected request application and requirement remain selectable',
+  }));
+  const request = { applicationId: 'app-2' };
+  const requirements = [
+    { id: 'req-1', applicationId: 'app-1' },
+    { id: 'req-2', applicationId: 'app-2' },
+  ];
+  const testCases = [
+    { id: 'tc-1', applicationId: 'app-1', requirementId: 'req-1' },
+    { id: 'tc-2', applicationId: 'app-2', requirementId: 'req-2' },
+    { id: 'tc-3', applicationId: 'app-2', requirementId: 'req-3' },
+  ];
+
+  expect(filterByRequestApplication(requirements, request).map(item => item.id)).toEqual(['req-2']);
+  expect(filterTestCasesForExecution(testCases, request, 'req-2').map(item => item.id)).toEqual(['tc-2']);
+  expect(filterTestCasesForExecution(testCases, request)).toEqual([]);
+});
+
+test('UTMS-RUN-SCOPE-016 @negative rejects cross-application execution links', async ({}, testInfo) => {
+  annotateTest(testInfo, metadata('UTMS-RUN-SCOPE-016', {
+    requirement: 'Test Run application consistency', feature: 'Test execution service', level: 'structural',
+    type: 'negative', technique: 'Decision Testing', role: 'QA_LEAD,QA_SPECIALIST', scope: 'SYSTEMS', risk: 'critical',
+    data: 'Request app-1 paired with test case app-1/app-2', expected: 'Only matching application references are accepted',
+  }));
+  const request = { applicationId: 'app-1' };
+  expect(haveSameApplication(request, { applicationId: 'app-1' })).toBe(true);
+  expect(haveSameApplication(request, { applicationId: 'app-2' })).toBe(false);
+  expect(haveSameApplication(request, undefined)).toBe(false);
 });
 
 test('UTMS-RBAC-COMB-012 @combinatorial applies a pairwise access array', async ({}, testInfo) => {

@@ -28,9 +28,13 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
 
   const origin = process.env.UTMS_WEB_BASE_URL || 'http://127.0.0.1:5173';
   for (const [role, identity] of Object.entries(roles)) {
-    const app = identity.scope === 'APP'
-      ? { id: 'ALL', name: 'کل اپلیکیشن (تمام سامانه‌ها)', code: 'ALL_APPS' }
-      : { id: 'app-1', name: 'سامانه مدیریت آموزش', code: 'LMS' };
+    const applicationRows = [
+      { id: 'app-1', name: 'سامانه بانکداری آنلاین', code: 'BANKING' },
+      { id: 'app-2', name: 'سامانه مدیریت منابع انسانی', code: 'HRM' },
+      { id: 'app-3', name: 'پورتال کارمندان', code: 'EMPLOYEE_PORTAL' },
+    ];
+    const contextApplications = identity.scope === 'APP' ? applicationRows : [applicationRows[0]!];
+    const app = contextApplications[0]!;
     const user = {
       id: identity.id,
       nationalCode: '0012345678',
@@ -42,20 +46,26 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
       updatedAt: '2024-01-01T00:00:00Z',
     };
     const activeContext = {
+      contextId: `context:${identity.id}:${role}:${identity.assignment}`,
       userId: identity.id,
       user,
       assignmentId: identity.assignment,
+      assignmentIds: [identity.assignment],
       applicationId: identity.scope === 'APP' ? 'ALL' : 'app-1',
       scopeApplicationIds: ['app-1', ...(identity.scope === 'APP' ? ['app-2', 'app-3'] : [])],
       application: app,
+      applications: contextApplications,
       role,
       scope: identity.scope,
       automatedTestsEnabled: true,
       token: `test-token-${identity.id}`,
     };
     const availableContext = {
+      contextId: activeContext.contextId,
       assignmentId: identity.assignment,
+      assignmentIds: [identity.assignment],
       application: app,
+      applications: contextApplications,
       role,
       scope: identity.scope,
       scopeApplicationIds: activeContext.scopeApplicationIds,

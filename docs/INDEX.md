@@ -38,6 +38,8 @@
 - [System QA fix plan](migration/SYSTEM_QA_FIX_PLAN.md)
 - [Frontend audit and fix report](migration/FRONTEND_AUDIT_AND_FIX_REPORT.md)
 - [Frontend PRD gap report](migration/FRONTEND_PRD_GAP_REPORT.md)
+- [System context and application scope](migration/SYSTEM_CONTEXT_AND_APPLICATION_SCOPE.md)
+- [Theme and accessibility implementation](migration/THEME_AND_ACCESSIBILITY.md)
 
 ## ADR
 

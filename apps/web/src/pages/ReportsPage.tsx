@@ -510,7 +510,7 @@ export const ReportsPage: React.FC = () => {
         .catch(() => {
           setApplications(scopeApplicationIds.map(id => ({
             id,
-            name: id === activeContext?.applicationId ? activeContext.application.name : id,
+            name: id === activeContext?.applicationId ? activeContext.application.name : 'سامانه نامشخص',
           })));
         });
       return;

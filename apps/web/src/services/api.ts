@@ -4,6 +4,7 @@
 // ============================================
 
 import { v4 as uuidv4 } from 'uuid';
+import { createDomainRpcProxy } from './domainRpcClient';
 import type {
   TestRequest,
   Requirement,
@@ -94,6 +95,7 @@ import {
 } from './workflowPolicyStore';
 import { isSemVer } from '../utils/semver';
 import { DESCRIPTION_MAX_LENGTH, hasInvalidBuildNumber, isValidSystemUrl, validateRequestTitle } from '../utils/inputRules';
+import { haveSameApplication } from '../utils/testManagementScope';
 // UserRoleAssignment type is available via mockUserRoleAssignments
 
 // Simulate API delay
@@ -401,6 +403,12 @@ export function flushCurrentDataState(): void {
   scheduleCurrentStatePersistence();
 }
 
+export async function persistCurrentDataState(): Promise<void> {
+  await ensurePersistenceReady();
+  syncSeedDataCollections();
+  await savePersistedUtmsState(currentPersistentState());
+}
+
 // Helper for pagination
 function paginate<T>(
   data: T[],
@@ -696,6 +704,58 @@ function userHasRole(userId: string, roles: UserRole[], applicationId?: string):
     roles.includes(a.role) &&
     (!applicationId || a.scope === 'APP' || (a.applicationIds || [a.applicationId]).includes(applicationId))
   );
+}
+
+function assertActorApplicationScope(userId: string, applicationId: string): Application {
+  const normalizedApplicationId = applicationId?.trim();
+  if (!normalizedApplicationId || normalizedApplicationId === 'ALL' || normalizedApplicationId.includes(',')) {
+    throw new Error('APPLICATION_REQUIRED');
+  }
+
+  const application = mutableApplications.find(app => app.id === normalizedApplicationId && app.isActive);
+  if (!application) {
+    throw new Error('APPLICATION_NOT_FOUND');
+  }
+
+  const isInActorScope = mockUserRoleAssignments.some(assignment =>
+    assignment.userId === userId &&
+    assignment.isActive &&
+    (assignment.scope === 'APP' ||
+      (assignment.applicationIds?.length ? assignment.applicationIds : [assignment.applicationId])
+        .includes(normalizedApplicationId))
+  );
+  if (!isInActorScope) {
+    throw new Error('APPLICATION_OUT_OF_SCOPE');
+  }
+
+  return application;
+}
+
+function assertRequestedApplicationMatches(
+  requestedApplicationId: string | undefined,
+  resolvedApplicationId: string,
+  errorCode = 'APPLICATION_OUT_OF_SCOPE'
+): void {
+  if (requestedApplicationId && requestedApplicationId !== resolvedApplicationId) {
+    throw new Error(errorCode);
+  }
+}
+
+function validateRequirementIdsForApplication(
+  requirementIds: string[] | undefined,
+  applicationId: string
+): string[] {
+  const uniqueRequirementIds = Array.from(new Set(requirementIds || []));
+  uniqueRequirementIds.forEach(requirementId => {
+    const requirement = requirements.find(item => item.id === requirementId);
+    if (!requirement) {
+      throw new Error('REQUIREMENT_NOT_FOUND');
+    }
+    if (requirement.applicationId !== applicationId) {
+      throw new Error('SELECTED_REQUIREMENT_OUT_OF_SCOPE');
+    }
+  });
+  return uniqueRequirementIds;
 }
 
 function isActiveDeveloperForApplication(userId: string | undefined, applicationId: string): boolean {
@@ -1240,7 +1300,7 @@ function deleteRunCascade(run: TestRun, userId: string): boolean {
 // Test Request API
 // ============================================
 
-export const testRequestApi = {
+const localTestRequestApi = {
   async getAll(
     applicationId: ApplicationScopeFilter,
     filters: CartableFilterParams
@@ -1278,6 +1338,8 @@ export const testRequestApi = {
     applicationId: string
   ): Promise<TestRequest> {
     await delay();
+    assertActorApplicationScope(userId, applicationId);
+    assertRequestedApplicationMatches(data.applicationId, applicationId);
     assertTestRequestTitle(data.title);
     assertDescriptionLength(data.description, 'TEST_REQUEST_DESCRIPTION_TOO_LONG');
     assertBuildNumber(data.buildNumber);
@@ -1285,6 +1347,10 @@ export const testRequestApi = {
     if (!isSemVer(data.version)) {
       throw new Error('INVALID_SEMVER_VERSION');
     }
+    const selectedRequirementIds = validateRequirementIdsForApplication(
+      data.selectedRequirementIds,
+      applicationId
+    );
     const tr: TestRequest = {
       id: uuidv4(),
       applicationId,
@@ -1297,7 +1363,7 @@ export const testRequestApi = {
       riskLevel: data.riskLevel || 'MEDIUM',
       status: 'DRAFT',
       systemUrl: data.systemUrl || '',
-      selectedRequirementIds: data.selectedRequirementIds || [],
+      selectedRequirementIds,
       testTypes: data.testTypes || [],
       requesterId: userId,
       requester: getUserById(userId),
@@ -1313,6 +1379,9 @@ export const testRequestApi = {
     await delay();
     const index = testRequests.findIndex(t => t.id === id);
     if (index === -1) return null;
+    const current = requireAt(testRequests, index);
+    assertActorApplicationScope(userId, current.applicationId);
+    assertRequestedApplicationMatches(data.applicationId, current.applicationId);
     if ('title' in data) assertTestRequestTitle(data.title);
     if ('description' in data) assertDescriptionLength(data.description, 'TEST_REQUEST_DESCRIPTION_TOO_LONG');
     if ('buildNumber' in data) assertBuildNumber(data.buildNumber);
@@ -1321,11 +1390,16 @@ export const testRequestApi = {
       throw new Error('INVALID_SEMVER_VERSION');
     }
     
-    const current = requireAt(testRequests, index);
+    const selectedRequirementIds = validateRequirementIdsForApplication(
+      data.selectedRequirementIds === undefined ? current.selectedRequirementIds : data.selectedRequirementIds,
+      current.applicationId
+    );
     const previous = { ...current };
     testRequests[index] = {
       ...current,
       ...data,
+      applicationId: current.applicationId,
+      selectedRequirementIds,
       updatedAt: new Date().toISOString(),
     };
     const updated = requireAt(testRequests, index);
@@ -1337,6 +1411,11 @@ export const testRequestApi = {
     await delay();
     const tr = testRequests.find(t => t.id === id);
     if (!tr || tr.status !== 'DRAFT') return null;
+    assertActorApplicationScope(userId, tr.applicationId);
+    tr.selectedRequirementIds = validateRequirementIdsForApplication(
+      tr.selectedRequirementIds,
+      tr.applicationId
+    );
     
     const previous = { status: tr.status };
     tr.status = 'SUBMITTED';
@@ -1389,6 +1468,10 @@ export const testRequestApi = {
     await delay();
     const tr = testRequests.find(t => t.id === id);
     if (!tr || !['ACCEPTED', 'IN_PROGRESS'].includes(tr.status)) return null;
+    assertActorApplicationScope(userId, tr.applicationId);
+    if (!userHasRole(assigneeId, ['QA_SPECIALIST', 'QA_LEAD'], tr.applicationId)) {
+      throw new Error('INVALID_TEST_REQUEST_ASSIGNEE');
+    }
     
     const previous = { assigneeId: tr.assigneeId };
     tr.assigneeId = assigneeId;
@@ -1448,7 +1531,7 @@ export const testRequestApi = {
 // Requirement API
 // ============================================
 
-export const requirementApi = {
+const localRequirementApi = {
   async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<Requirement>> {
     await delay();
     let data = filterByApplicationScope(requirements, applicationId);
@@ -1470,10 +1553,20 @@ export const requirementApi = {
 
   async create(data: Partial<Requirement>, userId: string, applicationId: string): Promise<Requirement> {
     await delay();
+    const linkedTestRequest = data.testRequestId
+      ? testRequests.find(testRequest => testRequest.id === data.testRequestId)
+      : undefined;
+    if (data.testRequestId && !linkedTestRequest) {
+      throw new Error('TEST_REQUEST_NOT_FOUND');
+    }
+    const resolvedApplicationId = linkedTestRequest?.applicationId || applicationId;
+    assertRequestedApplicationMatches(applicationId, resolvedApplicationId, 'TEST_REQUEST_OUT_OF_SCOPE');
+    assertRequestedApplicationMatches(data.applicationId, resolvedApplicationId, 'TEST_REQUEST_OUT_OF_SCOPE');
+    assertActorApplicationScope(userId, resolvedApplicationId);
     assertDescriptionLength(data.description, 'REQUIREMENT_DESCRIPTION_TOO_LONG');
     const req: Requirement = {
       id: uuidv4(),
-      applicationId,
+      applicationId: resolvedApplicationId,
       title: data.title || '',
       description: data.description || '',
       acceptanceCriteria: data.acceptanceCriteria,
@@ -1486,7 +1579,7 @@ export const requirementApi = {
       updatedAt: new Date().toISOString(),
     };
     requirements.unshift(req);
-    createAuditLog(userId, applicationId, 'REQUIREMENT', req.id, 'CREATE', null, req);
+    createAuditLog(userId, resolvedApplicationId, 'REQUIREMENT', req.id, 'CREATE', null, req);
     return req;
   },
 
@@ -1494,16 +1587,32 @@ export const requirementApi = {
     await delay();
     const index = requirements.findIndex(r => r.id === id);
     if (index === -1) return null;
+    const current = requireAt(requirements, index);
+    assertActorApplicationScope(userId, current.applicationId);
+    assertRequestedApplicationMatches(data.applicationId, current.applicationId);
+    const nextTestRequestId = data.testRequestId !== undefined
+      ? data.testRequestId
+      : current.testRequestId;
+    const linkedTestRequest = nextTestRequestId
+      ? testRequests.find(testRequest => testRequest.id === nextTestRequestId)
+      : undefined;
+    if (nextTestRequestId && !linkedTestRequest) {
+      throw new Error('TEST_REQUEST_NOT_FOUND');
+    }
+    if (linkedTestRequest && linkedTestRequest.applicationId !== current.applicationId) {
+      throw new Error('TEST_REQUEST_OUT_OF_SCOPE');
+    }
     assertDescriptionLength(data.description, 'REQUIREMENT_DESCRIPTION_TOO_LONG');
     if (data.status && ['COMPLETED', 'APPROVED'].includes(data.status) && !requirementHasFlow(id)) {
       throw new Error('REQUIREMENT_FLOW_REQUIRED');
     }
     
-    const current = requireAt(requirements, index);
     const previous = { ...current };
     requirements[index] = {
       ...current,
       ...data,
+      applicationId: current.applicationId,
+      testRequestId: nextTestRequestId || undefined,
       updatedAt: new Date().toISOString(),
     };
     const updated = requireAt(requirements, index);
@@ -1515,6 +1624,7 @@ export const requirementApi = {
     await delay();
     const req = requirements.find(r => r.id === id);
     if (!req || req.status === 'APPROVED') return null;
+    assertActorApplicationScope(userId, req.applicationId);
     if (!requirementHasFlow(id)) {
       throw new Error('REQUIREMENT_FLOW_REQUIRED');
     }
@@ -1547,7 +1657,7 @@ export const requirementApi = {
 // Flow API
 // ============================================
 
-export const flowApi = {
+const localFlowApi = {
   async getByRequirement(requirementId: string): Promise<Flow[]> {
     await delay();
     return flows.filter(f => f.requirementId === requirementId);
@@ -1599,7 +1709,7 @@ export const flowApi = {
 // Test Case API
 // ============================================
 
-export const testCaseApi = {
+const localTestCaseApi = {
   async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<TestCase>> {
     await delay();
     let data = filterByApplicationScope(testCases, applicationId);
@@ -1642,6 +1752,9 @@ export const testCaseApi = {
     if (!requirement || !isRequirementReadyForTestCase(requirement.id)) {
       throw new Error('REQUIREMENT_NOT_READY_FOR_TEST_CASE');
     }
+    assertRequestedApplicationMatches(applicationId, requirement.applicationId);
+    assertRequestedApplicationMatches(data.applicationId, requirement.applicationId);
+    assertActorApplicationScope(userId, requirement.applicationId);
 
     const flow = flows.find(f => f.id === data.flowId && f.requirementId === requirement.id);
     if (!flow) {
@@ -1650,13 +1763,16 @@ export const testCaseApi = {
 
     const testRequestId = data.testRequestId || resolveTestRequestIdForRequirement(requirement);
     const testRequest = testRequestId ? testRequests.find(tr => tr.id === testRequestId) : undefined;
+    if (testRequestId && !testRequest) {
+      throw new Error('TEST_REQUEST_NOT_FOUND');
+    }
     if (testRequest && testRequest.applicationId !== requirement.applicationId) {
       throw new Error('TEST_REQUEST_OUT_OF_SCOPE');
     }
 
     const tc: TestCase = {
       id: uuidv4(),
-      applicationId: requirement.applicationId || testRequest?.applicationId || applicationId,
+      applicationId: requirement.applicationId,
       testRequestId: testRequestId || '',
       requirementId: requirement.id,
       flowId: flow.id,
@@ -1702,21 +1818,56 @@ export const testCaseApi = {
 
     const current = requireAt(testCases, index);
     const previous = { ...current };
-    if (data.status === 'READY') {
-      data.isActive = true;
+    const nextData = { ...data };
+    if (nextData.status === 'READY') {
+      nextData.isActive = true;
     }
-    if (data.status === 'DRAFT') {
-      data.isActive = false;
+    if (nextData.status === 'DRAFT') {
+      nextData.isActive = false;
     }
-    if (data.requirementId && data.testRequestId === undefined) {
-      data.testRequestId = resolveTestRequestIdForRequirement(
-        requirements.find(r => r.id === data.requirementId)
-      ) || '';
+
+    const relationshipChanged =
+      nextData.requirementId !== undefined ||
+      nextData.flowId !== undefined ||
+      nextData.testRequestId !== undefined;
+    const requirement = requirements.find(r => r.id === (nextData.requirementId || current.requirementId));
+    if (!requirement || !isRequirementReadyForTestCase(requirement.id)) {
+      throw new Error('REQUIREMENT_NOT_READY_FOR_TEST_CASE');
     }
+    if (current.applicationId !== requirement.applicationId) {
+      throw new Error('APPLICATION_OUT_OF_SCOPE');
+    }
+    assertRequestedApplicationMatches(nextData.applicationId, requirement.applicationId);
+    assertActorApplicationScope(userId, requirement.applicationId);
+
+    const flow = flows.find(f =>
+      f.id === (nextData.flowId || current.flowId) && f.requirementId === requirement.id
+    );
+    if (!flow) {
+      throw new Error('FLOW_REQUIRED_FOR_TEST_CASE');
+    }
+
+    const testRequestId = nextData.testRequestId !== undefined
+      ? nextData.testRequestId
+      : relationshipChanged
+        ? resolveTestRequestIdForRequirement(requirement)
+        : current.testRequestId;
+    const testRequest = testRequestId ? testRequests.find(tr => tr.id === testRequestId) : undefined;
+    if (testRequestId && !testRequest) {
+      throw new Error('TEST_REQUEST_NOT_FOUND');
+    }
+    if (testRequest && !haveSameApplication(testRequest, requirement)) {
+      throw new Error('TEST_REQUEST_OUT_OF_SCOPE');
+    }
+
+    nextData.requirementId = requirement.id;
+    nextData.flowId = flow.id;
+    nextData.testRequestId = testRequestId || '';
+    nextData.applicationId = requirement.applicationId;
     
     testCases[index] = {
       ...current,
-      ...data,
+      ...nextData,
       updatedAt: new Date().toISOString(),
     };
     const updated = requireAt(testCases, index);
@@ -1745,7 +1896,7 @@ export const testCaseApi = {
 // Test Run API
 // ============================================
 
-export const testRunApi = {
+const localTestRunApi = {
   async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<TestRun>> {
     await delay();
     let data = filterByApplicationScope(testRuns, applicationId);
@@ -1809,8 +1960,19 @@ export const testRunApi = {
       throw new Error('TEST_CASE_NOT_READY');
     }
 
-    const testRequest = testRequests.find(tr => tr.id === (data.testRequestId || testCase.testRequestId));
-    if (actorRole === 'QA_SPECIALIST' && !isTestRequestAssignedToUser(testRequest?.id, userId)) {
+    const resolvedTestRequestId = data.testRequestId || testCase.testRequestId;
+    const testRequest = testRequests.find(tr => tr.id === resolvedTestRequestId);
+    if (!testRequest) {
+      throw new Error('TEST_REQUEST_NOT_FOUND');
+    }
+    assertRequestedApplicationMatches(applicationId, testRequest.applicationId, 'TEST_RUN_APPLICATION_MISMATCH');
+    assertRequestedApplicationMatches(data.applicationId, testRequest.applicationId, 'TEST_RUN_APPLICATION_MISMATCH');
+    assertActorApplicationScope(userId, testRequest.applicationId);
+    const requirement = requirements.find(item => item.id === testCase.requirementId);
+    if (!requirement || !haveSameApplication(testRequest, testCase) || !haveSameApplication(testRequest, requirement)) {
+      throw new Error('TEST_RUN_APPLICATION_MISMATCH');
+    }
+    if (actorRole === 'QA_SPECIALIST' && !isTestRequestAssignedToUser(testRequest.id, userId)) {
       throw new Error('TEST_REQUEST_NOT_ASSIGNED_TO_QA_SPECIALIST');
     }
     const resolvedVersion = data.version || testRequest?.version || '';
@@ -1821,8 +1983,8 @@ export const testRunApi = {
     const run: TestRun = {
       id: uuidv4(),
       testCaseId: testCase.id,
-      testRequestId: data.testRequestId || testCase.testRequestId,
-      applicationId: testCase.applicationId || applicationId,
+      testRequestId: testRequest.id,
+      applicationId: testRequest.applicationId,
       purposes: data.purposes,
       previousRunId: data.previousRunId,
       retestTaskId: data.retestTaskId,
@@ -1882,6 +2044,12 @@ export const testRunApi = {
     const nextTestRequestId = data.testRequestId || nextTestCase.testRequestId || run.testRequestId;
     const nextTestRequest = testRequests.find(tr => tr.id === nextTestRequestId);
     if (!nextTestRequest) return null;
+    assertRequestedApplicationMatches(data.applicationId, nextTestRequest.applicationId, 'TEST_RUN_APPLICATION_MISMATCH');
+    assertActorApplicationScope(userId, nextTestRequest.applicationId);
+    const nextRequirement = requirements.find(requirement => requirement.id === nextTestCase.requirementId);
+    if (!nextRequirement || !haveSameApplication(nextTestRequest, nextTestCase) || !haveSameApplication(nextTestRequest, nextRequirement)) {
+      return null;
+    }
     if (actorRole === 'QA_SPECIALIST' && !isTestRequestAssignedToUser(nextTestRequest.id, userId)) return null;
     const nextVersion = data.version ?? run.version;
     if (!isSemVer(nextVersion)) {
@@ -1892,7 +2060,7 @@ export const testRunApi = {
     const previous = { ...run };
     run.testCaseId = nextTestCase.id;
     run.testRequestId = nextTestRequest.id;
-    run.applicationId = nextTestCase.applicationId || nextTestRequest.applicationId || run.applicationId;
+    run.applicationId = nextTestRequest.applicationId;
     run.purposes = data.purposes ?? run.purposes;
     run.previousRunId = data.previousRunId || undefined;
     run.retestTaskId = data.retestTaskId ?? run.retestTaskId;
@@ -2035,7 +2203,7 @@ export const testRunApi = {
 // Bug API
 // ============================================
 
-export const bugApi = {
+const localBugApi = {
   async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<Bug>> {
     await delay();
     let data = filterByApplicationScope(bugs, applicationId);
@@ -2076,13 +2244,16 @@ export const bugApi = {
     if (run.isLocked) {
       throw new Error('BUG_REQUIRES_UNLOCKED_TEST_RUN');
     }
-    if (data.assigneeId && !isActiveDeveloperForApplication(data.assigneeId, run.applicationId || applicationId)) {
+    assertRequestedApplicationMatches(applicationId, run.applicationId, 'BUG_APPLICATION_MISMATCH');
+    assertRequestedApplicationMatches(data.applicationId, run.applicationId, 'BUG_APPLICATION_MISMATCH');
+    assertActorApplicationScope(userId, run.applicationId);
+    if (data.assigneeId && !isActiveDeveloperForApplication(data.assigneeId, run.applicationId)) {
       throw new Error('INVALID_BUG_ASSIGNEE');
     }
     assertDescriptionLength(data.description, 'BUG_DESCRIPTION_TOO_LONG');
     const bug: Bug = {
       id: uuidv4(),
-      applicationId: run.applicationId || applicationId,
+      applicationId: run.applicationId,
       testRunId: run.id,
       title: data.title || '',
       description: data.description || '',
@@ -2127,6 +2298,11 @@ export const bugApi = {
     if (!targetRun || targetRun.isLocked || targetRun.lockedByVersionHistoryId) {
       return null;
     }
+    if (targetRun.applicationId !== bug.applicationId) {
+      throw new Error('BUG_APPLICATION_MISMATCH');
+    }
+    assertRequestedApplicationMatches(data.applicationId, targetRun.applicationId, 'BUG_APPLICATION_MISMATCH');
+    assertActorApplicationScope(userId, targetRun.applicationId);
     if (data.assigneeId && !isActiveDeveloperForApplication(data.assigneeId, bug.applicationId)) {
       throw new Error('INVALID_BUG_ASSIGNEE');
     }
@@ -2137,6 +2313,7 @@ export const bugApi = {
 
     const previous = { ...bug };
     bug.testRunId = targetRun.id;
+    bug.applicationId = targetRun.applicationId;
     bug.title = data.title ?? bug.title;
     bug.description = data.description ?? bug.description;
     bug.stepsToReproduce = data.stepsToReproduce ?? bug.stepsToReproduce;
@@ -2504,7 +2681,7 @@ export const bugApi = {
 // Retest Task API
 // ============================================
 
-export const retestTaskApi = {
+const localRetestTaskApi = {
   async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<RetestTask>> {
     await delay();
     let data = filterByApplicationScope(retestTasks, applicationId);
@@ -2662,7 +2839,7 @@ export const retestTaskApi = {
 // Run Issue API
 // ============================================
 
-export const runIssueApi = {
+const localRunIssueApi = {
   async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<RunIssue>> {
     await delay();
     let data = filterByApplicationScope(runIssues, applicationId);
@@ -2672,11 +2849,18 @@ export const runIssueApi = {
 
   async create(data: Partial<RunIssue>, userId: string, applicationId: string): Promise<RunIssue> {
     await delay();
+    const testRun = testRuns.find(run => run.id === data.testRunId);
+    if (!testRun) {
+      throw new Error('TEST_RUN_NOT_FOUND');
+    }
+    assertRequestedApplicationMatches(applicationId, testRun.applicationId, 'RUN_ISSUE_APPLICATION_MISMATCH');
+    assertRequestedApplicationMatches(data.applicationId, testRun.applicationId, 'RUN_ISSUE_APPLICATION_MISMATCH');
+    assertActorApplicationScope(userId, testRun.applicationId);
     assertDescriptionLength(data.description, 'RUN_ISSUE_DESCRIPTION_TOO_LONG');
     const issue: RunIssue = {
       id: uuidv4(),
-      testRunId: data.testRunId || '',
-      applicationId,
+      testRunId: testRun.id,
+      applicationId: testRun.applicationId,
       issueType: data.issueType || 'ENVIRONMENT',
       title: data.title || '',
       description: data.description || '',
@@ -2690,10 +2874,11 @@ export const runIssueApi = {
     return issue;
   },
 
-  async resolve(id: string, resolution: string, _userId: string): Promise<RunIssue | null> {
+  async resolve(id: string, resolution: string, userId: string): Promise<RunIssue | null> {
     await delay();
     const issue = runIssues.find(ri => ri.id === id);
     if (!issue) return null;
+    assertActorApplicationScope(userId, issue.applicationId);
     
     issue.status = 'RESOLVED';
     issue.resolution = resolution;
@@ -2713,7 +2898,7 @@ export const runIssueApi = {
 // Checklist API
 // ============================================
 
-export const checklistApi = {
+const localChecklistApi = {
   async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<Checklist>> {
     await delay();
     let data = filterByApplicationScope(checklists, applicationId);
@@ -3403,7 +3588,7 @@ function assertPlaywrightFilePayload(data: {
   };
 }
 
-export const playwrightApi = {
+const localPlaywrightApi = {
   async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<PlaywrightRun>> {
     await delay();
     let data = filterByApplicationScope(playwrightRuns, applicationId);
@@ -3451,6 +3636,7 @@ export const playwrightApi = {
   ): Promise<PlaywrightTestFile> {
     await delay();
     const { application, folder, fileName, script, fullPath } = assertPlaywrightFilePayload(data);
+    assertActorApplicationScope(userId, application.id);
     if (getAllPlaywrightTestFiles(application.id).some(file => file.fullPath === fullPath)) {
       throw new Error('PLAYWRIGHT_TEST_FILE_ALREADY_EXISTS');
     }
@@ -3498,6 +3684,8 @@ export const playwrightApi = {
     const existing = getAllPlaywrightTestFiles(undefined).find(file => file.id === id);
     if (!existing) return null;
     const { application, folder, fileName, script, fullPath } = assertPlaywrightFilePayload(data);
+    assertActorApplicationScope(userId, existing.applicationId);
+    assertActorApplicationScope(userId, application.id);
     const duplicate = getAllPlaywrightTestFiles(undefined).some(file => file.id !== id && file.fullPath === fullPath);
     if (duplicate) {
       throw new Error('PLAYWRIGHT_TEST_FILE_ALREADY_EXISTS');
@@ -3554,13 +3742,45 @@ export const playwrightApi = {
     if (!data.testFilePath?.trim()) {
       throw new Error('PLAYWRIGHT_FILE_REQUIRED');
     }
+    assertRequestedApplicationMatches(data.applicationId, applicationId, 'PLAYWRIGHT_APPLICATION_MISMATCH');
+    assertActorApplicationScope(userId, applicationId);
+
+    const testFilePath = data.testFilePath.trim();
+    const registeredFiles = getAllPlaywrightTestFiles(undefined).filter(file => file.fullPath === testFilePath);
+    if (!data.manualPath && registeredFiles.length === 0) {
+      throw new Error('PLAYWRIGHT_FILE_NOT_FOUND');
+    }
+    if (registeredFiles.length > 0 && !registeredFiles.some(file => file.applicationId === applicationId)) {
+      throw new Error('PLAYWRIGHT_FILE_APPLICATION_MISMATCH');
+    }
+
+    const linkedTestRequest = data.testRequestId
+      ? testRequests.find(testRequest => testRequest.id === data.testRequestId)
+      : undefined;
+    if (data.testRequestId && !linkedTestRequest) {
+      throw new Error('TEST_REQUEST_NOT_FOUND');
+    }
+    if (linkedTestRequest && linkedTestRequest.applicationId !== applicationId) {
+      throw new Error('PLAYWRIGHT_APPLICATION_MISMATCH');
+    }
+
+    const testCaseIds = Array.from(new Set(data.testCaseIds || []));
+    testCaseIds.forEach(testCaseId => {
+      const testCase = testCases.find(item => item.id === testCaseId);
+      if (!testCase) {
+        throw new Error('TEST_CASE_NOT_FOUND');
+      }
+      if (testCase.applicationId !== applicationId) {
+        throw new Error('PLAYWRIGHT_APPLICATION_MISMATCH');
+      }
+    });
     const now = new Date().toISOString();
     const run: PlaywrightRun = {
       id: uuidv4(),
       applicationId,
       testRequestId: data.testRequestId,
-      testCaseIds: data.testCaseIds || [],
-      testFilePath: data.testFilePath.trim(),
+      testCaseIds,
+      testFilePath,
       environment: data.environment || 'staging',
       projects: data.projects?.length ? data.projects : ['chromium'],
       headed: data.headed ?? false,
@@ -4174,7 +4394,7 @@ function hydrateVersionHistory(rp: ReleasePublish): ReleasePublish {
 // Release Publish API
 // ============================================
 
-export const releasePublishApi = {
+const localReleasePublishApi = {
   async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<ReleasePublish>> {
     await delay();
     syncAutomaticSuccessfulVersionHistories(applicationId);
@@ -4617,13 +4837,12 @@ export const releasePublishApi = {
   },
 };
 
-export const versionHistoryApi = releasePublishApi;
 
 // ============================================
 // Command Trace API
 // ============================================
 
-export const commandTraceApi = {
+const localCommandTraceApi = {
   async getAll(
     applicationId: ApplicationScopeFilter,
     filters: CartableFilterParams
@@ -4649,7 +4868,7 @@ export const commandTraceApi = {
 // Audit Log API
 // ============================================
 
-export const auditLogApi = {
+const localAuditLogApi = {
   async getAll(filters: Omit<CartableFilterParams, 'applicationId'> & { applicationId?: ApplicationScopeFilter }): Promise<PaginatedResponse<AuditLog>> {
     await delay();
     const { applicationId, ...filterParams } = filters;
@@ -4669,7 +4888,7 @@ export const auditLogApi = {
 // Comment API
 // ============================================
 
-export const commentApi = {
+const localCommentApi = {
   async getByEntity(entityType: string, entityId: string): Promise<Comment[]> {
     await delay();
     return comments.filter(c => c.entityType === entityType && c.entityId === entityId);
@@ -4696,7 +4915,7 @@ export const commentApi = {
 // Notification API
 // ============================================
 
-export const notificationApi = {
+const localNotificationApi = {
   async getByUser(userId: string): Promise<Notification[]> {
     await delay();
     processNotificationOutbox(25, userId);
@@ -4757,7 +4976,7 @@ export const notificationApi = {
 // Attachment API
 // ============================================
 
-export const attachmentApi = {
+const localAttachmentApi = {
   async getByEntity(entityType: string, entityId: string): Promise<Attachment[]> {
     await delay();
     return attachments.filter(a => a.entityType === entityType && a.entityId === entityId && a.status !== 'DELETED');
@@ -4812,7 +5031,7 @@ export const attachmentApi = {
 // Dashboard API
 // ============================================
 
-export const dashboardApi = {
+const localDashboardApi = {
   async getStats(applicationId: ApplicationScopeFilter, userId: string, role: string): Promise<DashboardStats> {
     await delay();
     syncAutomaticSuccessfulVersionHistories(applicationId);
@@ -4851,7 +5070,7 @@ export const dashboardApi = {
 // Mutable users list for CRUD
 let mutableUsers = [...mockUsers];
 
-export const userApi = {
+const localUserApi = {
   async getAll(): Promise<User[]> {
     await delay();
     return [...mutableUsers];
@@ -4889,21 +5108,49 @@ export const userApi = {
     }
   ): Promise<UserRoleAssignment[]> {
     await delay();
-    mockUserRoleAssignments.forEach(assignment => {
-      if (assignment.userId === userId) assignment.isActive = false;
+    const applicationIds = Array.from(new Set(
+      data.applicationIds.length
+        ? data.applicationIds
+        : mutableApplications.filter(app => app.isActive).map(app => app.id)
+    ));
+    if (data.scope === 'SYSTEMS' && applicationIds.length === 0) {
+      throw new Error('ASSIGNMENT_APPLICATION_REQUIRED');
+    }
+    applicationIds.forEach(applicationId => {
+      if (!mutableApplications.some(app => app.id === applicationId && app.isActive)) {
+        throw new Error('ASSIGNMENT_APPLICATION_NOT_FOUND');
+      }
     });
-    const applicationIds = data.applicationIds.length ? data.applicationIds : mutableApplications.filter(app => app.isActive).map(app => app.id);
-    const assignment: UserRoleAssignment = {
+
+    const assignmentsForRole = mockUserRoleAssignments.filter(assignment =>
+      assignment.userId === userId && assignment.role === data.role && assignment.isActive
+    );
+    const existingAssignment = assignmentsForRole[0];
+    const assignment: UserRoleAssignment = existingAssignment || {
       id: uuidv4(),
       userId,
-      applicationId: applicationIds[0] || mutableApplications[0]?.id || '',
-      applicationIds,
+      applicationId: applicationIds[0] || '',
       role: data.role,
       scope: data.scope,
-      automatedTestsEnabled: data.role === 'QA_SPECIALIST' ? data.automatedTestsEnabled !== false : undefined,
       isActive: true,
     };
-    mockUserRoleAssignments.unshift(assignment);
+
+    assignment.applicationId = applicationIds[0] || '';
+    assignment.applicationIds = applicationIds;
+    assignment.scope = data.scope;
+    assignment.automatedTestsEnabled = data.role === 'QA_SPECIALIST'
+      ? data.automatedTestsEnabled !== false
+      : undefined;
+    assignment.isActive = true;
+
+    // Consolidate duplicate assignments for the same role, while preserving
+    // every other active role the user already owns.
+    assignmentsForRole.slice(1).forEach(duplicate => {
+      duplicate.isActive = false;
+    });
+    if (!existingAssignment) {
+      mockUserRoleAssignments.unshift(assignment);
+    }
     return [assignment];
   },
 
@@ -4953,7 +5200,7 @@ export const userApi = {
 // System Integration Settings API
 // ============================================
 
-export const systemSettingsApi = {
+const localSystemSettingsApi = {
   async getIntegrationSettings(): Promise<SystemIntegrationSettings> {
     await delay();
     return {
@@ -5038,7 +5285,7 @@ export const systemSettingsApi = {
 // Workflow Policy API
 // ============================================
 
-export const workflowPolicyApi = {
+const localWorkflowPolicyApi = {
   async getAll() {
     await delay();
     return listWorkflowPolicies();
@@ -5067,7 +5314,7 @@ export const workflowPolicyApi = {
 // Application API (Admin) — Item #2 fix: actual CRUD
 // ============================================
 
-export const applicationApi = {
+const localApplicationApi = {
   async getAll(): Promise<Application[]> {
     await delay();
     return mutableApplications.map(applyWorkflowPolicyToApplication);
@@ -5182,7 +5429,7 @@ function ensureSecurityReviewsExist(applicationId: string) {
   }
 }
 
-export const securityChecklistApi = {
+const localSecurityChecklistApi = {
   // Get all security reviews for an application (one per test case)
   async getAllForApp(applicationId: string): Promise<SecurityReviewRecord[]> {
     await delay();
@@ -5253,3 +5500,27 @@ export const securityChecklistApi = {
     return [...securityChecklistTemplate];
   },
 };
+export const testRequestApi = createDomainRpcProxy('testRequestApi', localTestRequestApi);
+export const requirementApi = createDomainRpcProxy('requirementApi', localRequirementApi);
+export const flowApi = createDomainRpcProxy('flowApi', localFlowApi);
+export const testCaseApi = createDomainRpcProxy('testCaseApi', localTestCaseApi);
+export const testRunApi = createDomainRpcProxy('testRunApi', localTestRunApi);
+export const bugApi = createDomainRpcProxy('bugApi', localBugApi);
+export const retestTaskApi = createDomainRpcProxy('retestTaskApi', localRetestTaskApi);
+export const runIssueApi = createDomainRpcProxy('runIssueApi', localRunIssueApi);
+export const checklistApi = createDomainRpcProxy('checklistApi', localChecklistApi);
+export const playwrightApi = createDomainRpcProxy('playwrightApi', localPlaywrightApi);
+export const releasePublishApi = createDomainRpcProxy('releasePublishApi', localReleasePublishApi);
+export const versionHistoryApi = releasePublishApi;
+export const commandTraceApi = createDomainRpcProxy('commandTraceApi', localCommandTraceApi);
+export const auditLogApi = createDomainRpcProxy('auditLogApi', localAuditLogApi);
+export const commentApi = createDomainRpcProxy('commentApi', localCommentApi);
+export const notificationApi = createDomainRpcProxy('notificationApi', localNotificationApi);
+export const attachmentApi = createDomainRpcProxy('attachmentApi', localAttachmentApi);
+export const dashboardApi = createDomainRpcProxy('dashboardApi', localDashboardApi);
+export const userApi = createDomainRpcProxy('userApi', localUserApi);
+export const systemSettingsApi = createDomainRpcProxy('systemSettingsApi', localSystemSettingsApi);
+export const workflowPolicyApi = createDomainRpcProxy('workflowPolicyApi', localWorkflowPolicyApi);
+export const applicationApi = createDomainRpcProxy('applicationApi', localApplicationApi);
+export const securityChecklistApi = createDomainRpcProxy('securityChecklistApi', localSecurityChecklistApi);
+

@@ -8,6 +8,7 @@ import { CartableExcelExportButton, CartableSearchInput, CartableSelectFilter } 
 import { StatusBadge } from '../components/ui/Badge';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Input, Textarea } from '../components/ui/Input';
+import { ApplicationSelect } from '../components/ui/ApplicationSelect';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
 import { useApplicationLookup } from '../utils/useApplicationLookup';
@@ -18,7 +19,7 @@ import { REQUIREMENT_STATUS_LABELS } from '../types';
 
 export const RequirementsPage: React.FC = () => {
   const { activeContext } = useAuthStore();
-  const { appId, defaultApplicationId } = useDataScope();
+  const { appId, defaultApplicationId, isAppLevel, isMultiSystem } = useDataScope();
   const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [data, setData] = useState<PaginatedResponse<Requirement> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,7 @@ export const RequirementsPage: React.FC = () => {
   const [selectedRequirement, setSelectedRequirement] = useState<Requirement | null>(null);
   const [requirementFlows, setRequirementFlows] = useState<Flow[]>([]);
   const [formData, setFormData] = useState({ title: '', description: '', acceptanceCriteria: '', riskNotes: '' });
+  const [createApplicationId, setCreateApplicationId] = useState('');
   const [flowFormData, setFlowFormData] = useState({ title: '', description: '', steps: '' });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   // Inline flows during creation
@@ -75,6 +77,7 @@ export const RequirementsPage: React.FC = () => {
   const handleCreate = async () => {
     if (!activeContext) return;
     const errors: Record<string, string> = {};
+    if (!createApplicationId) errors.applicationId = 'انتخاب سامانه الزامی است.';
     if (!formData.title.trim()) errors.title = 'عنوان نیازمندی الزامی است.';
     if (!formData.description.trim()) errors.description = 'توضیحات نیازمندی الزامی است.';
     if (createFlows.length === 0) errors.flows = 'حداقل یک جریان برای نیازمندی الزامی است.';
@@ -86,7 +89,7 @@ export const RequirementsPage: React.FC = () => {
     if (Object.keys(errors).length > 0) return;
     setActionLoading(true);
     try {
-      const created = await requirementApi.create(formData, activeContext.userId, defaultApplicationId);
+      const created = await requirementApi.create(formData, activeContext.userId, createApplicationId);
       // Create inline flows when provided.
       for (const flow of createFlows) {
         if (flow.title.trim()) {
@@ -180,6 +183,7 @@ export const RequirementsPage: React.FC = () => {
   };
 
   const resetForm = () => {
+    setCreateApplicationId(isAppLevel || isMultiSystem ? '' : defaultApplicationId);
     setFormData({ title: '', description: '', acceptanceCriteria: '', riskNotes: '' });
     setCreateFlows([{ title: '', description: '', steps: '' }]);
     setFormErrors({});
@@ -218,12 +222,12 @@ export const RequirementsPage: React.FC = () => {
         <div className="flex items-center gap-2">
           {/* Toggle — under actions, only for non-developers */}
            {canToggle && (
-            <button onClick={(e) => { e.stopPropagation(); handleToggleStatus(item); }}
+            <button type="button" role="switch" aria-checked={item.status === 'APPROVED' || item.status === 'COMPLETED'} aria-label={`فعال بودن نیازمندی ${item.title}`} onClick={(e) => { e.stopPropagation(); handleToggleStatus(item); }}
               className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${
                 item.status === 'APPROVED' || item.status === 'COMPLETED' ? 'bg-green-500' : 'bg-gray-300'
               }`}
               dir="ltr">
-              <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-md ring-0 transition-transform duration-200 ease-in-out ${
+              <span className={`theme-switch-thumb pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-md ring-0 transition-transform duration-200 ease-in-out ${
                 item.status === 'APPROVED' || item.status === 'COMPLETED' ? 'translate-x-5' : 'translate-x-1'
               }`} />
             </button>
@@ -292,6 +296,17 @@ export const RequirementsPage: React.FC = () => {
       {/* Create Modal — with inline flow creation */}
       <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="ایجاد نیازمندی جدید" size="xl">
         <div className="space-y-4">
+          <ApplicationSelect
+            label="سامانه نیازمندی"
+            required
+            value={createApplicationId}
+            onChange={(applicationId) => {
+              setCreateApplicationId(applicationId);
+              setFormErrors(prev => ({ ...prev, applicationId: '' }));
+            }}
+            error={formErrors.applicationId}
+            hint="این نیازمندی و تمام جریان‌های آن به سامانه انتخاب‌شده تعلق خواهند داشت."
+          />
           <Input label="عنوان *" value={formData.title} onChange={(e) => { setFormErrors(prev => ({ ...prev, title: '' })); setFormData({ ...formData, title: e.target.value }); }} placeholder="عنوان نیازمندی" error={formErrors.title} />
           <Textarea label="توضیحات *" value={formData.description} onChange={(e) => { setFormErrors(prev => ({ ...prev, description: '' })); setFormData({ ...formData, description: e.target.value }); }} placeholder="توضیحات نیازمندی" error={formErrors.description} />
           <Textarea label="معیارهای پذیرش" value={formData.acceptanceCriteria} onChange={(e) => setFormData({ ...formData, acceptanceCriteria: e.target.value })} placeholder="معیارهای پذیرش" />
@@ -351,6 +366,12 @@ export const RequirementsPage: React.FC = () => {
                 </div>
               </div>
               <StatusBadge status={selectedRequirement.status} labels={REQUIREMENT_STATUS_LABELS} />
+            </div>
+
+            <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-sm">
+              <span className="text-indigo-600">سامانه: </span>
+              <span className="font-semibold text-indigo-900">{getApplicationName(selectedRequirement.applicationId)}</span>
+              <p className="mt-1 text-xs text-indigo-600">سامانه نیازمندی پس از ایجاد قابل تغییر نیست.</p>
             </div>
 
             {canEdit ? (

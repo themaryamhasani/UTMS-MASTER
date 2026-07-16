@@ -6,7 +6,7 @@ import { redact } from './redaction';
 
 /** Run a WCAG scan and persist the raw, redacted result as a test artifact. */
 export async function scanAccessibility(page: Page, testInfo: TestInfo, include?: string) {
-  const builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']);
+  const builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']);
   const result = await (include ? builder.include(include) : builder).analyze();
   const output = testInfo.outputPath('accessibility.json');
   fs.mkdirSync(path.dirname(output), { recursive: true });

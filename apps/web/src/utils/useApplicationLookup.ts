@@ -28,50 +28,68 @@ async function getApplicationLookupRows(): Promise<Application[]> {
 export function useApplicationLookup() {
   const { activeContext } = useAuthStore();
   const { scopeApplicationIds, isAppLevel, isMultiSystem } = useDataScope();
-  const [applications, setApplications] = useState<Application[]>([]);
+  const [lookupRows, setLookupRows] = useState<Application[]>([]);
+  const [loading, setLoading] = useState(!!activeContext);
 
   const isSystemAdmin = activeContext?.role === 'SYSTEM_ADMIN';
   const shouldShowSystemColumn =
-    isSystemAdmin ||
-    (activeContext?.role === 'QA_LEAD' &&
-      (isAppLevel || isMultiSystem || scopeApplicationIds.length > 1));
+    !!activeContext && (isAppLevel || isMultiSystem || scopeApplicationIds.length > 1);
 
   useEffect(() => {
-    if (!shouldShowSystemColumn) {
-      setApplications([]);
+    if (!activeContext) {
+      setLookupRows([]);
+      setLoading(false);
       return;
     }
+
     let cancelled = false;
+    setLoading(true);
     getApplicationLookupRows()
       .then(rows => {
         if (cancelled) return;
-        const allowed = isSystemAdmin || isAppLevel
-          ? rows
-          : rows.filter(app => scopeApplicationIds.includes(app.id));
-        setApplications(allowed);
+        setLookupRows(rows);
       })
       .catch(() => {
-        if (!cancelled) setApplications([]);
+        if (!cancelled) setLookupRows([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [shouldShowSystemColumn, isSystemAdmin, isAppLevel, scopeApplicationIds.join('|')]);
+  }, [activeContext]);
+
+  const applications = useMemo(() => {
+    const allowed = isSystemAdmin || isAppLevel
+      ? lookupRows
+      : lookupRows.filter(app => scopeApplicationIds.includes(app.id));
+
+    return allowed.filter(app => app.isActive);
+  }, [lookupRows, isSystemAdmin, isAppLevel, scopeApplicationIds.join('|')]);
 
   const applicationNameById = useMemo(
-    () => applications.reduce<Record<string, string>>((acc, app) => {
+    () => lookupRows.reduce<Record<string, string>>((acc, app) => {
       acc[app.id] = app.name;
       return acc;
     }, {}),
-    [applications]
+    [lookupRows]
   );
 
   const getApplicationName = (applicationId?: string) => {
     if (!applicationId) return '-';
-    return applicationNameById[applicationId]
-      || (activeContext?.applicationId === applicationId ? activeContext.application?.name : undefined)
-      || applicationId;
+    if (applicationId === 'ALL') return 'همه سامانه‌ها';
+
+    const lookupName = applicationNameById[applicationId];
+    if (lookupName) return lookupName;
+
+    const isSingleApplicationContext = activeContext?.scopeApplicationIds.length === 1;
+    if (isSingleApplicationContext && activeContext.applicationId === applicationId) {
+      return activeContext.application.name;
+    }
+
+    return loading ? 'در حال بارگذاری سامانه…' : 'سامانه نامشخص';
   };
 
-  return { shouldShowSystemColumn, getApplicationName };
+  return { applications, loading, shouldShowSystemColumn, getApplicationName };
 }

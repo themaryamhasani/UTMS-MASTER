@@ -3,6 +3,10 @@
 ## Overview
 This document describes all workflow actions and state transitions for each Cartable in the UTMS system.
 
+The executable implementation for these workflows is currently the frontend mock service at `apps/web/src/services/api.ts`; the server does not yet expose production Test Request, Requirement, Test Case, Test Run, Bug, Run Issue, Playwright or Release domain APIs.
+
+Application-scope invariants apply to every transition: independent roots require an explicit Application in APP/multi-system Contexts; Test Case derives it from Requirement, Test Run from Test Request, Bug/Run Issue from Test Run, and cross-system links are rejected.
+
 ---
 
 ## 1. Test Request Workflow
@@ -24,9 +28,9 @@ This document describes all workflow actions and state transitions for each Cart
 | Any (except COMPLETED) | CANCEL | DEVELOPER/QA_LEAD | CANCELLED | - |
 
 ### Workflow Files
-- **Frontend**: `src/pages/TestRequestsPage.tsx`
-- **API**: `src/services/api.ts` - `testRequestApi`
-- **Types**: `src/types/index.ts` - `TestRequest`, `TestRequestStatus`
+- **Frontend**: `apps/web/src/pages/TestRequestsPage.tsx`
+- **Mock service**: `apps/web/src/services/api.ts` - `testRequestApi`
+- **Types**: `apps/web/src/types/index.ts` - `TestRequest`, `TestRequestStatus`
 
 ---
 
@@ -50,8 +54,8 @@ This document describes all workflow actions and state transitions for each Cart
 - Flows track user journeys and scenarios
 
 ### Workflow Files
-- **Frontend**: `src/pages/RequirementsPage.tsx`
-- **API**: `src/services/api.ts` - `requirementApi`, `flowApi`
+- **Frontend**: `apps/web/src/pages/RequirementsPage.tsx`
+- **Mock service**: `apps/web/src/services/api.ts` - `requirementApi`, `flowApi`
 
 ---
 
@@ -75,8 +79,8 @@ This document describes all workflow actions and state transitions for each Cart
 - Quality Attribute, Automation/Regression Candidate
 
 ### Workflow Files
-- **Frontend**: `src/pages/TestCasesPage.tsx`
-- **API**: `src/services/api.ts` - `testCaseApi`
+- **Frontend**: `apps/web/src/pages/TestCasesPage.tsx`
+- **Mock service**: `apps/web/src/services/api.ts` - `testCaseApi`
 
 ---
 
@@ -109,9 +113,17 @@ This document describes all workflow actions and state transitions for each Cart
 3. Select type: Environment/Access/Data/Dependency
 4. Issue linked to test run
 
+### Application Cascade
+
+1. Select a Test Request.
+2. Resolve its Application and load only completed/approved Requirements from that Application.
+3. Select a Requirement and load only ready Test Cases linked to that Requirement.
+4. Limit previous Runs, created Bugs and Run Issues to the same Test Request Application.
+
 ### Workflow Files
-- **Frontend**: `src/pages/TestRunsPage.tsx`
-- **API**: `src/services/api.ts` - `testRunApi`
+- **Frontend**: `apps/web/src/pages/TestRunsBugsPage.tsx`
+- **Route**: `/test-runs-bugs`; `/test-runs` is a compatibility redirect
+- **Mock service**: `apps/web/src/services/api.ts` - `testRunApi`
 
 ---
 
@@ -141,8 +153,8 @@ This document describes all workflow actions and state transitions for each Cart
 - Developer cannot change severity/priority
 
 ### Workflow Files
-- **Frontend**: `src/pages/BugsPage.tsx`
-- **API**: `src/services/api.ts` - `bugApi`
+- **Frontend**: `apps/web/src/pages/BugsPage.tsx`
+- **Mock service**: `apps/web/src/services/api.ts` - `bugApi`
 
 ---
 
@@ -166,8 +178,8 @@ This document describes all workflow actions and state transitions for each Cart
 - DEPENDENCY: External service issues
 
 ### Workflow Files
-- **Frontend**: `src/pages/RunIssuesPage.tsx`
-- **API**: `src/services/api.ts` - `runIssueApi`
+- **Frontend**: `apps/web/src/pages/RunIssuesPage.tsx`
+- **Mock service**: `apps/web/src/services/api.ts` - `runIssueApi`
 
 ---
 
@@ -197,8 +209,8 @@ This document describes all workflow actions and state transitions for each Cart
 - NOT_TESTED: Not applicable
 
 ### Workflow Files
-- **Frontend**: `src/pages/ChecklistsPage.tsx`
-- **API**: `src/services/api.ts` - `checklistApi`
+- **Frontend**: `apps/web/src/pages/ChecklistsPage.tsx`
+- **Mock service**: `apps/web/src/services/api.ts` - `checklistApi`
 
 ---
 
@@ -229,9 +241,9 @@ This document describes all workflow actions and state transitions for each Cart
 - Named lists for Passed, Skipped, and Cancelled tests
 
 ### Workflow Files
-- **Frontend**: `src/pages/PlaywrightPage.tsx`
-- **Frontend**: `src/pages/PlaywrightFilesPage.tsx`
-- **API**: `src/services/api.ts` - `playwrightApi`
+- **Frontend**: `apps/web/src/pages/PlaywrightPage.tsx`
+- **Frontend**: `apps/web/src/pages/PlaywrightFilesPage.tsx`
+- **Mock service**: `apps/web/src/services/api.ts` - `playwrightApi`
 
 ---
 
@@ -269,8 +281,8 @@ Captured when QA sets quality status:
 - Audit logged specially
 
 ### Workflow Files
-- **Frontend**: `src/pages/ReleasesPage.tsx`
-- **API**: `src/services/api.ts` - `releasePublishApi`
+- **Frontend**: `apps/web/src/pages/ReleasesPage.tsx`
+- **Mock service**: `apps/web/src/services/api.ts` - `releasePublishApi`
 
 ---
 
@@ -291,8 +303,8 @@ Captured when QA sets quality status:
 - System Admin view only
 
 ### Workflow Files
-- **Frontend**: `src/pages/AuditPage.tsx`
-- **API**: `src/services/api.ts` - `auditLogApi`
+- **Frontend**: `apps/web/src/pages/AuditPage.tsx`
+- **Mock service**: `apps/web/src/services/api.ts` - `auditLogApi`
 
 ---
 
@@ -308,8 +320,8 @@ Captured when QA sets quality status:
 - The board does not replace QA retest, QA lead assignment, or locked release rules.
 
 ### Workflow Files
-- **Frontend**: `src/pages/DeveloperBoardPage.tsx`
-- **API**: `src/services/api.ts` - `bugApi`
+- **Frontend**: `apps/web/src/pages/DeveloperBoardPage.tsx`
+- **Mock service**: `apps/web/src/services/api.ts` - `bugApi`
 
 ---
 
@@ -325,8 +337,8 @@ Captured when QA sets quality status:
 - Managed files remain selectable in the Playwright run form even when auto-discovery is disabled.
 
 ### Workflow Files
-- **Frontend**: `src/pages/PlaywrightFilesPage.tsx`
-- **API**: `src/services/api.ts` - `playwrightTestFileApi`
+- **Frontend**: `apps/web/src/pages/PlaywrightFilesPage.tsx`
+- **Mock service**: `apps/web/src/services/api.ts` - `playwrightApi`
 
 ---
 
@@ -342,5 +354,5 @@ Captured when QA sets quality status:
 - The Test Requests report uses its own dedicated read model instead of developer performance data.
 
 ### Workflow Files
-- **Frontend**: `src/pages/ReportsPage.tsx`
-- **API**: `src/services/reportsApi.ts`
+- **Frontend**: `apps/web/src/pages/ReportsPage.tsx`
+- **Mock service**: `apps/web/src/services/reportsApi.ts`

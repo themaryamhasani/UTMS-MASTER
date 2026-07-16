@@ -11,6 +11,7 @@ import { Input, Select } from '../components/ui/Input';
 import { toast } from '../components/ui/Toast';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
+import { useApplicationLookup } from '../utils/useApplicationLookup';
 import { bugApi, userApi, commentApi } from '../services/api';
 import type { Bug, User, CartableFilterParams, PaginatedResponse, Comment } from '../types';
 import { BUG_STATUS_LABELS, BUG_SEVERITY_LABELS } from '../types';
@@ -20,6 +21,7 @@ import { sanitizeVersionInput, VERSION_INPUT_HINT } from '../utils/inputRules';
 export const BugsPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const { appId } = useDataScope();
+  const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [data, setData] = useState<PaginatedResponse<Bug> | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<CartableFilterParams>({
@@ -60,7 +62,7 @@ export const BugsPage: React.FC = () => {
     if (activeContext && showAssignModal) {
       loadDevelopers();
     }
-  }, [activeContext, showAssignModal]);
+  }, [activeContext, showAssignModal, selectedBug?.applicationId]);
 
   useEffect(() => {
     if (selectedBug && showDetailModal) {
@@ -85,7 +87,7 @@ export const BugsPage: React.FC = () => {
   const loadDevelopers = async () => {
     if (!activeContext) return;
     try {
-      const devs = await userApi.getDevelopers(appId);
+      const devs = await userApi.getDevelopers(selectedBug?.applicationId || appId);
       setDevelopers(devs);
     } catch {
       setDevelopers([]);
@@ -271,6 +273,11 @@ export const BugsPage: React.FC = () => {
         <StatusBadge status={item.severity} labels={BUG_SEVERITY_LABELS} />
       ),
     },
+    ...(shouldShowSystemColumn ? [{
+      key: 'applicationId',
+      title: 'سامانه',
+      render: (item: Bug) => getApplicationName(item.applicationId),
+    }] : []),
     {
       key: 'priority',
       title: 'اولویت',
@@ -425,6 +432,10 @@ export const BugsPage: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
+              <div>
+                <p className="text-xs text-gray-500">سامانه</p>
+                <p className="font-medium">{getApplicationName(selectedBug.applicationId)}</p>
+              </div>
               <div>
                 <p className="text-xs text-gray-500">شدت</p>
                 <StatusBadge status={selectedBug.severity} labels={BUG_SEVERITY_LABELS} />

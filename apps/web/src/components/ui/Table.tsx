@@ -177,7 +177,7 @@ export const Pagination: React.FC<PaginationProps> = ({ page, totalPages, total,
     return (<div className="flex flex-col items-stretch justify-between gap-3 rounded-b-xl border-t border-gray-200 bg-white px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:px-4">
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm text-gray-500">نمایش {start} تا {end} از {total}</span>
-        {onLimitChange && (<select value={limit} onChange={(e) => onLimitChange(Number(e.target.value))} className="px-2 py-1 text-sm border border-gray-300 rounded-lg bg-white">
+        {onLimitChange && (<select aria-label="تعداد ردیف در هر صفحه" value={limit} onChange={(e) => onLimitChange(Number(e.target.value))} className="px-2 py-1 text-sm border border-gray-300 rounded-lg bg-white">
             {pageSizes.map(s => <option key={s} value={s}>{s} ردیف</option>)}
           </select>)}
       </div>

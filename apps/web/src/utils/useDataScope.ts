@@ -15,8 +15,12 @@ import type { ApplicationScopeFilter, AccessScope } from '../types';
 export function useDataScope(): {
   /** Pass this to API getAll calls. undefined = all apps */
   appId: ApplicationScopeFilter;
-  /** Use this for create flows until those forms expose an explicit system picker */
+  /** Legacy create fallback. New forms should use initialApplicationIdForCreate. */
   defaultApplicationId: string;
+  /** Empty for APP/multi-system scopes; the single allowed id otherwise. */
+  initialApplicationIdForCreate: string;
+  /** Whether create forms must ask the user to choose an application. */
+  requiresExplicitApplicationSelection: boolean;
   /** All application ids included in this context */
   scopeApplicationIds: string[];
   /** The scope type for display purposes */
@@ -34,6 +38,8 @@ export function useDataScope(): {
     return {
       appId: undefined,
       defaultApplicationId: '',
+      initialApplicationIdForCreate: '',
+      requiresExplicitApplicationSelection: false,
       scopeApplicationIds: [],
       scope: 'SYSTEMS',
       isAppLevel: false,
@@ -45,14 +51,25 @@ export function useDataScope(): {
   const isApp = activeContext.scope === 'APP';
   const ids = activeContext.scopeApplicationIds || [];
   const appId = isApp ? undefined : ids.length === 1 ? ids[0] : ids;
+  const requiresExplicitApplicationSelection = isApp || ids.length > 1;
+  const initialApplicationIdForCreate = requiresExplicitApplicationSelection
+    ? ''
+    : ids[0] || (activeContext.applicationId !== 'ALL' ? activeContext.applicationId : '');
+  const scopeLabel = Array.from(new Set(
+    (activeContext.applications?.length ? activeContext.applications : [activeContext.application])
+      .map(application => application.name)
+      .filter(Boolean)
+  )).join('، ');
   
   return {
     appId,
     defaultApplicationId: ids[0] || activeContext.applicationId,
+    initialApplicationIdForCreate,
+    requiresExplicitApplicationSelection,
     scopeApplicationIds: ids,
     scope: activeContext.scope,
     isAppLevel: isApp,
     isMultiSystem: !isApp && ids.length > 1,
-    scopeLabel: isApp ? 'کل اپلیکیشن (تمام سامانه‌ها)' : activeContext.application.name,
+    scopeLabel: scopeLabel || 'سامانه‌ای تعیین نشده',
   };
 }

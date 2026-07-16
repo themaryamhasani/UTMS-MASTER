@@ -12,6 +12,7 @@ import {
 } from '../services/seedData';
 import type { ApplicationScopeFilter } from '../types';
 import { ensureDataPersistenceReady, flushCurrentDataState } from './api';
+import { createDomainRpcProxy } from './domainRpcClient';
 
 const wait = (ms: number = 200) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const delay = async (ms: number = 200): Promise<void> => {
@@ -612,7 +613,7 @@ export async function getTraceabilityReport(applicationId?: ApplicationScopeFilt
 }
 
 // Export all report functions
-export const reportsApi = {
+const localReportsApi = {
   getSystemOverview,
   getTestRequestReport,
   getQualityHealth,
@@ -634,3 +635,5 @@ export const reportsApi = {
   getCommentReport,
   getTraceabilityReport,
 };
+
+export const reportsApi = createDomainRpcProxy('reportsApi', localReportsApi);

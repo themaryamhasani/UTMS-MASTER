@@ -269,7 +269,7 @@ export const PlaywrightFilesPage: React.FC = () => {
     {
       key: 'applicationId',
       title: 'سامانه',
-      render: (item: PlaywrightTestFile) => applications.find(app => app.id === item.applicationId)?.name || item.applicationId,
+      render: (item: PlaywrightTestFile) => applications.find(app => app.id === item.applicationId)?.name || 'سامانه نامشخص',
     },
     {
       key: 'source',

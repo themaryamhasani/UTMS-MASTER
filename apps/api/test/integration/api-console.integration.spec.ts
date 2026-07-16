@@ -13,10 +13,37 @@ test('UTMS-API-INT-001 @integration exposes health and self-check contracts', as
   }));
   const health = await api.get('/api/health');
   expect(health.status()).toBe(200);
-  expect(await health.json()).toMatchObject({ status: 'ok', service: 'utms-api', modules: ['api-console'] });
+  expect(await health.json()).toMatchObject({ status: 'ok', service: 'utms-api', modules: ['api-console', 'domain-rpc'] });
   const selfCheck = await api.get('/api/api-console/self-check');
   expect(selfCheck.status()).toBe(200);
   expect(await selfCheck.json()).toMatchObject({ failed: 0 });
+});
+
+test('UTMS-DOMAIN-INT-001 @integration exposes domain RPC services and report read models', async ({ api }, testInfo) => {
+  annotateTest(testInfo, metadata('UTMS-DOMAIN-INT-001', {
+    requirement: 'docs/migration/FRONTEND_BACKEND_ALIGNMENT_REPORT.md', feature: 'Domain RPC alignment', level: 'integration',
+    type: 'integration', technique: 'Requirements-based Testing', role: 'N/A', scope: 'N/A', risk: 'critical',
+    data: 'GET /api/domain/health, GET /api/domain/services and POST /api/domain/rpc for reportsApi.getSystemOverview',
+    expected: 'Domain services are exposed server-side and report data is returned through backend RPC',
+  }));
+
+  const health = await api.get('/api/domain/health');
+  expect(health.status()).toBe(200);
+  expect(await health.json()).toMatchObject({ status: 'ok', service: 'utms-domain-rpc' });
+
+  const services = await api.get('/api/domain/services');
+  expect(services.status()).toBe(200);
+  const serviceInventory = await services.json();
+  expect(serviceInventory).toHaveProperty('testRequestApi');
+  expect(serviceInventory).toHaveProperty('reportsApi');
+
+  const overview = await api.post('/api/domain/rpc', {
+    data: { service: 'reportsApi', method: 'getSystemOverview', args: ['ALL'] },
+  });
+  expect(overview.status()).toBe(200);
+  const payload = await overview.json();
+  expect(payload.data.testRequests.total).toBeGreaterThan(0);
+  expect(payload.data.testRuns).toHaveProperty('passRate');
 });
 
 test('UTMS-API-INT-002 @data-flow creates, reads, exports, and soft-archives an API request', async ({ api }, testInfo) => {

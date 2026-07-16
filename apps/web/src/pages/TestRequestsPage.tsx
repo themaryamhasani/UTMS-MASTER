@@ -8,6 +8,7 @@ import { CartableExcelExportButton, CartableSearchInput, CartableSelectFilter } 
 import { StatusBadge, PriorityBadge } from '../components/ui/Badge';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Input, Textarea, Select } from '../components/ui/Input';
+import { ApplicationSelect } from '../components/ui/ApplicationSelect';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
 import { useApplicationLookup } from '../utils/useApplicationLookup';
@@ -37,7 +38,7 @@ let otherReqCounter = 1;
 
 export const TestRequestsPage: React.FC = () => {
   const { activeContext } = useAuthStore();
-  const { appId, defaultApplicationId } = useDataScope();
+  const { appId, defaultApplicationId, isAppLevel, isMultiSystem } = useDataScope();
   const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [data, setData] = useState<PaginatedResponse<TestRequest> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,6 +57,7 @@ export const TestRequestsPage: React.FC = () => {
 
   // Form — separate state per field to avoid focus loss
   const [fTitle, setFTitle] = useState('');
+  const [fApplicationId, setFApplicationId] = useState('');
   const [fDesc, setFDesc] = useState('');
   const [fVersion, setFVersion] = useState('');
   const [fBuild, setFBuild] = useState('');
@@ -121,7 +123,7 @@ export const TestRequestsPage: React.FC = () => {
       setData(response);
     } catch { setData(null); toast.error('خطا در بارگذاری درخواست‌های تست.'); } finally { setLoading(false); }
   };
-  const loadQASpecialists = async () => { if (!activeContext) return; try { setQaSpecialists(await userApi.getQASpecialists(appId)); } catch { setQaSpecialists([]); toast.error('خطا در بارگذاری تسترها.'); } };
+  const loadQASpecialists = async () => { if (!activeContext) return; try { setQaSpecialists(await userApi.getQASpecialists(selectedRequest?.applicationId || appId)); } catch { setQaSpecialists([]); toast.error('خطا در بارگذاری تسترها.'); } };
 
   const TEST_TYPE_OPTIONS = [
     { value: 'INITIAL', label: 'تست اولیه (Initial Test)' },
@@ -163,12 +165,14 @@ export const TestRequestsPage: React.FC = () => {
   };
 
   const resetForm = () => {
+    setFApplicationId(isAppLevel || isMultiSystem ? '' : defaultApplicationId);
     setFTitle(''); setFDesc(''); setFVersion(''); setFBuild(''); setFUrl(''); setFEnv('development'); setFPriority('MEDIUM'); setFRisk('MEDIUM'); setFTestTypes([]);
     setSelectedReqIds([]); setOtherReqs([]); setExpandedReqId(null); setActionError(''); otherReqCounter = 1;
     setFieldErrors({});
   };
 
   const fillFormFromRequest = (item: TestRequest) => {
+    setFApplicationId(item.applicationId);
     setFTitle(item.title); setFDesc(item.description || ''); setFVersion(item.version); setFBuild(item.buildNumber || '');
     setFUrl(item.systemUrl || ''); setFEnv(item.environment); setFPriority(item.priority); setFRisk(item.riskLevel); setActionError('');
     setFieldErrors({});
@@ -179,6 +183,7 @@ export const TestRequestsPage: React.FC = () => {
   const handleCreate = async () => {
     if (!activeContext) return;
     const errors: Record<string, string> = {};
+    if (!fApplicationId) errors.applicationId = 'انتخاب سامانه الزامی است.';
     const titleError = validateRequestTitle(fTitle);
     if (titleError) errors.title = titleError;
     if (!fVersion.trim()) errors.version = 'نسخه الزامی است.';
@@ -188,6 +193,9 @@ export const TestRequestsPage: React.FC = () => {
     if (selectedReqIds.length === 0 && otherReqs.length === 0) errors.requirements = 'حداقل یک نیازمندی انتخاب یا اضافه کنید.';
     const selectedWithoutFlow = availableReqs.filter(req => selectedReqIds.includes(req.id) && (req.flows?.length || 0) === 0);
     if (selectedWithoutFlow.length > 0) errors.requirements = 'نیازمندی انتخاب‌شده باید حداقل یک جریان داشته باشد.';
+    if (availableReqs.some(req => selectedReqIds.includes(req.id) && req.applicationId !== fApplicationId)) {
+      errors.requirements = 'همه نیازمندی‌ها باید متعلق به سامانه انتخاب‌شده باشند.';
+    }
     otherReqs.forEach((req, reqIndex) => {
       if (!req.title.trim()) errors[`otherReq-${req.id}-title`] = 'عنوان نیازمندی الزامی است.';
       if (!req.description.trim()) errors[`otherReq-${req.id}-description`] = 'توضیحات نیازمندی الزامی است.';
@@ -202,9 +210,9 @@ export const TestRequestsPage: React.FC = () => {
     if (Object.keys(errors).length > 0) return;
     setActionLoading(true); setActionError('');
     try {
-      const nr = await testRequestApi.create({ title: fTitle.trim(), description: fDesc.trim(), version: fVersion.trim(), buildNumber: fBuild.trim(), environment: fEnv, priority: fPriority, riskLevel: fRisk, systemUrl: fUrl.trim(), selectedRequirementIds: selectedReqIds, testTypes: fTestTypes }, activeContext.userId, defaultApplicationId);
+      const nr = await testRequestApi.create({ title: fTitle.trim(), description: fDesc.trim(), version: fVersion.trim(), buildNumber: fBuild.trim(), environment: fEnv, priority: fPriority, riskLevel: fRisk, systemUrl: fUrl.trim(), selectedRequirementIds: selectedReqIds, testTypes: fTestTypes }, activeContext.userId, fApplicationId);
       for (const or of otherReqs) {
-        const createdReq = await requirementApi.create({ title: or.title.trim(), description: or.description.trim(), acceptanceCriteria: or.acceptanceCriteria.trim(), testRequestId: nr.id }, activeContext.userId, defaultApplicationId);
+        const createdReq = await requirementApi.create({ title: or.title.trim(), description: or.description.trim(), acceptanceCriteria: or.acceptanceCriteria.trim(), testRequestId: nr.id }, activeContext.userId, nr.applicationId);
         for (const flow of or.flows) {
           await flowApi.create({ title: flow.title.trim(), description: flow.description.trim(), requirementId: createdReq.id }, activeContext.userId);
         }
@@ -266,7 +274,10 @@ export const TestRequestsPage: React.FC = () => {
   if (!activeContext) return null;
 
   const envLabels: Record<string, string> = { development: 'توسعه', staging: 'آزمایشی', production: 'تولید' };
-  const selectableRequirements = availableReqs.filter(req => req.status !== 'DRAFT' || selectedReqIds.includes(req.id));
+  const selectableRequirements = availableReqs.filter(req =>
+    (!fApplicationId || req.applicationId === fApplicationId)
+    && (req.status !== 'DRAFT' || selectedReqIds.includes(req.id))
+  );
   const selectedRequirementList = selectedRequest?.selectedRequirementIds
     ? availableReqs.filter(req => selectedRequest.selectedRequirementIds!.includes(req.id))
     : [];
@@ -312,6 +323,21 @@ export const TestRequestsPage: React.FC = () => {
   // Inline form fields JSX — NOT a component, to prevent focus loss
   const formFieldsJSX = (
     <div className="space-y-4">
+      <ApplicationSelect
+        label="سامانه درخواست تست"
+        required
+        value={fApplicationId}
+        onChange={(applicationId) => {
+          if (showEditModal) return;
+          setFApplicationId(applicationId);
+          setSelectedReqIds([]);
+          setExpandedReqId(null);
+          setFieldErrors(prev => ({ ...prev, applicationId: '', requirements: '' }));
+        }}
+        disabled={showEditModal}
+        error={fieldErrors.applicationId}
+        hint={showEditModal ? 'سامانه پس از ایجاد درخواست قابل تغییر نیست.' : 'نیازمندی‌ها بر اساس این سامانه فیلتر می‌شوند.'}
+      />
       <Input label="عنوان درخواست *" value={fTitle} onChange={(e) => handleTitleChange(e.target.value)} placeholder="عنوان درخواست تست" error={fieldErrors.title} />
       <Textarea label="توضیحات" value={fDesc} onChange={(e) => setFDesc(e.target.value)} placeholder="توضیحات" />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -418,12 +444,12 @@ export const TestRequestsPage: React.FC = () => {
               {selectableRequirements.map(req => <div key={req.id}>
                 <label className={`flex items-center gap-2 p-2 rounded cursor-pointer ${selectedReqIds.includes(req.id) ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-50'}`}>
                   <input type="checkbox" checked={selectedReqIds.includes(req.id)} onChange={() => { setFieldErrors(prev => ({ ...prev, requirements: '' })); setSelectedReqIds(prev => prev.includes(req.id) ? prev.filter(id => id !== req.id) : [...prev, req.id]); }} className="w-4 h-4 rounded border-gray-300 text-blue-600" />
-                  <span className="text-sm text-gray-900 flex-1">{req.title}</span>
+                  <span className="text-sm text-gray-900 flex-1">{req.title} <span className="text-xs text-gray-500">— {getApplicationName(req.applicationId)}</span></span>
                   <button onClick={(e) => { e.preventDefault(); setExpandedReqId(expandedReqId === req.id ? null : req.id); }} className="text-blue-500"><ChevronDown className="w-4 h-4" /></button>
                 </label>
                 {expandedReqId === req.id && <div className="mr-6 mt-1 p-2 bg-blue-50 rounded text-xs space-y-1">{req.description && <p>{req.description}</p>}{req.acceptanceCriteria && <p className="text-green-700">معیارها: {req.acceptanceCriteria}</p>}{(reqFlows[req.id]||[]).map(f=><div key={f.id} className="p-1 bg-purple-50 rounded"><span className="text-purple-700">{f.title}</span></div>)}</div>}
               </div>)}
-              {selectableRequirements.length === 0 && <p className="text-sm text-gray-500 text-center py-2">نیازمندی فعالی نیست</p>}
+              {selectableRequirements.length === 0 && <p className="text-sm text-gray-500 text-center py-2">{fApplicationId ? 'نیازمندی فعالی برای این سامانه نیست' : 'ابتدا سامانه را انتخاب کنید'}</p>}
             </div>
             {fieldErrors.requirements && <p className="mt-1 text-sm text-red-600">{fieldErrors.requirements}</p>}
           </div>
@@ -516,7 +542,7 @@ export const TestRequestsPage: React.FC = () => {
               {selectableRequirements.map(req => <div key={req.id}>
                 <label className={`flex items-center gap-2 p-2 rounded cursor-pointer ${selectedReqIds.includes(req.id) ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-50'}`}>
                   <input type="checkbox" checked={selectedReqIds.includes(req.id)} onChange={() => { setFieldErrors(prev => ({ ...prev, requirements: '' })); setSelectedReqIds(prev => prev.includes(req.id) ? prev.filter(id => id !== req.id) : [...prev, req.id]); }} className="w-4 h-4 rounded border-gray-300 text-blue-600" />
-                  <span className="text-sm text-gray-900 flex-1">{req.title}</span>
+                  <span className="text-sm text-gray-900 flex-1">{req.title} <span className="text-xs text-gray-500">— {getApplicationName(req.applicationId)}</span></span>
                   <button onClick={(e) => { e.preventDefault(); setExpandedReqId(expandedReqId === req.id ? null : req.id); }} className="text-blue-500"><ChevronDown className="w-4 h-4" /></button>
                 </label>
                 {expandedReqId === req.id && <div className="mr-6 mt-1 p-2 bg-blue-50 rounded text-xs space-y-1">{req.description && <p>{req.description}</p>}{req.acceptanceCriteria && <p className="text-green-700">معیارها: {req.acceptanceCriteria}</p>}{(reqFlows[req.id]||[]).map(f=><div key={f.id} className="p-1 bg-purple-50 rounded"><span className="text-purple-700">{f.title}</span></div>)}</div>}
@@ -539,6 +565,7 @@ export const TestRequestsPage: React.FC = () => {
             <div className="flex items-start justify-between"><div><h3 className="text-lg font-semibold text-gray-900">{selectedRequest.title}</h3>{selectedRequest.description && <p className="text-sm text-gray-500 mt-1">{selectedRequest.description}</p>}</div><StatusBadge status={selectedRequest.status} labels={TEST_REQUEST_STATUS_LABELS} /></div>
             <div className="grid grid-cols-1 gap-4 rounded-lg bg-gray-50 p-4 sm:grid-cols-2 md:grid-cols-4">
               <div><p className="text-xs text-gray-500">نسخه</p><p className="font-medium">{selectedRequest.version}</p></div>
+              <div><p className="text-xs text-gray-500">سامانه</p><p className="font-medium">{getApplicationName(selectedRequest.applicationId)}</p></div>
               <div><p className="text-xs text-gray-500">شماره بیلد</p><p className="font-medium">{selectedRequest.buildNumber || '-'}</p></div>
               <div><p className="text-xs text-gray-500">محیط</p><p className="font-medium">{envLabels[selectedRequest.environment] || selectedRequest.environment}</p></div>
               <div><p className="text-xs text-gray-500">اولویت</p><PriorityBadge priority={selectedRequest.priority} /></div>

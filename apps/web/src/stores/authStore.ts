@@ -4,49 +4,132 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { ActiveContext, User, Application, UserRole, AccessScope, WorkflowCapability, WorkflowPolicy } from '../types';
+import type {
+  ActiveContext,
+  Application,
+  AvailableContext,
+  User,
+  UserRole,
+  UserRoleAssignment,
+  WorkflowCapability,
+  WorkflowPolicy,
+} from '../types';
 import { mockUsers, mockApplications, mockUserRoleAssignments } from '../services/seedData';
 import { ensureDataPersistenceReady } from '../services/api';
 import { canRolePerformWorkflowCapability, getWorkflowPolicy } from '../services/workflowPolicyStore';
-
-// Virtual "all apps" application for APP-scoped contexts
-const ALL_APPS_APPLICATION: Application = {
-  id: 'ALL',
-  name: 'کل اپلیکیشن (تمام سامانه‌ها)',
-  code: 'ALL_APPS',
-  description: 'دسترسی به تمام سامانه‌ها',
-  isActive: true,
-  createdAt: '2024-01-01T00:00:00Z',
-  updatedAt: '2024-01-01T00:00:00Z',
-};
 
 interface AuthState {
   isAuthenticated: boolean;
   user: User | null;
   activeContext: ActiveContext | null;
-  availableContexts: Array<{
-    assignmentId: string;
-    application: Application;
-    role: UserRole;
-    scope: AccessScope;
-    scopeApplicationIds: string[];
-    automatedTestsEnabled?: boolean;
-  }>;
-  
+  availableContexts: AvailableContext[];
+
   login: (phoneNumber: string, password: string) => Promise<boolean>;
   logout: () => void;
-  selectContext: (applicationId: string, role: UserRole) => void;
-  getAvailableContexts: () => Array<{
-    assignmentId: string;
-    application: Application;
-    role: UserRole;
-    scope: AccessScope;
-    scopeApplicationIds: string[];
-    automatedTestsEnabled?: boolean;
-  }>;
+  refreshContexts: () => Promise<void>;
+  switchContext: (contextId: string) => boolean;
+  getAvailableContexts: () => AvailableContext[];
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+function getAssignmentApplicationIds(assignment: UserRoleAssignment, allApplicationIds: string[]): string[] {
+  if (assignment.scope === 'APP') return allApplicationIds;
+  return assignment.applicationIds?.length ? assignment.applicationIds : [assignment.applicationId];
+}
+
+function buildAvailableContexts(user: User): AvailableContext[] {
+  const activeApplications = mockApplications.filter(application => application.isActive);
+  const allApplicationIds = activeApplications.map(application => application.id);
+  const assignmentsByRole = new Map<UserRole, UserRoleAssignment[]>();
+
+  mockUserRoleAssignments
+    .filter(assignment => assignment.userId === user.id && assignment.isActive)
+    .forEach(assignment => {
+      const roleAssignments = assignmentsByRole.get(assignment.role) ?? [];
+      roleAssignments.push(assignment);
+      assignmentsByRole.set(assignment.role, roleAssignments);
+    });
+
+  const contexts: AvailableContext[] = [];
+  assignmentsByRole.forEach((roleAssignments, role) => {
+    const allowedApplicationIds = new Set(
+      roleAssignments.flatMap(assignment => getAssignmentApplicationIds(assignment, allApplicationIds))
+    );
+    const applications = activeApplications.filter(application => allowedApplicationIds.has(application.id));
+    const application = applications[0];
+    if (!application) return;
+
+    const assignmentIds = roleAssignments.map(assignment => assignment.id).sort();
+    const scope = roleAssignments.some(assignment => assignment.scope === 'APP') ? 'APP' : 'SYSTEMS';
+    const scopeApplicationIds = applications.map(item => item.id);
+    const automatedTestsEnabled = role === 'QA_SPECIALIST'
+      ? roleAssignments.every(assignment => assignment.automatedTestsEnabled !== false)
+      : undefined;
+
+    contexts.push({
+      contextId: `context:${user.id}:${role}:${assignmentIds.join('+')}`,
+      assignmentId: assignmentIds[0]!,
+      assignmentIds,
+      application,
+      applications,
+      role,
+      scope,
+      scopeApplicationIds,
+      automatedTestsEnabled,
+    });
+  });
+
+  return contexts;
+}
+
+function createActiveContext(user: User, selectedContext: AvailableContext): ActiveContext {
+  return {
+    contextId: selectedContext.contextId,
+    userId: user.id,
+    user,
+    assignmentId: selectedContext.assignmentId,
+    assignmentIds: [...selectedContext.assignmentIds],
+    applicationId: selectedContext.scope === 'APP'
+      ? 'ALL'
+      : selectedContext.scopeApplicationIds[0] ?? selectedContext.application.id,
+    scopeApplicationIds: [...selectedContext.scopeApplicationIds],
+    application: selectedContext.application,
+    applications: [...selectedContext.applications],
+    role: selectedContext.role,
+    scope: selectedContext.scope,
+    automatedTestsEnabled: selectedContext.automatedTestsEnabled,
+    token: `mock-token-${user.id}-${selectedContext.contextId}`,
+  };
+}
+
+function findMatchingContext(
+  contexts: AvailableContext[],
+  previousContext: Partial<ActiveContext> | null | undefined
+): AvailableContext | undefined {
+  if (!previousContext) return undefined;
+  const previousAssignmentIds = previousContext.assignmentIds?.length
+    ? previousContext.assignmentIds
+    : previousContext.assignmentId
+      ? [previousContext.assignmentId]
+      : [];
+
+  return contexts.find(context => context.contextId === previousContext.contextId)
+    ?? contexts.find(context =>
+      context.role === previousContext.role &&
+      context.assignmentIds.some(assignmentId => previousAssignmentIds.includes(assignmentId))
+    );
+}
+
+export function getContextApplicationLabel(
+  context: { applications?: Application[] | undefined; application?: Application | null | undefined }
+): string {
+  const names = Array.from(new Set(
+    (context.applications ?? []).map(application => application.name).filter(Boolean)
+  ));
+  if (names.length > 0) return names.join('، ');
+  return context.application?.name || 'سامانه‌ای تعیین نشده';
+}
 
 export function canUseAutomatedTests(context: Pick<ActiveContext, 'role' | 'automatedTestsEnabled'> | null | undefined): boolean {
   if (!context) return false;
@@ -65,52 +148,10 @@ export const useAuthStore = create<AuthState>()(
       login: async (phoneNumber: string, _password: string) => {
         await ensureDataPersistenceReady();
         await delay(500);
-        const user = mockUsers.find(u => u.phoneNumber === phoneNumber);
+        const user = mockUsers.find(u => u.phoneNumber === phoneNumber && u.isActive);
         if (!user) return false;
 
-        const assignments = mockUserRoleAssignments.filter(
-          a => a.userId === user.id && a.isActive
-        );
-
-        const allApplicationIds = mockApplications.filter(app => app.isActive).map(app => app.id);
-
-        // Build available contexts.
-        // APP-scoped: show as "کل اپلیکیشن" with applicationId='ALL'.
-        // SYSTEMS-scoped: show one selected system or a virtual multi-system context.
-        const contexts = assignments.map(a => {
-          if (a.scope === 'APP') {
-            return {
-              assignmentId: a.id,
-              application: ALL_APPS_APPLICATION,
-              role: a.role,
-              scope: 'APP' as AccessScope,
-              scopeApplicationIds: a.applicationIds?.length ? a.applicationIds : allApplicationIds,
-              automatedTestsEnabled: a.automatedTestsEnabled,
-            };
-          } else {
-            const appIds = a.applicationIds?.length ? a.applicationIds : [a.applicationId];
-            const app = appIds.length === 1
-              ? mockApplications.find(app => app.id === appIds[0])
-              : {
-                  id: appIds.join(','),
-                  name: `چند سامانه (${appIds.length})`,
-                  code: 'MULTI_SYSTEMS',
-                  description: 'Context چندسامانه‌ای',
-                  isActive: true,
-                  createdAt: '2024-01-01T00:00:00Z',
-                  updatedAt: '2024-01-01T00:00:00Z',
-                } satisfies Application;
-            if (!app) return null;
-            return {
-              assignmentId: a.id,
-              application: app,
-              role: a.role,
-              scope: 'SYSTEMS' as AccessScope,
-              scopeApplicationIds: appIds,
-              automatedTestsEnabled: a.automatedTestsEnabled,
-            };
-          }
-        }).filter(Boolean) as AuthState['availableContexts'];
+        const contexts = buildAvailableContexts(user);
 
         set({
           isAuthenticated: true,
@@ -131,31 +172,38 @@ export const useAuthStore = create<AuthState>()(
         });
       },
 
-      selectContext: (applicationId: string, role: UserRole) => {
-        const { user, availableContexts } = get();
-        if (!user) return;
+      refreshContexts: async () => {
+        await ensureDataPersistenceReady();
+        const { activeContext, isAuthenticated, user } = get();
+        if (!isAuthenticated || !user) return;
 
-        const selectedContext = availableContexts.find(
-          c => c.application.id === applicationId && c.role === role
-        );
-        if (!selectedContext) return;
+        const contexts = buildAvailableContexts(user);
+        const selectedContext = findMatchingContext(contexts, activeContext);
+        set({
+          availableContexts: contexts,
+          activeContext: selectedContext ? createActiveContext(user, selectedContext) : null,
+        });
+      },
 
-        const activeContext: ActiveContext = {
-          userId: user.id,
-          user,
-          assignmentId: selectedContext.assignmentId,
-          applicationId: selectedContext.scope === 'APP'
-            ? 'ALL'
-            : selectedContext.scopeApplicationIds[0] ?? 'ALL',
-          scopeApplicationIds: selectedContext.scopeApplicationIds,
-          application: selectedContext.application,
-          role: selectedContext.role,
-          scope: selectedContext.scope,
-          automatedTestsEnabled: selectedContext.automatedTestsEnabled,
-          token: `mock-token-${user.id}-${selectedContext.assignmentId}-${role}`,
-        };
+      switchContext: (contextId: string) => {
+        const { user } = get();
+        if (!user?.isActive) return false;
 
-        set({ activeContext });
+        // Rebuild from current active assignments and resolve only the opaque
+        // context id. Role/application values supplied by the UI are never trusted.
+        const contexts = buildAvailableContexts(user);
+        const selectedContext = contexts.find(context => context.contextId === contextId);
+        if (!selectedContext) {
+          set({ availableContexts: contexts, activeContext: null });
+          return false;
+        }
+
+        set({
+          isAuthenticated: true,
+          availableContexts: contexts,
+          activeContext: createActiveContext(user, selectedContext),
+        });
+        return true;
       },
 
       getAvailableContexts: () => get().availableContexts,
@@ -168,6 +216,30 @@ export const useAuthStore = create<AuthState>()(
         activeContext: state.activeContext,
         availableContexts: state.availableContexts,
       }),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<AuthState>;
+        if (!persisted.isAuthenticated || !persisted.user?.isActive) {
+          return {
+            ...currentState,
+            isAuthenticated: false,
+            user: null,
+            activeContext: null,
+            availableContexts: [],
+          };
+        }
+
+        const availableContexts = buildAvailableContexts(persisted.user);
+        const selectedContext = findMatchingContext(availableContexts, persisted.activeContext);
+        return {
+          ...currentState,
+          isAuthenticated: true,
+          user: persisted.user,
+          availableContexts,
+          activeContext: selectedContext
+            ? createActiveContext(persisted.user, selectedContext)
+            : null,
+        };
+      },
     }
   )
 );

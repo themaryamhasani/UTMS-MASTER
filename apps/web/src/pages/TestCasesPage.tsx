@@ -8,6 +8,7 @@ import { CartableExcelExportButton, CartableSearchInput, CartableSelectFilter } 
 import { StatusBadge, PriorityBadge } from '../components/ui/Badge';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Input, Textarea, Select } from '../components/ui/Input';
+import { ApplicationSelect } from '../components/ui/ApplicationSelect';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
 import { useApplicationLookup } from '../utils/useApplicationLookup';
@@ -80,7 +81,8 @@ const TestCaseContextAccordion: React.FC<{
   requirement?: Requirement | undefined;
   flow?: Flow | undefined;
   testRequest?: TestRequest | undefined;
-}> = ({ requirement, flow, testRequest }) => {
+  applicationName?: string | undefined;
+}> = ({ requirement, flow, testRequest, applicationName }) => {
   if (!requirement && !flow) return null;
 
   return (
@@ -98,6 +100,9 @@ const TestCaseContextAccordion: React.FC<{
           <div className="rounded-lg bg-gray-50 p-3">
             <p className="text-xs text-gray-500">نیازمندی</p>
             <p className="font-medium text-gray-900">{requirement.title}</p>
+            <p className="mt-1 text-xs font-medium text-indigo-700">
+              سامانه: {applicationName || 'سامانه نامشخص'}
+            </p>
             {testRequest && <p className="mt-1 text-xs text-gray-500">درخواست تست: {testRequest.title}</p>}
             {requirement.description && <p className="mt-2 whitespace-pre-wrap text-gray-700">{requirement.description}</p>}
             {requirement.acceptanceCriteria && (
@@ -136,7 +141,7 @@ const TestCaseContextAccordion: React.FC<{
 
 export const TestCasesPage: React.FC = () => {
   const { activeContext } = useAuthStore();
-  const { appId, defaultApplicationId } = useDataScope();
+  const { appId, defaultApplicationId, isAppLevel, isMultiSystem } = useDataScope();
   const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [data, setData] = useState<PaginatedResponse<TestCase> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -157,6 +162,7 @@ export const TestCasesPage: React.FC = () => {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const [formData, setFormData] = useState<TestCaseFormState>(createEmptyFormState);
+  const [formApplicationId, setFormApplicationId] = useState('');
 
   const [testRequests, setTestRequests] = useState<TestRequest[]>([]);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
@@ -231,11 +237,13 @@ export const TestCasesPage: React.FC = () => {
 
   const resetForm = () => {
     setFormData(createEmptyFormState());
+    setFormApplicationId(isAppLevel || isMultiSystem ? '' : defaultApplicationId);
     setFlows([]);
     setFormErrors({});
   };
 
   const fillFormFromCase = (testCase: TestCase) => {
+    setFormApplicationId(testCase.applicationId);
     setFormData({
       title: testCase.title || '',
       scenario: testCase.scenario || '',
@@ -268,6 +276,15 @@ export const TestCasesPage: React.FC = () => {
       || testRequests.find(tr => tr.selectedRequirementIds?.includes(requirement.id));
   };
   const selectedTestRequest = resolveTestRequestForRequirement(selectedRequirement);
+  const selectedRequirementApplicationName = selectedRequirement
+    ? getApplicationName(selectedRequirement.applicationId)
+    : undefined;
+  const requirementOptions = requirements
+    .filter(requirement => !formApplicationId || requirement.applicationId === formApplicationId)
+    .map(requirement => ({
+    value: requirement.id,
+    label: `${requirement.title} — سامانه: ${getApplicationName(requirement.applicationId)}`,
+  }));
 
   const updateLimitedTextField = (
     field: 'title' | 'scenario' | 'preconditions' | 'testData' | 'steps' | 'expectedResult',
@@ -325,10 +342,14 @@ export const TestCasesPage: React.FC = () => {
   const validateForm = () => {
     const errors: Record<string, string> = {};
 
+    if (!formApplicationId) errors.applicationId = 'انتخاب سامانه الزامی است.';
+
     if (!formData.requirementId || !selectedRequirement) {
       errors.requirementId = 'انتخاب نیازمندی آماده الزامی است.';
     } else if (!['COMPLETED', 'APPROVED'].includes(selectedRequirement.status)) {
       errors.requirementId = 'نیازمندی ناقص یا غیرفعال برای Test Case قابل انتخاب نیست.';
+    } else if (selectedRequirement.applicationId !== formApplicationId) {
+      errors.requirementId = 'نیازمندی باید متعلق به سامانه انتخاب‌شده باشد.';
     }
 
     if (!formData.flowId || !selectedFlow) {
@@ -377,7 +398,7 @@ export const TestCasesPage: React.FC = () => {
           isActive: true,
         },
         activeContext.userId,
-        selectedRequirement.applicationId || selectedTestRequest?.applicationId || defaultApplicationId
+        selectedRequirement.applicationId
       );
       setShowCreateModal(false);
       resetForm();
@@ -523,7 +544,7 @@ export const TestCasesPage: React.FC = () => {
         <div className="flex items-center gap-2">
           {/* Toggle under actions column */}
           {canToggleTC && (
-            <button onClick={(e) => {
+            <button type="button" role="switch" aria-checked={item.status === 'READY'} aria-label={`فعال بودن تست کیس ${item.title}`} onClick={(e) => {
               e.stopPropagation();
               const newStatus = item.status === 'READY' ? 'DRAFT' : 'READY';
               testCaseApi.update(item.id, { status: newStatus }, activeContext!.userId).then((updated) => {
@@ -540,7 +561,7 @@ export const TestCasesPage: React.FC = () => {
                 item.status === 'READY' ? 'bg-green-500' : 'bg-gray-300'
               }`}
               dir="ltr">
-              <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-md ring-0 transition-transform duration-200 ${
+              <span className={`theme-switch-thumb pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-md ring-0 transition-transform duration-200 ${
                 item.status === 'READY' ? 'translate-x-5' : 'translate-x-1'
               }`} />
             </button>
@@ -649,6 +670,10 @@ export const TestCasesPage: React.FC = () => {
 
             <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 md:grid-cols-4">
               <div>
+                <p className="text-gray-500">سامانه</p>
+                <p className="font-medium">{getApplicationName(selectedCase.applicationId)}</p>
+              </div>
+              <div>
                 <p className="text-gray-500">نوع تست</p>
                 <p className="font-medium">{TEST_TYPE_LABELS[selectedCase.testType]}</p>
               </div>
@@ -724,12 +749,27 @@ export const TestCasesPage: React.FC = () => {
         size="full"
       >
         <div className="space-y-4">
+          <ApplicationSelect
+            label="سامانه تست کیس"
+            required
+            value={formApplicationId}
+            onChange={(applicationId) => {
+              setFormApplicationId(applicationId);
+              setFormData(prev => ({ ...prev, requirementId: '', testRequestId: '', flowId: '' }));
+              setFlows([]);
+              clearFormError('applicationId');
+              clearFormError('requirementId');
+              clearFormError('flowId');
+            }}
+            error={formErrors.applicationId}
+            hint="پس از انتخاب سامانه، فقط نیازمندی‌های همان سامانه نمایش داده می‌شوند."
+          />
           {/* Item #2: Required Requirement selection */}
           <Select
             label="نیازمندی مرتبط * (اجباری)"
             value={formData.requirementId}
             onChange={(e) => { clearFormError('requirementId'); clearFormError('flowId'); setFormData({ ...formData, requirementId: e.target.value, testRequestId: '', flowId: '' }); }}
-            options={requirements.map(r => ({ value: r.id, label: r.title }))}
+            options={requirementOptions}
             placeholder="یک نیازمندی موجود را انتخاب کنید"
             error={formErrors.requirementId}
           />
@@ -745,7 +785,12 @@ export const TestCasesPage: React.FC = () => {
             disabled={!formData.requirementId}
             error={formErrors.flowId}
           />
-          <TestCaseContextAccordion requirement={selectedRequirement} flow={selectedFlow} testRequest={selectedTestRequest} />
+          <TestCaseContextAccordion
+            requirement={selectedRequirement}
+            flow={selectedFlow}
+            testRequest={selectedTestRequest}
+            applicationName={selectedRequirementApplicationName}
+          />
           <Input
             label="عنوان *"
             value={formData.title}
@@ -883,11 +928,20 @@ export const TestCasesPage: React.FC = () => {
         size="full"
       >
         <div className="space-y-4">
+          <ApplicationSelect
+            label="سامانه تست کیس"
+            required
+            value={formApplicationId}
+            onChange={() => undefined}
+            disabled
+            error={formErrors.applicationId}
+            hint="سامانه از نیازمندی اصلی تست کیس مشتق شده و قابل تغییر نیست."
+          />
           <Select
             label="نیازمندی مرتبط * (اجباری)"
             value={formData.requirementId}
             onChange={(e) => { clearFormError('requirementId'); clearFormError('flowId'); setFormData({ ...formData, requirementId: e.target.value, testRequestId: '', flowId: '' }); }}
-            options={requirements.map(r => ({ value: r.id, label: r.title }))}
+            options={requirementOptions}
             placeholder="یک نیازمندی موجود را انتخاب کنید"
             error={formErrors.requirementId}
           />
@@ -900,7 +954,12 @@ export const TestCasesPage: React.FC = () => {
             disabled={!formData.requirementId}
             error={formErrors.flowId}
           />
-          <TestCaseContextAccordion requirement={selectedRequirement} flow={selectedFlow} testRequest={selectedTestRequest} />
+          <TestCaseContextAccordion
+            requirement={selectedRequirement}
+            flow={selectedFlow}
+            testRequest={selectedTestRequest}
+            applicationName={selectedRequirementApplicationName}
+          />
           <Input
             label="عنوان *"
             value={formData.title}

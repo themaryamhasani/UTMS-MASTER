@@ -29,12 +29,14 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card, StatCard } from '../components/ui/Card';
 import { Input, Select, Textarea } from '../components/ui/Input';
+import { ApplicationSelect } from '../components/ui/ApplicationSelect';
 import { LoadingState, MinimalLoader } from '../components/ui/Loading';
 import { Modal } from '../components/ui/Modal';
 import { Table, Pagination } from '../components/ui/Table';
 import { toast } from '../components/ui/Toast';
 import { useAuthStore } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
+import { useApplicationLookup } from '../utils/useApplicationLookup';
 import { apiConsoleApi } from '../services/apiConsoleApi';
 import { API_SHARING_STATUS_LABELS } from '../types/apiConsole';
 import type {
@@ -963,7 +965,7 @@ const Toggle = ({ checked, onChange, label }: { checked: boolean; onChange: (che
     className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700"
   >
     <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition ${checked ? 'bg-blue-600' : 'bg-gray-300'}`}>
-      <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition ${checked ? '-translate-x-4' : '-translate-x-1'}`} />
+      <span className={`theme-switch-thumb inline-block h-4 w-4 rounded-full bg-white shadow transition ${checked ? '-translate-x-4' : '-translate-x-1'}`} />
     </span>
     {label}
   </button>
@@ -1026,7 +1028,8 @@ const JsonEditor = ({
 
 export const OnlineApiConsolePage: React.FC = () => {
   const { activeContext } = useAuthStore();
-  const { appId, defaultApplicationId } = useDataScope();
+  const { appId, initialApplicationIdForCreate } = useDataScope();
+  const { shouldShowSystemColumn, getApplicationName } = useApplicationLookup();
   const [collections, setCollections] = useState<ApiCollection[]>([]);
   const [environments, setEnvironments] = useState<ApiEnvironmentProfile[]>([]);
   const [requests, setRequests] = useState<PaginatedResponse<ApiRequestDefinition> | null>(null);
@@ -1051,6 +1054,7 @@ export const OnlineApiConsolePage: React.FC = () => {
   const [postmanFileName, setPostmanFileName] = useState('');
   const [postmanPreview, setPostmanPreview] = useState<PostmanCollectionImportPreview | null>(null);
   const [postmanImporting, setPostmanImporting] = useState(false);
+  const [postmanApplicationId, setPostmanApplicationId] = useState('');
   const [editCurlModalOpen, setEditCurlModalOpen] = useState(false);
   const [editCurlText, setEditCurlText] = useState('');
   const [editCurlPreview, setEditCurlPreview] = useState<ApiCurlImportPreview | null>(null);
@@ -1072,7 +1076,7 @@ export const OnlineApiConsolePage: React.FC = () => {
   const [selfCheck, setSelfCheck] = useState<{ passed: number; failed: number; details: ParserSelfCheckDetail[] } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ApiRequestDefinition | null>(null);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
-  const [collectionForm, setCollectionForm] = useState({ name: '', description: '' });
+  const [collectionForm, setCollectionForm] = useState({ applicationId: '', name: '', description: '' });
   const [exportingCollectionId, setExportingCollectionId] = useState<string | null>(null);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>('requests');
   const [repositoryRows, setRepositoryRows] = useState<PaginatedResponse<ApiRepositoryItem> | null>(null);
@@ -1345,7 +1349,7 @@ export const OnlineApiConsolePage: React.FC = () => {
     setCurlText('');
     setCurlPreview(null);
     setImportTitle('');
-    setImportCollectionId(filters.collectionId || collections[0]?.id || '');
+    setImportCollectionId(filters.collectionId || '');
     setPreviewSubtab('summary');
     setCurlModalOpen(true);
   };
@@ -1362,7 +1366,13 @@ export const OnlineApiConsolePage: React.FC = () => {
     setPostmanText('');
     setPostmanFileName('');
     setPostmanPreview(null);
+    setPostmanApplicationId(initialApplicationIdForCreate);
     setPostmanModalOpen(true);
+  };
+
+  const openCreateCollection = () => {
+    setCollectionForm({ applicationId: initialApplicationIdForCreate, name: '', description: '' });
+    setCollectionModalOpen(true);
   };
 
   const handlePostmanFileSelected = async (file: File | null) => {
@@ -1382,8 +1392,12 @@ export const OnlineApiConsolePage: React.FC = () => {
     const selectedCollection = filters.collectionId
       ? collections.find(collection => collection.id === filters.collectionId)
       : undefined;
-    const collection = selectedCollection || collections[0] || await apiConsoleApi.createCollection({ applicationId: defaultApplicationId, name: 'API Console' }, activeContext);
-    const request = await apiConsoleApi.createBlankRequest(collection.id, collection.applicationId || defaultApplicationId, environments[0]?.id || 'env-development', activeContext);
+    if (!selectedCollection) {
+      toast.info('برای ساخت Request ابتدا Collection و سامانه آن را انتخاب یا ایجاد کنید.');
+      openCreateCollection();
+      return;
+    }
+    const request = await apiConsoleApi.createBlankRequest(selectedCollection.id, selectedCollection.applicationId, environments[0]?.id || 'env-development', activeContext);
     toast.success('Request جدید ساخته شد.');
     await reloadRequests(request.id);
     setPageMode('editor');
@@ -1417,7 +1431,7 @@ export const OnlineApiConsolePage: React.FC = () => {
   };
 
   const handleImportPostmanCollection = async () => {
-    if (!activeContext || !postmanPreview || !postmanPreview.requestCount || !canCreate) return;
+    if (!activeContext || !postmanPreview || !postmanPreview.requestCount || !postmanApplicationId || !canCreate) return;
     setPostmanImporting(true);
     try {
       const baseName = postmanPreview.name.trim() || 'Imported Postman Collection';
@@ -1426,7 +1440,7 @@ export const OnlineApiConsolePage: React.FC = () => {
         ? `${baseName} - Import ${new Date().toLocaleString('fa-IR')}`
         : baseName;
       const collection = await apiConsoleApi.createCollection({
-        applicationId: defaultApplicationId,
+        applicationId: postmanApplicationId,
         name: collectionName,
         description: postmanPreview.description || `Imported from ${postmanFileName || 'Postman Collection JSON'}`,
         variables: postmanPreview.variables,
@@ -1437,7 +1451,7 @@ export const OnlineApiConsolePage: React.FC = () => {
           name: item.folderPath.length ? `${item.folderPath.join(' / ')} / ${item.name}` : item.name,
           ...(item.description ? { description: item.description } : {}),
           collectionId: collection.id,
-          applicationId: collection.applicationId || defaultApplicationId,
+          applicationId: collection.applicationId,
           environmentId: environments[0]?.id || 'env-development',
           normalizedRequest: item.normalizedRequest,
         }, activeContext);
@@ -1464,12 +1478,16 @@ export const OnlineApiConsolePage: React.FC = () => {
     const selectedCollection = importCollectionId
       ? collections.find(collection => collection.id === importCollectionId)
       : undefined;
-    const collection = selectedCollection || collections[0] || await apiConsoleApi.createCollection({ applicationId: defaultApplicationId, name: 'Imported cURL' }, activeContext);
+    if (!selectedCollection) {
+      toast.warning('برای Import کردن cURL یک Collection مشخص انتخاب کنید؛ سامانه از همان Collection تعیین می‌شود.');
+      return;
+    }
+    const collection = selectedCollection;
     const normalized = normalizedFromPreview(curlPreview);
     const request = await apiConsoleApi.createRequest({
       name: importTitle.trim() || `${normalized.method} ${new URL(normalized.url).pathname || normalized.url}`,
       collectionId: collection.id,
-      applicationId: collection.applicationId || defaultApplicationId,
+      applicationId: collection.applicationId,
       environmentId: environments[0]?.id || 'env-development',
       normalizedRequest: normalized,
       originalImportedCurl: curlPreview.originalCurl,
@@ -1533,20 +1551,23 @@ export const OnlineApiConsolePage: React.FC = () => {
   };
 
   const handleCreateCollection = async () => {
-    if (!activeContext || !canCreate || !collectionForm.name.trim()) return;
+    if (!activeContext || !canCreate || !collectionForm.applicationId || !collectionForm.name.trim()) return;
     const normalizedName = collectionForm.name.trim().toLowerCase();
-    const existingCollection = collections.find(collection => collection.name.trim().toLowerCase() === normalizedName);
+    const existingCollection = collections.find(collection =>
+      collection.applicationId === collectionForm.applicationId
+      && collection.name.trim().toLowerCase() === normalizedName
+    );
     if (existingCollection) {
       setFilters(prev => ({ ...prev, collectionId: existingCollection.id, page: 1 }));
       setImportCollectionId(existingCollection.id);
       setCollectionModalOpen(false);
-      setCollectionForm({ name: '', description: '' });
+      setCollectionForm({ applicationId: initialApplicationIdForCreate, name: '', description: '' });
       toast.info('این Collection قبلاً وجود دارد و همان انتخاب شد.');
       return;
     }
     try {
       const collection = await apiConsoleApi.createCollection({
-        applicationId: defaultApplicationId,
+        applicationId: collectionForm.applicationId,
         name: collectionForm.name.trim(),
         description: collectionForm.description.trim() || undefined,
       }, activeContext);
@@ -1554,7 +1575,7 @@ export const OnlineApiConsolePage: React.FC = () => {
       setFilters(prev => ({ ...prev, collectionId: collection.id, page: 1 }));
       setImportCollectionId(collection.id);
       setCollectionModalOpen(false);
-      setCollectionForm({ name: '', description: '' });
+      setCollectionForm({ applicationId: initialApplicationIdForCreate, name: '', description: '' });
       toast.success('Collection جدید ساخته شد.');
       await reloadRequests();
     } catch (error) {
@@ -1981,6 +2002,11 @@ export const OnlineApiConsolePage: React.FC = () => {
         <span className="font-mono text-xs text-gray-600" dir="ltr">{item.apiId || item.id}</span>
       ),
     },
+    ...(shouldShowSystemColumn ? [{
+      key: 'applicationId',
+      title: 'سامانه',
+      render: (item: ApiRequestDefinition) => getApplicationName(item.applicationId),
+    }] : []),
     {
       key: 'sharingStatus',
       title: 'وضعیت',
@@ -2092,7 +2118,7 @@ export const OnlineApiConsolePage: React.FC = () => {
                       size="sm"
                       variant="secondary"
                       icon={<FolderPlus className="h-4 w-4" />}
-                      onClick={() => setCollectionModalOpen(true)}
+                      onClick={openCreateCollection}
                       disabled={!canCreate}
                     >
                       Collection جدید
@@ -2136,7 +2162,7 @@ export const OnlineApiConsolePage: React.FC = () => {
                     className="py-1.5 text-sm"
                     options={[
                       { value: '', label: 'همه Collectionها' },
-                      ...collections.map(collection => ({ value: collection.id, label: collection.name })),
+                      ...collections.map(collection => ({ value: collection.id, label: `${collection.name} — ${getApplicationName(collection.applicationId)}` })),
                     ]}
                   />
                   <Select
@@ -2201,6 +2227,7 @@ export const OnlineApiConsolePage: React.FC = () => {
                 onFilters={setReviewFilters}
                 onRefresh={loadShareReviews}
                 onOpen={openReviewDetail}
+                getApplicationName={getApplicationName}
               />
             )}
           </section>
@@ -2604,7 +2631,7 @@ export const OnlineApiConsolePage: React.FC = () => {
         primaryActionLabel="Import"
         curlText={curlText}
         requestTitle={importTitle}
-        collections={collections}
+        collections={collections.map(collection => ({ ...collection, name: `${collection.name} — ${getApplicationName(collection.applicationId)}` }))}
         selectedCollectionId={importCollectionId}
         preview={curlPreview}
         previewSubtab={previewSubtab}
@@ -2628,11 +2655,13 @@ export const OnlineApiConsolePage: React.FC = () => {
         fileName={postmanFileName}
         preview={postmanPreview}
         importing={postmanImporting}
+        applicationId={postmanApplicationId}
         onText={(value) => {
           setPostmanText(value);
           setPostmanPreview(null);
         }}
         onFile={handlePostmanFileSelected}
+        onApplicationChange={setPostmanApplicationId}
         onParse={handleParsePostmanCollection}
         onImport={handleImportPostmanCollection}
         onClose={closeImportPostmanCollection}
@@ -2876,6 +2905,13 @@ export const OnlineApiConsolePage: React.FC = () => {
 
       <Modal isOpen={collectionModalOpen} onClose={() => setCollectionModalOpen(false)} title="Collection جدید" size="md">
         <div className="space-y-4">
+          <ApplicationSelect
+            label="سامانه Collection"
+            required
+            value={collectionForm.applicationId}
+            onChange={(applicationId) => setCollectionForm(prev => ({ ...prev, applicationId }))}
+            hint="تمام Requestهای این Collection به همین سامانه تعلق دارند."
+          />
           <Input
             label="نام Collection"
             value={collectionForm.name}
@@ -2891,7 +2927,7 @@ export const OnlineApiConsolePage: React.FC = () => {
           />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setCollectionModalOpen(false)}>انصراف</Button>
-            <Button icon={<FolderPlus className="h-4 w-4" />} onClick={handleCreateCollection} disabled={!collectionForm.name.trim() || !canCreate}>
+            <Button icon={<FolderPlus className="h-4 w-4" />} onClick={handleCreateCollection} disabled={!collectionForm.applicationId || !collectionForm.name.trim() || !canCreate}>
               ساخت Collection
             </Button>
           </div>
@@ -3669,7 +3705,7 @@ const ResponsePanel = ({
           <div>
             <FieldLabel>Body ({execution.response?.safePreviewMode || 'TEXT'})</FieldLabel>
             {execution.response?.safePreviewMode === 'SANDBOXED_HTML' ? (
-              <iframe title="API response sandbox" srcDoc={body} sandbox="" className="h-64 w-full rounded-lg border border-gray-200 bg-white" />
+              <iframe title="API response sandbox" srcDoc={body} sandbox="" className="theme-light-preview h-64 w-full rounded-lg border border-gray-200 bg-white" />
             ) : isJsonBody ? (
               <JsonResponseViewer value={body} />
             ) : (
@@ -4009,6 +4045,7 @@ const ShareReviewSection = ({
   onFilters,
   onRefresh,
   onOpen,
+  getApplicationName,
 }: {
   rows: PaginatedResponse<ApiShareRequest> | null;
   loading: boolean;
@@ -4016,6 +4053,7 @@ const ShareReviewSection = ({
   onFilters: Dispatch<SetStateAction<{ page: number; limit: number; search: string; status: string }>>;
   onRefresh: () => void;
   onOpen: (item: ApiShareRequest) => void;
+  getApplicationName: (applicationId?: string) => string;
 }) => (
   <div className="space-y-4">
     <Card padding="sm">
@@ -4069,7 +4107,7 @@ const ShareReviewSection = ({
             <Badge variant={sharingBadgeVariant(item.status)} size="sm">{API_SHARING_STATUS_LABELS[item.status]}</Badge>
           ),
         },
-        { key: 'applicationId', title: 'سامانه', render: (item: ApiShareRequest) => item.applicationId },
+        { key: 'applicationId', title: 'سامانه', render: (item: ApiShareRequest) => getApplicationName(item.applicationId) },
         { key: 'submittedBy', title: 'ثبت‌کننده', render: (item: ApiShareRequest) => item.submittedByName || item.submittedBy },
         { key: 'revision', title: 'Revision', render: (item: ApiShareRequest) => item.currentRevisionNumber },
         { key: 'updatedAt', title: 'زمان', render: (item: ApiShareRequest) => formatDate(item.updatedAt) },
@@ -4113,8 +4151,10 @@ const ImportPostmanCollectionModal = ({
   fileName,
   preview,
   importing,
+  applicationId,
   onText,
   onFile,
+  onApplicationChange,
   onParse,
   onImport,
   onClose,
@@ -4124,8 +4164,10 @@ const ImportPostmanCollectionModal = ({
   fileName: string;
   preview: PostmanCollectionImportPreview | null;
   importing: boolean;
+  applicationId: string;
   onText: (value: string) => void;
   onFile: (file: File | null) => void;
+  onApplicationChange: (applicationId: string) => void;
   onParse: () => void;
   onImport: () => void;
   onClose: () => void;
@@ -4133,6 +4175,14 @@ const ImportPostmanCollectionModal = ({
   <Modal isOpen={open} onClose={onClose} title="Import Postman Collection" size="wide">
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_1.2fr]">
       <div className="space-y-3">
+        <ApplicationSelect
+          label="سامانه Collection"
+          required
+          value={applicationId}
+          onChange={onApplicationChange}
+          disabled={importing}
+          hint="Collection و تمام Requestهای Importشده به این سامانه متصل می‌شوند."
+        />
         <label className="block space-y-2">
           <span className="text-sm font-medium text-gray-700">فایل Postman Collection</span>
           <input
@@ -4210,7 +4260,7 @@ const ImportPostmanCollectionModal = ({
             )}
             <div className="flex justify-end gap-2 border-t border-gray-200 pt-3">
               <Button variant="secondary" onClick={onClose} disabled={importing}>انصراف</Button>
-              <Button icon={<CheckCircle className="h-4 w-4" />} onClick={onImport} loading={importing} disabled={!preview.requestCount}>
+              <Button icon={<CheckCircle className="h-4 w-4" />} onClick={onImport} loading={importing} disabled={!applicationId || !preview.requestCount}>
                 Import {preview.requestCount} Request
               </Button>
             </div>
@@ -4275,7 +4325,7 @@ const ImportCurlModal = ({
                 value={selectedCollectionId}
                 onChange={(event) => onCollectionChange(event.target.value)}
                 options={[
-                  { value: '', label: 'Collection پیش‌فرض' },
+                  { value: '', label: 'یک Collection انتخاب کنید *' },
                   ...collections.map(collection => ({ value: collection.id, label: collection.name })),
                 ]}
               />
@@ -4348,7 +4398,7 @@ const ImportCurlModal = ({
             )}
             <div className="flex justify-end gap-2 border-t border-gray-200 pt-3">
               <Button variant="secondary" onClick={onClose}>انصراف</Button>
-              <Button icon={<CheckCircle className="h-4 w-4" />} onClick={onImport}>{primaryActionLabel}</Button>
+              <Button icon={<CheckCircle className="h-4 w-4" />} onClick={onImport} disabled={!!onCollectionChange && !selectedCollectionId}>{primaryActionLabel}</Button>
             </div>
           </div>
         )}

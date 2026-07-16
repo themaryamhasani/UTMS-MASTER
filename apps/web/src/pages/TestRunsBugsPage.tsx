@@ -13,6 +13,7 @@ import { CartableExcelExportButton, CartableSearchInput, CartableSelectFilter } 
 import { Badge, StatusBadge } from '../components/ui/Badge';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Input, Textarea, Select } from '../components/ui/Input';
+import { ApplicationSelect } from '../components/ui/ApplicationSelect';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
 import { useApplicationLookup } from '../utils/useApplicationLookup';
@@ -20,8 +21,9 @@ import { testRunApi, testCaseApi, testRequestApi, bugApi, retestTaskApi, runIssu
 import { toast } from '../components/ui/Toast';
 import { isSemVer, SEMVER_HINT } from '../utils/semver';
 import { BUILD_NUMBER_INPUT_HINT, sanitizeBuildNumberInput, sanitizeVersionInput, VERSION_INPUT_HINT } from '../utils/inputRules';
+import { filterByRequestApplication, filterTestCasesForExecution } from '../utils/testManagementScope';
 import type {
-  TestRun, TestCase, Bug, RetestTask, User, Comment, Requirement, Attachment, AttachmentType,
+  TestRun, TestCase, TestRequest, Bug, RetestTask, User, Comment, Requirement, Attachment, AttachmentType,
   CartableFilterParams, PaginatedResponse,
   TestRunStatus, TestRunPurpose, BugSeverity, BugStatus, Priority, RunIssueType,
 } from '../types';
@@ -116,12 +118,15 @@ export const TestRunsBugsPage: React.FC = () => {
   const [testCases, setTestCases] = useState<TestCase[]>([]);
   const [allRuns, setAllRuns] = useState<TestRun[]>([]); // for previous run selection
   // Item: Test request list for wizard
-  const [testRequests, setTestRequests] = useState<Array<{id: string; title: string; version: string; buildNumber?: string | undefined}>>([]);
+  const [testRequests, setTestRequests] = useState<TestRequest[]>([]);
 
   // Wizard
   const [showWizard, setShowWizard] = useState(false);
   const [wizardStep, setWizardStep] = useState(1);
   const [wizardTestRequestId, setWizardTestRequestId] = useState(''); // Item: required test request
+  const [wizardRequirementId, setWizardRequirementId] = useState('');
+  const [wizardRequirements, setWizardRequirements] = useState<Requirement[]>([]);
+  const [wizardRequirementsLoading, setWizardRequirementsLoading] = useState(false);
   const [wizardTestCaseId, setWizardTestCaseId] = useState('');
   const [wizardVersion, setWizardVersion] = useState('');
   const [wizardBuildNumber, setWizardBuildNumber] = useState('');
@@ -129,7 +134,6 @@ export const TestRunsBugsPage: React.FC = () => {
   const [wizardActualResult, setWizardActualResult] = useState('');
   const [wizardPurposes, setWizardPurposes] = useState<TestRunPurpose[]>([]); // multi-select
   const [wizardReqExpanded, setWizardReqExpanded] = useState(false);
-  const [wizardSelectedReq, setWizardSelectedReq] = useState<Requirement | null>(null);
   const [wizardCreatedRunId, setWizardCreatedRunId] = useState('');
   const [wizardPrevRunId, setWizardPrevRunId] = useState(''); // previous run for retest/regression
   const [activeRetestTaskId, setActiveRetestTaskId] = useState('');
@@ -211,33 +215,70 @@ export const TestRunsBugsPage: React.FC = () => {
       loadBugComments();
       loadBugAttachments();
     }
-    if (showAssignBugModal && activeContext) loadDevelopers();
+    if (showAssignBugModal && activeContext) loadDevelopers(selectedBug?.applicationId);
   }, [selectedBug, showBugDetailModal, showAssignBugModal]);
-  useEffect(() => { if (showRunEditModal && activeContext) loadDevelopers(); }, [showRunEditModal]);
+  useEffect(() => { if (showRunEditModal && activeContext) loadDevelopers(selectedRun?.applicationId); }, [showRunEditModal, selectedRun?.applicationId]);
   // Item #4: Load developers when wizard step 2 opens
-  useEffect(() => { if (wizardStep === 2 && activeContext) loadDevelopers(); }, [wizardStep]);
   useEffect(() => {
-    if (wizardTestCaseId) {
-      const tc = testCases.find(t => t.id === wizardTestCaseId);
-      if (tc?.requirementId) {
-        requirementApi
-          .getById(tc.requirementId)
-          .then(r => setWizardSelectedReq(r))
-          .catch(() => {
-            setWizardSelectedReq(null);
-            toast.error('خطا در بارگذاری نیازمندی تست‌کیس.');
-          });
-      }
-      else setWizardSelectedReq(null);
-    } else setWizardSelectedReq(null);
-  }, [wizardTestCaseId]);
+    if (wizardStep === 2 && activeContext) {
+      loadDevelopers(testRequests.find(request => request.id === wizardTestRequestId)?.applicationId);
+    }
+  }, [wizardStep, wizardTestRequestId, testRequests]);
+  useEffect(() => {
+    const testCase = testCases.find(item => item.id === wizardTestCaseId);
+    if (testCase?.requirementId && testCase.requirementId !== wizardRequirementId) {
+      setWizardRequirementId(testCase.requirementId);
+    }
+  }, [wizardTestCaseId, testCases, wizardRequirementId]);
+
+  useEffect(() => {
+    const testRequest = testRequests.find(item => item.id === wizardTestRequestId);
+    if (!testRequest) {
+      setWizardRequirements([]);
+      setWizardRequirementsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setWizardRequirementsLoading(true);
+    requirementApi
+      .getAll(testRequest.applicationId, { page: 1, limit: 200 })
+      .then(response => {
+        if (cancelled) return;
+        setWizardRequirements(response.data.filter(requirement =>
+          ['COMPLETED', 'APPROVED'].includes(requirement.status)
+        ));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setWizardRequirements([]);
+        toast.error('خطا در بارگذاری نیازمندی‌های سامانه درخواست تست.');
+      })
+      .finally(() => {
+        if (!cancelled) setWizardRequirementsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [wizardTestRequestId, testRequests]);
 
   const needsPrevRun = wizardPurposes.includes('REGRESSION_TEST') || wizardPurposes.includes('RETEST');
+  const selectedWizardTestRequest = testRequests.find(item => item.id === wizardTestRequestId);
+  const wizardSelectedReq = wizardRequirements.find(item => item.id === wizardRequirementId) || null;
+  const wizardTestCases = filterTestCasesForExecution(
+    testCases,
+    selectedWizardTestRequest,
+    wizardRequirementId
+  );
+  const wizardPreviousRuns = filterByRequestApplication(allRuns, selectedWizardTestRequest);
+  const selectedEditTestRequest = testRequests.find(item => item.id === runEditData.testRequestId);
+  const runEditTestCases = filterByRequestApplication(testCases, selectedEditTestRequest);
 
   const loadRuns = async () => { if (!activeContext) return; setRunsLoading(true); try { setRunsData(await testRunApi.getVisibleForRole(appId, runsFilters, activeContext.userId, activeContext.role)); } catch { setRunsData(null); toast.error('خطا در بارگذاری اجراهای تست.'); } finally { setRunsLoading(false); } };
   const loadAllRuns = async () => { if (!activeContext) return; try { const r = await testRunApi.getVisibleForRole(appId, { page: 1, limit: 200 }, activeContext.userId, activeContext.role); setAllRuns(r.data); } catch { setAllRuns([]); } };
   const loadTestCases = async () => { if (!activeContext) return; try { const r = await testCaseApi.getVisibleForRole(appId, { page: 1, limit: 200 }, activeContext.userId, activeContext.role); setTestCases(r.data.filter(tc => tc.status === 'READY')); } catch { setTestCases([]); toast.error('خطا در بارگذاری تست‌کیس‌ها.'); } };
-  const loadTestRequests = async () => { if (!activeContext) return; try { const r = await testRequestApi.getVisibleForRole(appId, { page: 1, limit: 200 }, activeContext.userId, activeContext.role); setTestRequests(r.data.filter(tr => !['DRAFT', 'CANCELLED', 'REJECTED'].includes(tr.status)).map(tr => ({ id: tr.id, title: tr.title, version: tr.version, buildNumber: tr.buildNumber }))); } catch { setTestRequests([]); toast.error('خطا در بارگذاری درخواست‌های تست.'); } };
+  const loadTestRequests = async () => { if (!activeContext) return; try { const r = await testRequestApi.getVisibleForRole(appId, { page: 1, limit: 200 }, activeContext.userId, activeContext.role); setTestRequests(r.data.filter(tr => !['DRAFT', 'CANCELLED', 'REJECTED'].includes(tr.status))); } catch { setTestRequests([]); toast.error('خطا در بارگذاری درخواست‌های تست.'); } };
   const loadBugs = async () => {
     if (!activeContext) return; setBugsLoading(true);
     try {
@@ -258,7 +299,7 @@ export const TestRunsBugsPage: React.FC = () => {
     try { setRetestTasksData(await retestTaskApi.getVisibleForRole(appId, { page: 1, limit: 50, sortBy: 'createdAt', sortOrder: 'desc' }, activeContext.userId, activeContext.role)); }
     catch { setRetestTasksData(null); toast.error('خطا در بارگذاری صف بازآزمون.'); } finally { setRetestTasksLoading(false); }
   };
-  const loadDevelopers = async () => { if (!activeContext) return; try { setDevelopers(await userApi.getDevelopers(appId)); } catch { setDevelopers([]); toast.error('خطا در بارگذاری توسعه‌دهندگان.'); } };
+  const loadDevelopers = async (applicationId?: string) => { if (!activeContext) return; try { setDevelopers(await userApi.getDevelopers(applicationId || appId)); } catch { setDevelopers([]); toast.error('خطا در بارگذاری توسعه‌دهندگان.'); } };
   const loadBugComments = async () => { if (!selectedBug) return; try { setBugComments(await commentApi.getByEntity('BUG', selectedBug.id)); } catch { setBugComments([]); toast.error('خطا در بارگذاری دیدگاه‌ها.'); } };
   const loadBugAttachments = async () => {
     if (!selectedBug) return;
@@ -282,6 +323,32 @@ export const TestRunsBugsPage: React.FC = () => {
   const clearWizardError = (field: string) => setWizardErrors(prev => ({ ...prev, [field]: '' }));
   const clearRunEditError = (field: string) => setRunEditErrors(prev => ({ ...prev, [field]: '' }));
   const clearDevStatusError = (field: string) => setDevStatusErrors(prev => ({ ...prev, [field]: '' }));
+
+  const handleWizardTestRequestChange = (testRequestId: string) => {
+    const testRequest = testRequests.find(item => item.id === testRequestId);
+    setWizardTestRequestId(testRequestId);
+    setWizardRequirementId('');
+    setWizardTestCaseId('');
+    setWizardPrevRunId('');
+    setWizardReqExpanded(false);
+    setWizardPrevRunExpanded(false);
+    setWizardVersion(testRequest?.version || '');
+    setWizardBuildNumber(testRequest?.buildNumber || '');
+    setWizardErrors(prev => ({
+      ...prev,
+      testRequestId: '',
+      requirementId: '',
+      testCaseId: '',
+      previousRunId: '',
+    }));
+  };
+
+  const handleWizardRequirementChange = (requirementId: string) => {
+    setWizardRequirementId(requirementId);
+    setWizardTestCaseId('');
+    setWizardReqExpanded(true);
+    setWizardErrors(prev => ({ ...prev, requirementId: '', testCaseId: '' }));
+  };
 
   const handleWizardVersionChange = (value: string) => {
     const sanitized = sanitizeVersionInput(value);
@@ -399,6 +466,7 @@ export const TestRunsBugsPage: React.FC = () => {
       setWizardCreatedRunId(run.id);
       setWizardTestRequestId(startedTask.testRequestId);
       setWizardTestCaseId(startedTask.testCaseId);
+      setWizardRequirementId(testCases.find(testCase => testCase.id === startedTask.testCaseId)?.requirementId || '');
       setWizardVersion(run.version || task.previousRun?.version || '');
       setWizardBuildNumber(run.buildNumber || task.previousRun?.buildNumber || '');
       setWizardPurposes(startedTask.purposes);
@@ -418,9 +486,9 @@ export const TestRunsBugsPage: React.FC = () => {
   };
 
   const resetWizard = () => {
-    setShowWizard(false); setWizardStep(1); setWizardTestRequestId(''); setWizardTestCaseId(''); setWizardVersion('');
+    setShowWizard(false); setWizardStep(1); setWizardTestRequestId(''); setWizardRequirementId(''); setWizardRequirements([]); setWizardTestCaseId(''); setWizardVersion('');
     setWizardBuildNumber(''); setWizardResult(''); setWizardActualResult(''); setWizardPurposes([]);
-    setWizardReqExpanded(false); setWizardSelectedReq(null); setWizardCreatedRunId('');
+    setWizardReqExpanded(false); setWizardCreatedRunId('');
     setWizardPrevRunId(''); setActiveRetestTaskId(''); setActiveRetestBugId(''); setActiveRetestBugIds([]); setActiveRetestBugs([]); setRetestBugDecisions({}); setWizardPrevRunExpanded(false); setWizardFiles([]);
     setWizardBugs([{ id: 1, title: '', description: '', stepsToReproduce: '', severity: 'MAJOR', priority: 'HIGH', assigneeId: '', files: [] }]);
     bugIdCounter.current = 2;
@@ -431,8 +499,11 @@ export const TestRunsBugsPage: React.FC = () => {
   // Wizard step 1 submit
   const handleWizardStep1 = async () => {
     if (!activeContext) return;
+    const wizardApplicationId = selectedWizardTestRequest?.applicationId;
     const errors: Record<string, string> = {};
     if (!wizardTestRequestId) errors.testRequestId = 'انتخاب درخواست تست الزامی است.';
+    if (!wizardApplicationId) errors.testRequestId = 'سامانه درخواست تست قابل تشخیص نیست.';
+    if (!wizardRequirementId) errors.requirementId = 'انتخاب نیازمندی سامانه الزامی است.';
     if (!wizardTestCaseId) errors.testCaseId = 'انتخاب تست کیس الزامی است.';
     if (!wizardVersion.trim()) errors.version = 'نسخه الزامی است.';
     else if (!isSemVer(wizardVersion)) errors.version = SEMVER_HINT;
@@ -444,6 +515,7 @@ export const TestRunsBugsPage: React.FC = () => {
     if (needsPrevRun && !wizardPrevRunId) errors.previousRunId = 'تست ران قبلی الزامی است.';
     setWizardErrors(errors);
     if (Object.keys(errors).length > 0) return;
+    if (!wizardApplicationId) return;
     setActionLoading(true);
     try {
       const run = wizardCreatedRunId
@@ -457,7 +529,7 @@ export const TestRunsBugsPage: React.FC = () => {
           previousRunId: wizardPrevRunId || undefined,
           retestTaskId: activeRetestTaskId || undefined,
           sourceBugId: activeRetestBugId || undefined,
-        }, activeContext.userId, defaultApplicationId, activeContext.role);
+        }, activeContext.userId, wizardApplicationId, activeContext.role);
       if (!run) throw new Error('TEST_RUN_NOT_AVAILABLE');
       if (!wizardCreatedRunId) {
         await testRunApi.updateStatus(run.id, wizardResult as TestRunStatus, wizardActualResult, activeContext.userId);
@@ -482,6 +554,11 @@ export const TestRunsBugsPage: React.FC = () => {
   // Wizard step 2: submit ALL bugs
   const handleWizardBugsSubmit = async () => {
     if (!activeContext || !wizardCreatedRunId) return;
+    const wizardApplicationId = selectedWizardTestRequest?.applicationId;
+    if (!wizardApplicationId) {
+      toast.error('سامانه اجرای تست قابل تشخیص نیست.');
+      return;
+    }
     const isRetestFailureReview = !!activeRetestTaskId && activeRetestBugIds.length > 0;
     const validBugs = wizardBugs.filter(b => b.title.trim() && b.description.trim() && b.stepsToReproduce.trim());
     const errors: Record<string, string> = {};
@@ -531,7 +608,7 @@ export const TestRunsBugsPage: React.FC = () => {
           stepsToReproduce: bug.stepsToReproduce, actualResult: wizardActualResult,
           severity: bug.severity, priority: bug.priority,
           assigneeId: bug.assigneeId || fallbackRetestAssigneeId || undefined,
-        }, activeContext.userId, defaultApplicationId);
+        }, activeContext.userId, wizardApplicationId);
         if (bug.files.length > 0) {
           await uploadFilesForEntity('BUG', createdBug.id, bug.files);
           toast.info(`${bug.files.length} فایل برای باگ «${bug.title}» ذخیره شد.`);
@@ -548,14 +625,16 @@ export const TestRunsBugsPage: React.FC = () => {
   // Wizard step 3: issue
   const handleWizardIssue = async () => {
     if (!activeContext || !wizardCreatedRunId) return;
+    const wizardApplicationId = selectedWizardTestRequest?.applicationId;
     const errors: Record<string, string> = {};
     if (!wizardIssueTitle.trim()) errors.issueTitle = 'عنوان مشکل الزامی است.';
     if (!wizardIssueDesc.trim()) errors.issueDesc = 'توضیحات مشکل الزامی است.';
+    if (!wizardApplicationId) errors.issueTitle = 'سامانه اجرای تست قابل تشخیص نیست.';
     setWizardErrors(errors);
     if (Object.keys(errors).length > 0) return;
     setActionLoading(true);
     try {
-      await runIssueApi.create({ testRunId: wizardCreatedRunId, issueType: wizardIssueType, title: wizardIssueTitle, description: wizardIssueDesc }, activeContext.userId, defaultApplicationId);
+      await runIssueApi.create({ testRunId: wizardCreatedRunId, issueType: wizardIssueType, title: wizardIssueTitle, description: wizardIssueDesc }, activeContext.userId, wizardApplicationId!);
       resetWizard(); toast.success('مشکل اجرا ثبت شد.'); loadRuns(); loadRetestTasks();
     } catch { toast.error('خطا.'); } finally { setActionLoading(false); }
   };
@@ -1014,11 +1093,51 @@ export const TestRunsBugsPage: React.FC = () => {
         {wizardStep === 1 && (
           <div className="space-y-5">
             {/* Item: Required test request selection */}
-            <Select label="درخواست تست *" value={wizardTestRequestId} onChange={(e) => { clearWizardError('testRequestId'); setWizardTestRequestId(e.target.value); }}
-              options={testRequests.map(tr => ({ value: tr.id, label: `${tr.title} (v${tr.version})` }))} placeholder="انتخاب درخواست تست (اجباری)" disabled={!!activeRetestTaskId} error={wizardErrors.testRequestId} />
+            <Select label="درخواست تست *" value={wizardTestRequestId} onChange={(e) => handleWizardTestRequestChange(e.target.value)}
+              options={testRequests.map(tr => ({ value: tr.id, label: `${tr.title} — ${getApplicationName(tr.applicationId)} (v${tr.version})` }))} placeholder="انتخاب درخواست تست (اجباری)" disabled={!!activeRetestTaskId} error={wizardErrors.testRequestId} />
+
+            <ApplicationSelect
+              label="سامانه اجرای تست"
+              required
+              value={selectedWizardTestRequest?.applicationId || ''}
+              onChange={() => undefined}
+              disabled
+              hint="سامانه به‌صورت قطعی از درخواست تست انتخاب‌شده تعیین می‌شود."
+            />
+
+            {selectedWizardTestRequest && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                سامانه درخواست تست: <span className="font-semibold">{getApplicationName(selectedWizardTestRequest.applicationId)}</span>
+              </div>
+            )}
+
+            <Select
+              label="نیازمندی مرتبط با سامانه *"
+              value={wizardRequirementId}
+              onChange={(e) => handleWizardRequirementChange(e.target.value)}
+              options={wizardRequirements.map(requirement => ({
+                value: requirement.id,
+                label: `${requirement.title} — ${getApplicationName(requirement.applicationId)}`,
+              }))}
+              placeholder={wizardRequirementsLoading ? 'در حال بارگذاری نیازمندی‌ها...' : 'انتخاب نیازمندی سامانه'}
+              disabled={!selectedWizardTestRequest || wizardRequirementsLoading || !!activeRetestTaskId}
+              error={wizardErrors.requirementId}
+            />
+
+            {selectedWizardTestRequest && !wizardRequirementsLoading && wizardRequirements.length === 0 && (
+              <p className="text-xs text-amber-700">
+                نیازمندی کامل و فعالی برای سامانه این درخواست تست یافت نشد.
+              </p>
+            )}
 
             <Select label="تست کیس *" value={wizardTestCaseId} onChange={(e) => { clearWizardError('testCaseId'); setWizardTestCaseId(e.target.value); setWizardReqExpanded(false); }}
-              options={testCases.map(tc => ({ value: tc.id, label: `${tc.title} (${TEST_TYPE_LABELS[tc.testType] || tc.testType})` }))} placeholder="انتخاب تست کیس" disabled={!!activeRetestTaskId} error={wizardErrors.testCaseId} />
+              options={wizardTestCases.map(tc => ({ value: tc.id, label: `${tc.title} (${TEST_TYPE_LABELS[tc.testType] || tc.testType})` }))} placeholder="انتخاب تست کیس نیازمندی" disabled={!wizardRequirementId || !!activeRetestTaskId} error={wizardErrors.testCaseId} />
+
+            {wizardRequirementId && wizardTestCases.length === 0 && (
+              <p className="text-xs text-amber-700">
+                تست کیس آماده‌ای برای این نیازمندی در سامانه درخواست تست وجود ندارد.
+              </p>
+            )}
 
             {/* Requirement Accordion */}
             {wizardSelectedReq && (
@@ -1032,6 +1151,17 @@ export const TestRunsBugsPage: React.FC = () => {
                     <p>{wizardSelectedReq.description || '-'}</p>
                     {wizardSelectedReq.acceptanceCriteria && <div className="p-2 bg-green-50 rounded border border-green-200"><p className="text-xs text-gray-500">معیارهای پذیرش</p><p className="whitespace-pre-wrap">{wizardSelectedReq.acceptanceCriteria}</p></div>}
                     {wizardSelectedReq.riskNotes && <div className="p-2 bg-amber-50 rounded border border-amber-200"><p className="text-xs text-gray-500">ریسک</p><p>{wizardSelectedReq.riskNotes}</p></div>}
+                    {!!wizardSelectedReq.flows?.length && (
+                      <div className="space-y-2 rounded border border-purple-200 bg-purple-50 p-2">
+                        <p className="text-xs font-medium text-purple-700">جریان‌های نیازمندی</p>
+                        {wizardSelectedReq.flows.map(flow => (
+                          <div key={flow.id} className="rounded bg-white p-2">
+                            <p className="font-medium text-gray-900">{flow.title}</p>
+                            {flow.description && <p className="mt-1 text-xs text-gray-600">{flow.description}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1062,7 +1192,7 @@ export const TestRunsBugsPage: React.FC = () => {
               <div className="p-4 bg-purple-50 rounded-lg border border-purple-200 space-y-3">
                 <p className="text-sm font-medium text-purple-800">📋 انتخاب تست ران قبلی (برای {wizardPurposes.includes('RETEST') ? 'Retest' : 'Regression'})</p>
                 <Select label="تست ران قبلی *" value={wizardPrevRunId} onChange={(e) => { clearWizardError('previousRunId'); setWizardPrevRunId(e.target.value); setWizardPrevRunExpanded(false); }}
-                  options={allRuns.map(r => ({ value: r.id, label: `${r.testCase?.title || r.id} — v${r.version} — ${TEST_RUN_STATUS_LABELS[r.status]}` }))} placeholder="انتخاب تست ران قبلی" disabled={!!activeRetestTaskId} error={wizardErrors.previousRunId} />
+                  options={wizardPreviousRuns.map(r => ({ value: r.id, label: `${r.testCase?.title || r.id} — v${r.version} — ${TEST_RUN_STATUS_LABELS[r.status]}` }))} placeholder="انتخاب تست ران قبلی" disabled={!!activeRetestTaskId} error={wizardErrors.previousRunId} />
                 {/* Previous Run Accordion */}
                 {wizardPrevRunId && getPrevRun() && (
                   <div className="border rounded-lg overflow-hidden">
@@ -1249,14 +1379,19 @@ export const TestRunsBugsPage: React.FC = () => {
                 onChange={(e) => {
                   clearRunEditError('testRequestId');
                   const request = testRequests.find(tr => tr.id === e.target.value);
+                  const currentTestCase = testCases.find(testCase => testCase.id === runEditData.testCaseId);
                   setRunEditData(prev => ({
                     ...prev,
                     testRequestId: e.target.value,
+                    testCaseId: currentTestCase?.applicationId === request?.applicationId ? prev.testCaseId : '',
                     version: request?.version || prev.version,
                     buildNumber: request?.buildNumber || prev.buildNumber,
                   }));
+                  if (currentTestCase?.applicationId !== request?.applicationId) {
+                    clearRunEditError('testCaseId');
+                  }
                 }}
-                options={testRequests.map(tr => ({ value: tr.id, label: `${tr.title} (v${tr.version})` }))}
+                options={testRequests.map(tr => ({ value: tr.id, label: `${tr.title} — ${getApplicationName(tr.applicationId)} (v${tr.version})` }))}
                 placeholder="انتخاب درخواست تست"
                 disabled={!canEditRunFields(selectedRun)}
                 error={runEditErrors.testRequestId}
@@ -1266,16 +1401,14 @@ export const TestRunsBugsPage: React.FC = () => {
                 value={runEditData.testCaseId}
                 onChange={(e) => {
                   clearRunEditError('testCaseId');
-                  const testCase = testCases.find(tc => tc.id === e.target.value);
                   setRunEditData(prev => ({
                     ...prev,
                     testCaseId: e.target.value,
-                    testRequestId: testCase?.testRequestId || prev.testRequestId,
                   }));
                 }}
-                options={testCases.map(tc => ({ value: tc.id, label: `${tc.title} (${TEST_TYPE_LABELS[tc.testType] || tc.testType})` }))}
+                options={runEditTestCases.map(tc => ({ value: tc.id, label: `${tc.title} (${TEST_TYPE_LABELS[tc.testType] || tc.testType})` }))}
                 placeholder="انتخاب تست کیس"
-                disabled={!canEditRunFields(selectedRun)}
+                disabled={!canEditRunFields(selectedRun) || !runEditData.testRequestId}
                 error={runEditErrors.testCaseId}
               />
               <Input
@@ -1556,6 +1689,7 @@ export const TestRunsBugsPage: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
                   <DetailField label="شناسه اجرا" value={selectedRun.id} icon={<Hash className="w-4 h-4" />} />
+                  <DetailField label="سامانه" value={getApplicationName(selectedRun.applicationId)} icon={<Layers className="w-4 h-4" />} />
                   <DetailField label="نسخه" value={selectedRun.version} icon={<Layers className="w-4 h-4" />} />
                   <DetailField label="شماره بیلد" value={selectedRun.buildNumber || '-'} icon={<Hash className="w-4 h-4" />} />
                   <DetailField label="وضعیت" value={TEST_RUN_STATUS_LABELS[selectedRun.status]} icon={<Target className="w-4 h-4" />} />

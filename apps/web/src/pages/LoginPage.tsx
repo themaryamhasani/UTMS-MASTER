@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
 import { TestTube, Phone, Lock, ArrowLeft } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { useAuthStore } from '../stores/authStore';
-import { ROLE_LABELS, type UserRole } from '../types';
+import { getContextApplicationLabel, useAuthStore } from '../stores/authStore';
+import { ROLE_LABELS } from '../types';
 
 interface LoginPageProps {
   onSuccess: () => void;
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
-  const { login, availableContexts, selectContext } = useAuthStore();
+  const { login, availableContexts, switchContext } = useAuthStore();
   const [step, setStep] = useState<'login' | 'context'>('login');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
@@ -57,14 +57,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
     }
   };
 
-  const handleSelectContext = (applicationId: string, role: UserRole) => {
-    selectContext(applicationId, role);
-    onSuccess();
+  const handleSelectContext = (contextId: string) => {
+    if (switchContext(contextId)) {
+      onSuccess();
+      return;
+    }
+    setErrors({ general: 'این دسترسی دیگر فعال نیست. لطفاً دوباره وارد شوید.' });
   };
 
   if (step === 'context') {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4 pt-20 sm:p-4">
         <div className="w-full max-w-md">
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 sm:p-8">
             <div className="text-center mb-8">
@@ -76,22 +79,33 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
             </div>
 
             <div className="space-y-3">
-              {availableContexts.map((ctx, index) => (
+              {availableContexts.map(ctx => (
                 <button
-                  key={`${ctx.application.id}-${ctx.role}-${index}`}
-                  onClick={() => handleSelectContext(ctx.application.id, ctx.role)}
+                  key={ctx.contextId}
+                  onClick={() => handleSelectContext(ctx.contextId)}
                   className="w-full p-4 bg-gray-50 hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-xl text-right transition-all group"
                 >
                   <div className="flex items-center justify-between">
                     <ArrowLeft className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" />
                     <div>
-                      <p className="font-semibold text-gray-900">{ctx.application.name}</p>
-                      <p className="text-sm text-blue-600 mt-0.5">{ROLE_LABELS[ctx.role]}</p>
+                      <p className="font-semibold text-gray-900">{ROLE_LABELS[ctx.role]}</p>
+                      <p className="mt-1 text-sm leading-6 text-gray-600">{getContextApplicationLabel(ctx)}</p>
                     </div>
                   </div>
                 </button>
               ))}
+              {availableContexts.length === 0 && (
+                <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+                  نقش یا دسترسی فعالی برای این کاربر ثبت نشده است. با مدیر سیستم تماس بگیرید.
+                </div>
+              )}
             </div>
+
+            {errors.general && (
+              <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+                {errors.general}
+              </div>
+            )}
 
             <button
               onClick={() => setStep('login')}
@@ -107,7 +121,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex flex-col">
-      <div className="flex-1 flex items-center justify-center p-4">
+      <div className="flex-1 flex items-center justify-center p-4 pt-20 sm:p-4">
         <div className="w-full max-w-md">
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 sm:p-8">
             <div className="text-center mb-8">

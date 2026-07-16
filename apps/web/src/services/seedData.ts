@@ -109,6 +109,9 @@ export const mockUserRoleAssignments: UserRoleAssignment[] = [
   // Cross-app system-level
   { id: 'ura-9', userId: 'user-2', applicationId: 'app-2', applicationIds: ['app-1', 'app-2'], role: 'QA_LEAD', scope: 'SYSTEMS', isActive: true },
   { id: 'ura-10', userId: 'user-1', applicationId: 'app-2', applicationIds: ['app-2'], role: 'DEVELOPER', scope: 'SYSTEMS', isActive: true },
+  // A genuine second role for the same user exercises in-session role switching.
+  // The two DEVELOPER assignments above are still grouped into one role context.
+  { id: 'ura-11', userId: 'user-1', applicationId: 'app-2', applicationIds: ['app-2'], role: 'BA', scope: 'SYSTEMS', isActive: true },
 
   // ===== APP-level users (see ALL systems across entire app) =====
   // These users see data from app-1, app-2, app-3 — everything

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, User, Shield, Building2, Plus, Edit, Trash2, Eye, Key } from 'lucide-react';
+import { Search, User, Shield, Building2, Plus, Trash2, Eye, Key } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -157,24 +157,40 @@ export const UsersPage: React.FC = () => {
     finally { setActionLoading(false); }
   };
 
-  const getPrimaryAssignment = (userId: string) => {
-    return mockUserRoleAssignments.find(a => a.userId === userId && a.isActive);
-  };
-
   const openEditUser = (user: UserType) => {
-    const assignment = getPrimaryAssignment(user.id);
-    const assignedApplicationIds = assignment?.applicationIds?.length
-      ? assignment.applicationIds
-      : assignment?.applicationId
-        ? [assignment.applicationId]
-        : [];
     setSelectedUser(user);
-    handleRoleChange(assignment?.role || '');
-    setAccessScope(assignment?.scope || 'SYSTEMS');
-    setSelectedSystems(assignedApplicationIds);
-    setAutomatedTestsEnabled(assignment?.role === 'QA_SPECIALIST' ? assignment.automatedTestsEnabled !== false : true);
+    handleRoleChange('');
+    setAccessScope('SYSTEMS');
+    setSelectedSystems([]);
+    setAutomatedTestsEnabled(true);
     setFormErrors({});
     setShowEditModal(true);
+  };
+
+  const handleManagedRoleChange = (value: UserRole | '') => {
+    handleRoleChange(value);
+    if (!selectedUser || !value) {
+      setAccessScope('SYSTEMS');
+      setSelectedSystems([]);
+      return;
+    }
+    const assignments = mockUserRoleAssignments.filter(assignment =>
+      assignment.userId === selectedUser.id && assignment.role === value && assignment.isActive
+    );
+    if (!assignments.length) {
+      setAccessScope('SYSTEMS');
+      setSelectedSystems([]);
+      setAutomatedTestsEnabled(true);
+      return;
+    }
+    const isAppScope = assignments.some(assignment => assignment.scope === 'APP');
+    setAccessScope(isAppScope ? 'APP' : 'SYSTEMS');
+    setSelectedSystems(Array.from(new Set(assignments.flatMap(assignment =>
+      assignment.applicationIds?.length ? assignment.applicationIds : [assignment.applicationId]
+    ))));
+    setAutomatedTestsEnabled(value === 'QA_SPECIALIST'
+      ? assignments.every(assignment => assignment.automatedTestsEnabled !== false)
+      : true);
   };
 
   const handleEditAccess = async () => {
@@ -187,7 +203,7 @@ export const UsersPage: React.FC = () => {
         applicationIds: accessScope === 'SYSTEMS' ? selectedSystems : [],
         automatedTestsEnabled: selectedRole === 'QA_SPECIALIST' ? automatedTestsEnabled : undefined,
       });
-      toast.success('دسترسی کاربر بروزرسانی شد.');
+      toast.success(`نقش ${ROLE_LABELS[selectedRole as UserRole]} ثبت شد و سایر نقش‌های کاربر حفظ شدند.`);
       setShowEditModal(false);
       loadData();
     } catch {
@@ -208,14 +224,27 @@ export const UsersPage: React.FC = () => {
   };
 
   const getUserRoles = (userId: string) => {
-    return mockUserRoleAssignments
-      .filter(a => a.userId === userId && a.isActive)
-      .map(a => ({
-        role: a.role,
-        scope: a.scope,
-        automatedTestsEnabled: a.automatedTestsEnabled,
-        application: applications.find(app => app.id === a.applicationId),
-      }));
+    const byRole = new Map<UserRole, typeof mockUserRoleAssignments>();
+    mockUserRoleAssignments
+      .filter(assignment => assignment.userId === userId && assignment.isActive)
+      .forEach(assignment => {
+        const rows = byRole.get(assignment.role) || [];
+        rows.push(assignment);
+        byRole.set(assignment.role, rows);
+      });
+    return Array.from(byRole.entries()).map(([assignedRole, assignments]) => {
+      const applicationIds = Array.from(new Set(assignments.flatMap(assignment =>
+        assignment.applicationIds?.length ? assignment.applicationIds : [assignment.applicationId]
+      )));
+      return {
+        role: assignedRole,
+        scope: assignments.some(assignment => assignment.scope === 'APP') ? 'APP' as const : 'SYSTEMS' as const,
+        automatedTestsEnabled: assignedRole === 'QA_SPECIALIST'
+          ? assignments.every(assignment => assignment.automatedTestsEnabled !== false)
+          : undefined,
+        applications: applications.filter(application => applicationIds.includes(application.id)),
+      };
+    });
   };
 
   // Filter
@@ -254,7 +283,7 @@ export const UsersPage: React.FC = () => {
             {roles.map((r, i) => (
               <div key={i} className="flex flex-wrap gap-1">
                 <Badge variant={r.scope === 'APP' ? 'info' : 'secondary'} size="sm">
-                  {ROLE_LABELS[r.role]} ({r.scope === 'APP' ? 'کل اپ' : r.application?.name || 'سامانه'})
+                  {ROLE_LABELS[r.role]} ({r.scope === 'APP' ? 'همه سامانه‌ها' : r.applications.map(application => application.name).join('، ') || 'سامانه نامشخص'})
                 </Badge>
                 {r.role === 'QA_SPECIALIST' && (
                   <Badge variant={r.automatedTestsEnabled !== false ? 'success' : 'warning'} size="sm">
@@ -274,8 +303,8 @@ export const UsersPage: React.FC = () => {
         <div className="flex gap-1">
           <Button size="sm" variant="ghost" icon={<Eye className="w-3.5 h-3.5" />}
             onClick={(e) => { e.stopPropagation(); setSelectedUser(item); setShowDetailModal(true); }}>مشاهده</Button>
-          {canEdit && <Button size="sm" variant="ghost" icon={<Edit className="w-3.5 h-3.5" />}
-            onClick={(e) => { e.stopPropagation(); openEditUser(item); }}>ویرایش</Button>}
+          {canEdit && <Button size="sm" variant="ghost" icon={<Plus className="w-3.5 h-3.5" />}
+            onClick={(e) => { e.stopPropagation(); openEditUser(item); }}>مدیریت نقش‌ها</Button>}
           {canDelete && <Button size="sm" variant="ghost" className="text-red-600" icon={<Trash2 className="w-3.5 h-3.5" />}
             onClick={(e) => { e.stopPropagation(); setSelectedUser(item); setShowDeleteConfirm(true); }}>حذف</Button>}
         </div>
@@ -432,15 +461,15 @@ export const UsersPage: React.FC = () => {
       </Modal>
 
       {/* Edit Modal */}
-      <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="ویرایش دسترسی کاربر" size="lg">
+      <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="افزودن یا بروزرسانی نقش کاربر" size="lg">
         {selectedUser && (
           <div className="space-y-4">
             <div className="p-4 bg-gray-50 rounded-lg">
               <p className="text-sm text-gray-500">کاربر: <span className="font-medium text-gray-900">{selectedUser.fullName}</span></p>
               <p className="text-sm text-gray-500">کد ملی: <span className="font-mono" dir="ltr">{selectedUser.nationalCode || '-'}</span></p>
             </div>
-            <Select label="نقش جدید" value={selectedRole}
-              onChange={(e) => handleRoleChange(e.target.value as UserRole)}
+            <Select label="نقش مورد نظر *" value={selectedRole}
+              onChange={(e) => handleManagedRoleChange(e.target.value as UserRole)}
               options={Object.entries(ROLE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
               placeholder="نقش را انتخاب کنید" error={formErrors.role} />
             <Select label="سطح دسترسی" value={accessScope}
@@ -485,7 +514,7 @@ export const UsersPage: React.FC = () => {
             <div className="flex gap-3 justify-end pt-4">
               <Button variant="secondary" onClick={() => setShowEditModal(false)}>انصراف</Button>
               <Button onClick={handleEditAccess}
-                loading={actionLoading} disabled={actionLoading}>ذخیره</Button>
+                loading={actionLoading} disabled={actionLoading || !selectedRole}>ثبت نقش</Button>
             </div>
           </div>
         )}
@@ -512,7 +541,7 @@ export const UsersPage: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <Building2 className="w-5 h-5 text-gray-400" />
                       <div>
-                        <p className="font-medium">{r.scope === 'APP' ? 'تمام سامانه‌ها' : r.application?.name || '-'}</p>
+                        <p className="font-medium">{r.scope === 'APP' ? 'تمام سامانه‌ها' : r.applications.map(application => application.name).join('، ') || 'سامانه نامشخص'}</p>
                         <p className="text-xs text-gray-500">{r.scope === 'APP' ? 'سطح اپ' : 'سطح سامانه'}</p>
                       </div>
                     </div>
@@ -529,8 +558,8 @@ export const UsersPage: React.FC = () => {
               </div>
             </div>
             <div className="flex gap-3 justify-end pt-4 border-t">
-              {canEdit && <Button variant="secondary" icon={<Edit className="w-4 h-4" />}
-                onClick={() => { setShowDetailModal(false); openEditUser(selectedUser); }}>ویرایش دسترسی</Button>}
+              {canEdit && <Button variant="secondary" icon={<Plus className="w-4 h-4" />}
+                onClick={() => { setShowDetailModal(false); openEditUser(selectedUser); }}>افزودن یا بروزرسانی نقش</Button>}
               <Button variant="secondary" onClick={() => setShowDetailModal(false)}>بستن</Button>
             </div>
           </div>

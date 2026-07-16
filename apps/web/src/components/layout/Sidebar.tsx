@@ -2,7 +2,8 @@ import React from 'react';
 import { cn } from '../../utils/cn';
 import { useAuthStore, canAccessCartable } from '../../stores/authStore';
 import { LayoutDashboard, FileText, ClipboardList, TestTube, PlayCircle, AlertTriangle, ShieldCheck, Terminal, Rocket, Users, Building2, History, Settings, LogOut, BarChart3, Activity, Braces, } from 'lucide-react';
-import { ROLE_LABELS } from '../../types';
+import { ThemeToggle } from '../theme/ThemeToggle';
+import { ContextSwitcher } from './ContextSwitcher';
 interface NavItem {
     id: string;
     label: string;
@@ -13,8 +14,9 @@ interface SidebarProps {
     activePage: string;
     onNavigate: (page: string) => void;
     onLogoutRequest: () => void;
+    onContextSwitched: () => void;
 }
-export const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate, onLogoutRequest }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate, onLogoutRequest, onContextSwitched }) => {
     const { activeContext } = useAuthStore();
     if (!activeContext)
         return null;
@@ -63,30 +65,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate, onLogo
         </div>
       </div>
 
-      {/* User Profile & Context Info */}
-      <div className="p-4 border-b border-gray-200 bg-gradient-to-l from-blue-50 to-white">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-            <span className="text-sm font-bold text-blue-600">
-              {activeContext.user.fullName.charAt(0)}
-            </span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-gray-900 truncate">
-              {activeContext.user.fullName}
-            </p>
-            <p className="text-xs text-blue-600 font-medium">
-              {ROLE_LABELS[role]}
-            </p>
-          </div>
-        </div>
-        <div className="mt-2 px-2 py-1.5 bg-white rounded-lg border border-gray-100">
-          <p className="text-xs text-gray-500">سامانه فعال:</p>
-          <p className="text-xs font-medium text-gray-800 truncate">
-            {activeContext.application.name}
-          </p>
-        </div>
-      </div>
+      {/* User profile and in-session role/context switch */}
+      <ContextSwitcher variant="sidebar" onSwitched={onContextSwitched} />
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-3">
@@ -122,8 +102,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate, onLogo
           </>)}
       </nav>
 
-      {/* Logout */}
-      <div className="p-3 border-t border-gray-200">
+      {/* Theme and logout */}
+      <div className="space-y-1 border-t border-gray-200 p-3">
+        <ThemeToggle className="justify-start" />
         <button type="button" onClick={handleLogout} className="w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">
           <LogOut className="w-4 h-4"/>
           <span>خروج از سیستم</span>

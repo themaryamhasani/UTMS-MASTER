@@ -6,12 +6,12 @@ import { Footer } from './components/layout/Footer';
 import { Modal } from './components/ui/Modal';
 import { Button } from './components/ui/Button';
 import { ToastContainer } from './components/ui/Toast';
+import { ThemeToggle } from './components/theme/ThemeToggle';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { TestRequestsPage } from './pages/TestRequestsPage';
 import { RequirementsPage } from './pages/RequirementsPage';
 import { TestCasesPage } from './pages/TestCasesPage';
-import { TestRunsPage } from './pages/TestRunsPage';
 import { TestRunsBugsPage } from './pages/TestRunsBugsPage';
 import { BugsPage } from './pages/BugsPage';
 import { DeveloperBoardPage } from './pages/DeveloperBoardPage';
@@ -59,7 +59,7 @@ const appRoutes = [
   { id: 'test-requests', path: '/test-requests', element: <TestRequestsPage /> },
   { id: 'requirements', path: '/requirements', element: <RequirementsPage /> },
   { id: 'test-cases', path: '/test-cases', element: <TestCasesPage /> },
-  { id: 'test-runs', path: '/test-runs', element: <TestRunsPage /> },
+  { id: 'test-runs', path: '/test-runs', element: <Navigate to="/test-runs-bugs" replace /> },
   { id: 'bugs', path: '/bugs', element: <BugsPage /> },
   { id: 'test-runs-bugs', path: '/test-runs-bugs', element: <TestRunsBugsPage /> },
   { id: 'developer-board', path: '/developer-board', element: <DeveloperBoardPage /> },
@@ -93,7 +93,7 @@ export default function App() {
 }
 
 function AppShell() {
-  const { isAuthenticated, activeContext, logout } = useAuthStore();
+  const { isAuthenticated, activeContext, logout, refreshContexts } = useAuthStore();
   const location = useLocation();
   const navigate = useNavigate();
   const activePage = getPageIdForPath(location.pathname);
@@ -104,9 +104,13 @@ function AppShell() {
     setSidebarOpen(false);
   }, [location.pathname]);
 
+  useEffect(() => {
+    void refreshContexts().catch(() => undefined);
+  }, [refreshContexts]);
+
   if (!isAuthenticated || !activeContext) {
     return (
-      <>
+      <div className="relative min-h-screen">
         <LoginPage
           onSuccess={() => {
             if (location.pathname === '/' || location.pathname === '/login') {
@@ -114,8 +118,11 @@ function AppShell() {
             }
           }}
         />
+        <div className="fixed left-4 top-4 z-30">
+          <ThemeToggle compact />
+        </div>
         <ToastContainer />
-      </>
+      </div>
     );
   }
 
@@ -139,11 +146,12 @@ function AppShell() {
         />
       )}
       <div className={`fixed right-0 top-0 z-50 h-dvh max-w-[calc(100vw-2rem)] transition-transform duration-300 lg:translate-x-0
-        ${sidebarOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
+        ${sidebarOpen ? 'visible translate-x-0' : 'invisible translate-x-full lg:visible lg:translate-x-0'}`}>
         <Sidebar
           activePage={activePage}
           onNavigate={guardedNavigate}
           onLogoutRequest={() => setShowLogoutModal(true)}
+          onContextSwitched={() => setSidebarOpen(false)}
         />
       </div>
       <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:mr-64">
@@ -152,10 +160,10 @@ function AppShell() {
             <Menu className="w-6 h-6 text-gray-700" />
           </button>
           <h1 className="text-lg font-bold text-gray-900">UTMS</h1>
-          <div className="w-10" />
+          <ThemeToggle compact className="flex-shrink-0" />
         </div>
         <div className="min-w-0 flex-1">
-          <Routes>
+          <Routes key={activeContext.contextId}>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             {appRoutes.map(route => (
               <Route
