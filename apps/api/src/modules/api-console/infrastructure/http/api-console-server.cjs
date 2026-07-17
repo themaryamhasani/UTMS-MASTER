@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const dns = require('dns').promises;
 const zlib = require('zlib');
+const { monitorEventLoopDelay } = require('perf_hooks');
 const { createCipheriv, createDecipheriv, randomBytes, randomUUID } = require('crypto');
 const { canHandleDomainRpc, handleDomainRpc } = require('../../../domain-rpc/domain-rpc-server.cjs');
 
@@ -117,6 +118,8 @@ const SEMVER_REGEX = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+
 
 const runtimeSecrets = new Map();
 let cachedSecretKey = null;
+const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
+eventLoopDelay.enable();
 
 class ApiConsoleError extends Error {
   constructor(category, message, statusCode = 400) {
@@ -128,6 +131,33 @@ class ApiConsoleError extends Error {
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function performanceMetricsSnapshot() {
+  const memory = process.memoryUsage();
+  return {
+    status: 'ok',
+    service: 'utms-api',
+    checkedAt: nowIso(),
+    uptimeSeconds: Math.round(process.uptime()),
+    pid: process.pid,
+    memory: {
+      rssBytes: memory.rss,
+      heapTotalBytes: memory.heapTotal,
+      heapUsedBytes: memory.heapUsed,
+      externalBytes: memory.external,
+      arrayBuffersBytes: memory.arrayBuffers,
+    },
+    eventLoop: {
+      minMs: Math.round(eventLoopDelay.min / 1e6 * 100) / 100,
+      meanMs: Math.round(eventLoopDelay.mean / 1e6 * 100) / 100,
+      maxMs: Math.round(eventLoopDelay.max / 1e6 * 100) / 100,
+      p95Ms: Math.round(eventLoopDelay.percentile(95) / 1e6 * 100) / 100,
+      p99Ms: Math.round(eventLoopDelay.percentile(99) / 1e6 * 100) / 100,
+    },
+    activeHandles: typeof process._getActiveHandles === 'function' ? process._getActiveHandles().length : null,
+    activeRequests: typeof process._getActiveRequests === 'function' ? process._getActiveRequests().length : null,
+  };
 }
 
 function makeId(prefix) {
@@ -4217,6 +4247,13 @@ function createServer() {
           checkedAt: nowIso(),
           modules: ['api-console', 'domain-rpc'],
         });
+        return;
+      }
+      if (parsedUrl.pathname === '/api/__perf/metrics' && req.method === 'GET') {
+        if (!['test', 'performance', 'development'].includes(process.env.NODE_ENV || 'development')) {
+          throw new ApiConsoleError('INVALID_URL', 'Endpoint not found.', 404);
+        }
+        sendJson(res, 200, performanceMetricsSnapshot());
         return;
       }
       if (canHandleDomainRpc(parsedUrl.pathname)) {

@@ -4,7 +4,9 @@ const metaEnv = import.meta.env ?? {};
 const DOMAIN_RPC_BASE = (metaEnv.VITE_DOMAIN_API_BASE_URL || '/api/domain').replace(/\/$/, '');
 const DOMAIN_API_MODE = metaEnv.VITE_DOMAIN_API_MODE || 'backend';
 const FALLBACK_COOLDOWN_MS = Number(metaEnv.VITE_DOMAIN_RPC_FALLBACK_COOLDOWN_MS || 5000);
+const READ_RESPONSE_CACHE_TTL_MS = Number(metaEnv.VITE_DOMAIN_RPC_READ_CACHE_TTL_MS || 750);
 const inFlightReadRequests = new Map<string, Promise<unknown>>();
+const readResponseCache = new Map<string, { expiresAt: number; value: unknown }>();
 
 const READ_OPERATION_POLICIES = new Set([
   'testRequestApi.getAll',
@@ -242,17 +244,38 @@ async function callDomainRpc<T>(service: string, method: string, args: unknown[]
 
 function callDomainRpcSingleFlight<T>(service: string, method: string, args: unknown[]): Promise<T> {
   const key = makeReadRequestKey(service, method, args);
-  if (!key) return callDomainRpc<T>(service, method, args);
+  if (!key) {
+    readResponseCache.clear();
+    return callDomainRpc<T>(service, method, args);
+  }
+
+  const cached = readResponseCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return Promise.resolve(cached.value as T);
+  }
+  if (cached) {
+    readResponseCache.delete(key);
+  }
 
   const existing = inFlightReadRequests.get(key);
   if (existing) return existing as Promise<T>;
 
   let trackedPromise: Promise<T>;
-  trackedPromise = callDomainRpc<T>(service, method, args).finally(() => {
-    if (inFlightReadRequests.get(key) === trackedPromise) {
-      inFlightReadRequests.delete(key);
-    }
-  });
+  trackedPromise = callDomainRpc<T>(service, method, args)
+    .then(result => {
+      if (READ_RESPONSE_CACHE_TTL_MS > 0) {
+        readResponseCache.set(key, {
+          expiresAt: Date.now() + READ_RESPONSE_CACHE_TTL_MS,
+          value: result,
+        });
+      }
+      return result;
+    })
+    .finally(() => {
+      if (inFlightReadRequests.get(key) === trackedPromise) {
+        inFlightReadRequests.delete(key);
+      }
+    });
   inFlightReadRequests.set(key, trackedPromise);
   return trackedPromise;
 }

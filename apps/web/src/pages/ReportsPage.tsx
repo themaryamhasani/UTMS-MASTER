@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { format as formatJalali, isValid as isValidDate, parse as parseJalali } from 'date-fns-jalali';
 import {
   BarChart3, FileText, Bug, PlayCircle, ShieldCheck, Rocket, Users,
   History, Paperclip, Terminal, TrendingUp, AlertTriangle, CheckCircle,
@@ -11,12 +10,14 @@ import { Card, StatCard } from '../components/ui/Card';
 import { Table as BaseTable, Pagination, exportToExcel } from '../components/ui/Table';
 import { Badge, StatusBadge, PriorityBadge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
+import { JalaliDatePicker } from '../components/ui/JalaliDatePicker';
 import { useAuthStore } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
 import { toast } from '../components/ui/Toast';
 import { applicationApi } from '../services/api';
 import { reportsApi } from '../services/reportsApi';
 import { apiConsoleApi } from '../services/apiConsoleApi';
+import { formatJalaliDate, formatJalaliDateTime, parseJalaliFilterDate } from '../utils/jalaliDate';
 import {
   TEST_REQUEST_STATUS_LABELS, BUG_STATUS_LABELS, BUG_SEVERITY_LABELS,
   TEST_RUN_STATUS_LABELS, REQUIREMENT_STATUS_LABELS, ROLE_LABELS,
@@ -340,45 +341,12 @@ function getReportRowDate(row: ReportRow): string {
   return row.createdAt || row.updatedAt || row.executedAt || row.publishedAt || row.startedAt || row.capturedAt || row.date || '';
 }
 
-const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
-const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩';
-
-function normalizeDateDigits(value: string): string {
-  return value.replace(/[۰-۹٠-٩]/g, digit => {
-    const persianIndex = PERSIAN_DIGITS.indexOf(digit);
-    if (persianIndex >= 0) return String(persianIndex);
-    const arabicIndex = ARABIC_DIGITS.indexOf(digit);
-    return arabicIndex >= 0 ? String(arabicIndex) : digit;
-  });
-}
-
-function sanitizeJalaliDateInput(value: string): string {
-  return normalizeDateDigits(value)
-    .replace(/[.\-\s]+/g, '/')
-    .replace(/[^\d/]/g, '')
-    .replace(/\/{2,}/g, '/')
-    .slice(0, 10);
-}
-
-function parseJalaliFilterDate(value: string, endOfDay = false): Date | null {
-  const normalized = sanitizeJalaliDateInput(value);
-  if (!normalized || normalized.length < 8) return null;
-  const parsed = parseJalali(normalized, 'yyyy/MM/dd', new Date());
-  if (!isValidDate(parsed)) return null;
-  parsed.setHours(endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
-  return parsed;
-}
-
 function formatReportDate(value: string | undefined): string {
-  if (!value) return '-';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '-' : formatJalali(date, 'yyyy/MM/dd');
+  return formatJalaliDate(value);
 }
 
 function formatReportDateTime(value: string | undefined): string {
-  if (!value) return '-';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '-' : formatJalali(date, 'yyyy/MM/dd HH:mm');
+  return formatJalaliDateTime(value);
 }
 
 function getReportRowStatus(row: ReportRow): string {
@@ -737,22 +705,18 @@ export const ReportsPage: React.FC = () => {
         <Card className="mb-6" padding="sm">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <label className="space-y-1">
-              <span className="text-xs font-medium text-gray-600">از تاریخ</span>
-              <input type="text" value={reportFilters.dateFrom}
-                dir="ltr"
-                inputMode="numeric"
-                placeholder={`مثال ${formatJalali(new Date(), 'yyyy/MM/dd')}`}
-                onChange={(e) => setReportFilters({ ...reportFilters, dateFrom: sanitizeJalaliDateInput(e.target.value) })}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+              <JalaliDatePicker
+                label="از تاریخ"
+                value={reportFilters.dateFrom}
+                onChange={(dateFrom) => setReportFilters({ ...reportFilters, dateFrom })}
+              />
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-medium text-gray-600">تا تاریخ</span>
-              <input type="text" value={reportFilters.dateTo}
-                dir="ltr"
-                inputMode="numeric"
-                placeholder={`مثال ${formatJalali(new Date(), 'yyyy/MM/dd')}`}
-                onChange={(e) => setReportFilters({ ...reportFilters, dateTo: sanitizeJalaliDateInput(e.target.value) })}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+              <JalaliDatePicker
+                label="تا تاریخ"
+                value={reportFilters.dateTo}
+                onChange={(dateTo) => setReportFilters({ ...reportFilters, dateTo })}
+              />
             </label>
             <label className="space-y-1">
               <span className="text-xs font-medium text-gray-600">وضعیت</span>

@@ -47,6 +47,18 @@ jobs:
           npm run test:reliability
           npm run test:regression
           npm run test:uat
+      - name: Run k6 PR performance smoke
+        env:
+          PERF_ENVIRONMENT: ci
+          PERF_BASE_URL: http://localhost:14174
+          PERF_WEB_URL: http://localhost:15173
+          PERF_ALLOW_WRITES: "true"
+          PERF_DURATION: 30s
+          PERF_VUS: 1
+          PERF_RATE: 1
+        run: |
+          npm run perf:smoke
+          npm run perf:baseline
       - name: Upload QA artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,8 +69,48 @@ jobs:
             playwright-report
             test-results
             coverage
+            artifacts/performance
           if-no-files-found: ignore
       - name: Stop isolated test stack
         if: always()
         run: npm run test:stack:down
+
+  performance-nightly:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: utms-performance-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Start performance stack
+        run: npm run perf:stack:up && npm run perf:stack:wait
+      - name: Run safe k6 profiles
+        env:
+          PERF_ENVIRONMENT: performance
+          PERF_BASE_URL: http://localhost:24174
+          PERF_WEB_URL: http://localhost:25173
+          PERF_ALLOW_WRITES: "true"
+          PERF_DURATION: 2m
+          PERF_VUS: 4
+          PERF_RATE: 4
+          PERF_MAX_VUS: 20
+        run: npm run perf:all:safe
+      - name: Upload performance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: utms-k6-performance-artifacts
+          path: artifacts/performance
+          if-no-files-found: ignore
+      - name: Stop performance stack
+        if: always()
+        run: npm run perf:stack:down
 
