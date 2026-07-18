@@ -54,6 +54,123 @@ type ParserSelfCheckResult = {
   details: Array<{ name: string; passed: boolean; message?: string }>;
 };
 
+const API_ERROR_CATEGORY_LABELS: Record<string, string> = {
+  CURL_PARSE_ERROR: 'خطای خواندن cURL',
+  INVALID_URL: 'آدرس یا مسیر نامعتبر',
+  UNSUPPORTED_CURL_OPTION: 'گزینه cURL پشتیبانی نمی‌شود',
+  VARIABLE_RESOLUTION_ERROR: 'خطای جایگذاری متغیر',
+  SECRET_RESOLUTION_ERROR: 'خطای مقدار محرمانه',
+  AUTHENTICATION_ERROR: 'خطای دسترسی',
+  DNS_ERROR: 'خطای DNS',
+  TLS_ERROR: 'خطای TLS',
+  CONNECTION_TIMEOUT: 'پایان زمان اتصال',
+  READ_TIMEOUT: 'پایان زمان خواندن',
+  RESPONSE_TOO_LARGE: 'حجم پاسخ بیش از حد مجاز',
+  REDIRECT_BLOCKED: 'تغییر مسیر مسدود شد',
+  DESTINATION_NOT_ALLOWED: 'مقصد مجاز نیست',
+  CORE_VALIDATION_ERROR: 'خطای اعتبارسنجی',
+  HTTP_ERROR: 'خطای HTTP',
+  EXECUTION_CANCELLED: 'اجرا لغو شد',
+  INTERNAL_EXECUTION_ERROR: 'خطای داخلی اجرا',
+};
+
+const API_ERROR_MESSAGE_TRANSLATIONS: Record<string, string> = {
+  'API Console request failed.': 'درخواست API Console ناموفق بود.',
+  'Internal API Console error.': 'خطای داخلی API Console رخ داد.',
+  'Invalid JSON request body.': 'بدنه JSON درخواست معتبر نیست.',
+  'ActiveContext is required.': 'انتخاب نقش و سامانه فعال الزامی است.',
+  'Endpoint not found.': 'مسیر API Console پیدا نشد.',
+  'API Console endpoint not found.': 'مسیر API Console پیدا نشد.',
+  'Request payload is required.': 'ارسال اطلاعات درخواست الزامی است.',
+  'Empty cURL input.': 'متن cURL خالی است.',
+  'cURL input did not contain a URL.': 'در متن cURL آدرس URL پیدا نشد.',
+  'The effective request URL is invalid.': 'آدرس نهایی درخواست معتبر نیست.',
+  'Only HTTP and HTTPS destinations are allowed.': 'فقط مقصدهای HTTP و HTTPS مجاز هستند.',
+  'Localhost and local-network hostnames are blocked by policy.': 'مقصد localhost یا شبکه داخلی طبق سیاست امنیتی مسدود است.',
+  'Private, loopback, and cloud metadata destinations are blocked.': 'مقصدهای خصوصی، loopback و metadata ابری مسدود هستند.',
+  'DNS lookup returned no records.': 'برای این مقصد رکورد DNS پیدا نشد.',
+  'DNS resolved to a blocked private, loopback, or metadata address.': 'DNS به آدرس خصوصی، loopback یا metadata مسدودشده اشاره می‌کند.',
+  'The target API did not finish reading within the configured timeout.': 'API مقصد در زمان مجاز پاسخ کامل نداد.',
+  'The target API connection timed out.': 'اتصال به API مقصد به پایان زمان مجاز رسید.',
+  'The API Console total execution timeout was reached.': 'زمان کل اجرای API Console به پایان رسید.',
+  'Maximum redirect count was exceeded.': 'تعداد تغییر مسیر از حد مجاز بیشتر شد.',
+  'Script contains an unclosed string literal.': 'در اسکریپت یک رشته بسته نشده است.',
+  'Script is too long. Maximum 150 lines are allowed.': 'اسکریپت بیش از حد طولانی است. حداکثر ۱۵۰ خط مجاز است.',
+  'setJsonBody requires a JSON path such as $.data.id.': 'برای setJsonBody باید مسیر JSON مانند $.data.id وارد شود.',
+  'setVar requires key and value.': 'برای setVar وارد کردن کلید و مقدار الزامی است.',
+  'setHeader requires name and value.': 'برای setHeader وارد کردن نام و مقدار الزامی است.',
+  'setQuery requires name and value.': 'برای setQuery وارد کردن نام و مقدار الزامی است.',
+  'Pre-request script is invalid.': 'اسکریپت پیش از اجرا معتبر نیست.',
+  'Pre-request script failed.': 'اجرای اسکریپت پیش از اجرا ناموفق بود.',
+  'Post-response script is invalid.': 'اسکریپت پس از پاسخ معتبر نیست.',
+  'Post-response script failed.': 'اجرای اسکریپت پس از پاسخ ناموفق بود.',
+  'Production execution requires elevated permission.': 'اجرای Production به دسترسی بالاتر نیاز دارد.',
+  'Production Core Command execution requires elevated permission.': 'اجرای Core Command در Production به دسترسی بالاتر نیاز دارد.',
+  'Production Core Command requires confirmation and business justification.': 'اجرای Core Command در Production به تأیید و دلیل کسب‌وکاری نیاز دارد.',
+  'Insecure TLS is prohibited in production environments.': 'TLS ناامن در محیط Production مجاز نیست.',
+  'User is not authorized to execute API requests.': 'شما مجوز اجرای درخواست‌های API را ندارید.',
+  'Request not found.': 'درخواست پیدا نشد.',
+  'Core Command execution requires elevated permission.': 'اجرای Core Command به دسترسی بالاتر نیاز دارد.',
+  'API usage report requires System Admin, Tech Lead or QA Lead role.': 'گزارش مصرف API فقط برای مدیر سیستم، سرپرست فنی یا سرپرست QA مجاز است.',
+  'Only QA Lead can review shared API requests.': 'فقط سرپرست QA می‌تواند درخواست‌های اشتراک API را بررسی کند.',
+  'Share review request not found.': 'درخواست بررسی اشتراک پیدا نشد.',
+  'Share request is outside active application scope.': 'درخواست اشتراک خارج از محدوده سامانه فعال است.',
+  'Source request not found.': 'درخواست مبدا پیدا نشد.',
+  'Reference not found.': 'Reference پیدا نشد.',
+  'Shared API version not found.': 'نسخه API اشتراک‌گذاری‌شده پیدا نشد.',
+  'User is not authorized to update API consumers.': 'شما مجوز ویرایش مصرف‌کنندگان این API را ندارید.',
+  'User is not authorized to export API collections.': 'شما مجوز گرفتن خروجی از Collectionهای API را ندارید.',
+  'User is not authorized to view API collections.': 'شما مجوز مشاهده Collectionهای API را ندارید.',
+  'User is not authorized to create API collections.': 'شما مجوز ساخت Collection API را ندارید.',
+  'User is not authorized to view API requests.': 'شما مجوز مشاهده درخواست‌های API را ندارید.',
+  'User is not authorized to create API requests.': 'شما مجوز ساخت درخواست API را ندارید.',
+  'User is not authorized to edit API requests.': 'شما مجوز ویرایش درخواست API را ندارید.',
+  'User is not authorized to archive API requests.': 'شما مجوز آرشیو کردن درخواست API را ندارید.',
+  'User is not authorized to generate documentation.': 'شما مجوز ساخت مستندات API را ندارید.',
+  'Collection not found.': 'Collection پیدا نشد.',
+  'Target API collection does not belong to the active user.': 'Collection مقصد متعلق به کاربر فعال نیست.',
+  'Request does not belong to the active user.': 'این درخواست متعلق به کاربر فعال نیست.',
+  'Change Log برای Version جدید الزامی است.': 'گزارش تغییرات برای نسخه جدید الزامی است.',
+  'DOCX template central directory was not found.': 'ساختار مرکزی قالب DOCX پیدا نشد.',
+  'Invalid DOCX central directory.': 'ساختار مرکزی قالب DOCX معتبر نیست.',
+  'DOCX template does not contain word/document.xml.': 'قالب DOCX فایل word/document.xml را ندارد.',
+};
+
+function translateApiErrorMessage(message: string): string {
+  const normalized = (message || '').trim();
+  const exact = API_ERROR_MESSAGE_TRANSLATIONS[normalized];
+  if (exact) return exact;
+
+  const dynamicTranslations: Array<[RegExp, (match: RegExpMatchArray) => string]> = [
+    [/^Request body exceeded (\d+) bytes\.$/, match => `حجم بدنه درخواست از حد مجاز ${match[1]} بایت بیشتر است.`],
+    [/^Response exceeded (\d+) bytes\.$/, match => `حجم پاسخ از حد مجاز ${match[1]} بایت بیشتر است.`],
+    [/^Decoded response exceeded (\d+) bytes\.$/, match => `حجم پاسخ پس از decode از حد مجاز ${match[1]} بایت بیشتر است.`],
+    [/^Unsupported script syntax: (.+)$/, match => `ساختار اسکریپت پشتیبانی نمی‌شود: ${match[1]}`],
+    [/^Unsupported pre-request command "(.+)"\.$/, match => `دستور pre-request پشتیبانی نمی‌شود: ${match[1]}`],
+    [/^Unsupported post-response command "(.+)"\.$/, match => `دستور post-response پشتیبانی نمی‌شود: ${match[1]}`],
+    [/^Invalid DOCX local header for (.+)\.$/, match => `هدر داخلی DOCX برای ${match[1]} معتبر نیست.`],
+    [/^Unsupported DOCX compression method (.+)\.$/, match => `روش فشرده‌سازی DOCX پشتیبانی نمی‌شود: ${match[1]}`],
+    [/^DOCX template not found: (.+)$/, match => `قالب DOCX پیدا نشد: ${match[1]}`],
+    [/^Secret reference "(.+)" could not be decrypted by the API Console backend\.$/, match => `Secret با شناسه ${match[1]} قابل رمزگشایی نیست.`],
+    [/^Secret reference "(.+)" could not be resolved by the API Console backend\.$/, match => `Secret با شناسه ${match[1]} پیدا یا resolve نشد.`],
+    [/^Sensitive variable "(.+)" must resolve through secret storage\.$/, match => `متغیر حساس ${match[1]} باید از مسیر Secret Storage مقداردهی شود.`],
+    [/^Variable "(.+)" could not be resolved\.$/, match => `متغیر ${match[1]} مقداردهی نشده یا قابل resolve نیست.`],
+  ];
+
+  for (const [pattern, translate] of dynamicTranslations) {
+    const match = normalized.match(pattern);
+    if (match) return translate(match);
+  }
+
+  return normalized || 'خطای نامشخص رخ داد.';
+}
+
+function formatApiError(category: string, message: string): Error {
+  const categoryLabel = API_ERROR_CATEGORY_LABELS[category] || 'خطای API Console';
+  const translatedMessage = translateApiErrorMessage(message);
+  return new Error(`${categoryLabel}: ${translatedMessage}`);
+}
+
 function compactContext(context?: ActiveContext) {
   if (!context) return undefined;
   return {
@@ -94,9 +211,9 @@ async function parseApiError(response: Response): Promise<Error> {
     const payload = await response.json();
     const category = payload?.error?.category || 'INTERNAL_EXECUTION_ERROR';
     const message = payload?.error?.message || response.statusText || 'API Console request failed.';
-    return new Error(`${category}: ${message}`);
+    return formatApiError(category, message);
   } catch {
-    return new Error(`INTERNAL_EXECUTION_ERROR: ${response.statusText || 'API Console request failed.'}`);
+    return formatApiError('INTERNAL_EXECUTION_ERROR', response.statusText || 'API Console request failed.');
   }
 }
 

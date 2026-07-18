@@ -6,6 +6,7 @@ import {
   Clock,
   Copy,
   Download,
+  Edit3,
   Eye,
   FileText,
   FolderPlus,
@@ -19,11 +20,13 @@ import {
   Terminal,
   Trash2,
   Upload,
+  Users,
   XCircle,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import type { PaginatedResponse } from '../types';
+import { ROLE_LABELS } from '../types';
+import type { PaginatedResponse, UserRole } from '../types';
 import { Header } from '../components/layout/Header';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -133,6 +136,51 @@ const HEADER_CATEGORY_LABELS: Record<ApiHeaderCategory, string> = {
   AUTHENTICATION: 'Authentication',
   ENVIRONMENT: 'Environment',
 };
+
+const CONSUMER_TYPE_LABELS: Record<'USER' | 'ROLE', string> = {
+  USER: 'کاربر',
+  ROLE: 'نقش',
+};
+
+function roleLabel(role?: string): string {
+  return role ? ROLE_LABELS[role as UserRole] || role : '-';
+}
+
+function consumerIdOf(consumer: Pick<ApiVersionConsumer, 'consumerType' | 'userId' | 'roleKey'>): string {
+  return consumer.consumerType === 'USER'
+    ? `USER:${consumer.userId || ''}`
+    : `ROLE:${consumer.roleKey || ''}`;
+}
+
+function consumerCandidateLabel(candidate: ApiConsumerCandidate): string {
+  return candidate.consumerType === 'ROLE' ? roleLabel(candidate.roleKey) : candidate.label;
+}
+
+function consumerCandidateDescription(candidate: ApiConsumerCandidate): string {
+  if (candidate.consumerType === 'ROLE') {
+    return `همه کاربران دارای نقش ${roleLabel(candidate.roleKey)} در سامانه مجاز.`;
+  }
+  return candidate.description || candidate.userId || '';
+}
+
+function consumerDisplayLabel(
+  consumer: ApiVersionConsumer,
+  candidates: ApiConsumerCandidate[] = []
+): string {
+  const candidate = candidates.find(item => item.id === consumerIdOf(consumer));
+  if (candidate) return consumerCandidateLabel(candidate);
+  return consumer.consumerType === 'ROLE' ? roleLabel(consumer.roleKey) : consumer.userId || '-';
+}
+
+function consumerDisplayDescription(
+  consumer: ApiVersionConsumer,
+  candidates: ApiConsumerCandidate[] = []
+): string {
+  const candidate = candidates.find(item => item.id === consumerIdOf(consumer));
+  if (candidate) return consumerCandidateDescription(candidate);
+  if (consumer.consumerType === 'ROLE') return `دسترسی نقش ${roleLabel(consumer.roleKey)}`;
+  return consumer.userId || '';
+}
 
 function defaultScripts() {
   return {
@@ -1084,6 +1132,9 @@ export const OnlineApiConsolePage: React.FC = () => {
   const [repositoryFilters, setRepositoryFilters] = useState({ page: 1, limit: 10, search: '' });
   const [repositoryDetail, setRepositoryDetail] = useState<ApiRepositoryItem | null>(null);
   const [repositoryModalOpen, setRepositoryModalOpen] = useState(false);
+  const [repositoryConsumerIds, setRepositoryConsumerIds] = useState<string[]>([]);
+  const [repositoryConsumerEditMode, setRepositoryConsumerEditMode] = useState(false);
+  const [repositoryConsumersSaving, setRepositoryConsumersSaving] = useState(false);
   const [shareReviews, setShareReviews] = useState<PaginatedResponse<ApiShareRequest> | null>(null);
   const [reviewsLoading, setReviewsLoading] = useState(false);
   const [reviewFilters, setReviewFilters] = useState({ page: 1, limit: 10, search: '', status: '' });
@@ -1630,7 +1681,7 @@ export const OnlineApiConsolePage: React.FC = () => {
         await reloadRequests(updated.id);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save request.');
+      toast.error(error instanceof Error ? error.message : 'ذخیره درخواست ناموفق بود.');
     } finally {
       setSaving(false);
     }
@@ -1804,9 +1855,16 @@ export const OnlineApiConsolePage: React.FC = () => {
     if (!activeContext) return;
     setRepositoryModalOpen(true);
     setRepositoryDetail(item);
+    setRepositoryConsumerEditMode(false);
+    setRepositoryConsumerIds(item.consumers.map(consumerIdOf));
     try {
-      const detail = await apiConsoleApi.getRepositoryVersion(item.apiId, item.version, activeContext);
+      const [detail, candidates] = await Promise.all([
+        apiConsoleApi.getRepositoryVersion(item.apiId, item.version, activeContext),
+        apiConsoleApi.getConsumerCandidates(activeContext),
+      ]);
       setRepositoryDetail(detail);
+      setConsumerCandidates(candidates);
+      setRepositoryConsumerIds(detail.consumers.map(consumerIdOf));
       if (detail.isNewForUser) {
         await apiConsoleApi.markRepositoryVersionViewed(detail.apiId, detail.version, activeContext);
         await loadRepository();
@@ -1855,22 +1913,62 @@ export const OnlineApiConsolePage: React.FC = () => {
     }
   };
 
-  const selectedConsumers = (): ApiVersionConsumer[] => {
-    if (!activeContext || !reviewDetail) return [];
+  const consumersFromCandidateIds = (
+    ids: string[],
+    target: Pick<ApiRepositoryItem | ApiShareRequest, 'apiId' | 'version' | 'applicationId'>
+  ): ApiVersionConsumer[] => {
+    if (!activeContext) return [];
     return consumerCandidates
-      .filter(candidate => selectedConsumerIds.includes(candidate.id))
+      .filter(candidate => ids.includes(candidate.id))
       .map(candidate => ({
         id: '',
-        apiId: reviewDetail.apiId,
-        version: reviewDetail.version,
+        apiId: target.apiId,
+        version: target.version,
         consumerType: candidate.consumerType,
         userId: candidate.userId,
         roleKey: candidate.roleKey,
-        applicationId: candidate.applicationId || reviewDetail.applicationId,
+        applicationId: candidate.applicationId || target.applicationId,
         status: 'ACTIVE',
         createdBy: activeContext.userId,
         createdAt: new Date().toISOString(),
       }));
+  };
+
+  const selectedConsumers = (): ApiVersionConsumer[] => {
+    if (!reviewDetail) return [];
+    return consumersFromCandidateIds(selectedConsumerIds, reviewDetail);
+  };
+
+  const handleRepositoryConsumersSave = async () => {
+    if (!activeContext || !repositoryDetail) return;
+    const consumers = consumersFromCandidateIds(repositoryConsumerIds, repositoryDetail);
+    if (!consumers.length) {
+      toast.warning('انتخاب حداقل یک مصرف‌کننده الزامی است.');
+      return;
+    }
+    setRepositoryConsumersSaving(true);
+    try {
+      const updatedConsumers = await apiConsoleApi.updateConsumers(
+        repositoryDetail.apiId,
+        repositoryDetail.version,
+        consumers,
+        activeContext
+      );
+      setRepositoryDetail(prev => prev ? { ...prev, consumers: updatedConsumers } : prev);
+      setRepositoryRows(prev => prev ? {
+        ...prev,
+        data: prev.data.map(item =>
+          item.id === repositoryDetail.id ? { ...item, consumers: updatedConsumers } : item
+        ),
+      } : prev);
+      setRepositoryConsumerIds(updatedConsumers.map(consumerIdOf));
+      setRepositoryConsumerEditMode(false);
+      toast.success('دسترسی مصرف‌کنندگان API به‌روزرسانی شد.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'به‌روزرسانی مصرف‌کنندگان API ناموفق بود.');
+    } finally {
+      setRepositoryConsumersSaving(false);
+    }
   };
 
   const handleApproveReview = async () => {
@@ -1961,6 +2059,11 @@ export const OnlineApiConsolePage: React.FC = () => {
   };
 
   if (!activeContext) return null;
+
+  const canUpdateRepositoryConsumers = !!repositoryDetail && (
+    activeContext.role === 'QA_LEAD' ||
+    activeContext.role === 'SYSTEM_ADMIN'
+  );
 
   const stats = {
     total: requests?.total || 0,
@@ -2766,6 +2869,56 @@ export const OnlineApiConsolePage: React.FC = () => {
                   <span className="font-semibold">Change Log: </span>{repositoryDetail.changeLog}
                 </div>
               )}
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4 text-blue-600" />
+                    <FieldLabel>مصرف‌کنندگان مجاز</FieldLabel>
+                  </div>
+                  {canUpdateRepositoryConsumers && (
+                    <Button
+                      size="sm"
+                      variant={repositoryConsumerEditMode ? 'secondary' : 'ghost'}
+                      icon={<Edit3 className="h-4 w-4" />}
+                      onClick={() => {
+                        setRepositoryConsumerIds(repositoryDetail.consumers.map(consumerIdOf));
+                        setRepositoryConsumerEditMode(value => !value);
+                      }}
+                      disabled={repositoryConsumersSaving}
+                    >
+                      {repositoryConsumerEditMode ? 'لغو ویرایش' : 'ویرایش دسترسی'}
+                    </Button>
+                  )}
+                </div>
+                {repositoryConsumerEditMode ? (
+                  <div className="space-y-3">
+                    <ConsumerPicker
+                      candidates={consumerCandidates}
+                      selectedIds={repositoryConsumerIds}
+                      onToggle={(id) => setRepositoryConsumerIds(prev =>
+                        prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+                      )}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          setRepositoryConsumerIds(repositoryDetail.consumers.map(consumerIdOf));
+                          setRepositoryConsumerEditMode(false);
+                        }}
+                        disabled={repositoryConsumersSaving}
+                      >
+                        انصراف
+                      </Button>
+                      <Button onClick={handleRepositoryConsumersSave} loading={repositoryConsumersSaving} disabled={!repositoryConsumerIds.length}>
+                        ذخیره دسترسی‌ها
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <ConsumerAccessList consumers={repositoryDetail.consumers} candidates={consumerCandidates} />
+                )}
+              </div>
               <div className="flex justify-end gap-2">
                 <Button variant="secondary" onClick={() => setRepositoryModalOpen(false)}>بستن</Button>
                 <Button onClick={handleAddRepositoryVersion} disabled={!!repositoryDetail.referenceId}>
@@ -2775,14 +2928,7 @@ export const OnlineApiConsolePage: React.FC = () => {
             </div>
             <div className="space-y-3">
               <FieldLabel>Snapshot فنی</FieldLabel>
-              <CodeBlock
-                value={JSON.stringify({
-                  request: repositoryDetail.request,
-                  consumers: repositoryDetail.consumers,
-                  shareRequest: repositoryDetail.shareRequest,
-                }, null, 2)}
-                minHeight="min-h-48 sm:min-h-[520px]"
-              />
+              <RepositoryTechnicalSnapshotPanel item={repositoryDetail} />
             </div>
           </div>
         ) : (
@@ -2826,9 +2972,9 @@ export const OnlineApiConsolePage: React.FC = () => {
                         className="mt-1 rounded border-gray-300 text-blue-600"
                       />
                       <span>
-                        <span className="font-medium text-gray-900">{candidate.label}</span>
-                        <span className="mr-2 text-xs text-gray-500">{candidate.consumerType}</span>
-                        {candidate.description && <span className="block text-xs text-gray-500">{candidate.description}</span>}
+                        <span className="font-medium text-gray-900">{consumerCandidateLabel(candidate)}</span>
+                        <span className="mr-2 text-xs text-gray-500">{CONSUMER_TYPE_LABELS[candidate.consumerType]}</span>
+                        <span className="block text-xs text-gray-500">{consumerCandidateDescription(candidate)}</span>
                       </span>
                     </label>
                   ))}
@@ -3739,6 +3885,67 @@ const SnapshotSection = ({ title, children }: { title: string; children: React.R
   </section>
 );
 
+const ConsumerAccessList = ({
+  consumers,
+  candidates,
+}: {
+  consumers: ApiVersionConsumer[];
+  candidates: ApiConsumerCandidate[];
+}) => {
+  if (!consumers.length) {
+    return (
+      <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center text-sm text-gray-500">
+        مصرف‌کننده‌ای برای این نسخه ثبت نشده است.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {consumers.map(consumer => (
+        <div key={consumer.id || consumerIdOf(consumer)} className="flex items-start justify-between gap-3 rounded-lg border border-gray-200 bg-white p-3 text-sm">
+          <div className="min-w-0">
+            <p className="font-semibold text-gray-900">{consumerDisplayLabel(consumer, candidates)}</p>
+            <p className="mt-1 text-xs text-gray-500">{consumerDisplayDescription(consumer, candidates)}</p>
+          </div>
+          <Badge variant={consumer.consumerType === 'ROLE' ? 'info' : 'secondary'} size="sm">
+            {CONSUMER_TYPE_LABELS[consumer.consumerType]}
+          </Badge>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const ConsumerPicker = ({
+  candidates,
+  selectedIds,
+  onToggle,
+}: {
+  candidates: ApiConsumerCandidate[];
+  selectedIds: string[];
+  onToggle: (id: string) => void;
+}) => (
+  <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border border-gray-200 bg-white p-2">
+    {candidates.map(candidate => (
+      <label key={candidate.id} className="flex items-start gap-2 rounded-md p-2 text-sm hover:bg-gray-50">
+        <input
+          type="checkbox"
+          checked={selectedIds.includes(candidate.id)}
+          onChange={() => onToggle(candidate.id)}
+          className="mt-1 rounded border-gray-300 text-blue-600"
+        />
+        <span className="min-w-0">
+          <span className="font-medium text-gray-900">{consumerCandidateLabel(candidate)}</span>
+          <span className="mr-2 text-xs text-gray-500">{CONSUMER_TYPE_LABELS[candidate.consumerType]}</span>
+          <span className="block text-xs text-gray-500">{consumerCandidateDescription(candidate)}</span>
+        </span>
+      </label>
+    ))}
+    {!candidates.length && <p className="p-3 text-sm text-gray-500">هنوز کاربر یا نقشی برای انتخاب ثبت نشده است.</p>}
+  </div>
+);
+
 const RevisionSnapshotPanel = ({ review }: { review: ApiShareRequest }) => {
   const revisions = (review.revisions || []).slice().sort((left, right) => right.revisionNumber - left.revisionNumber);
   const currentRevision = revisions.find(item => item.revisionNumber === review.currentRevisionNumber) || revisions[0];
@@ -3942,6 +4149,114 @@ const RevisionSnapshotPanel = ({ review }: { review: ApiShareRequest }) => {
         <summary className="cursor-pointer text-sm font-semibold text-gray-900">Raw JSON برای Audit</summary>
         <div className="mt-3">
           <CodeBlock value={JSON.stringify(currentRevision, null, 2)} minHeight="max-h-96 min-h-52" />
+        </div>
+      </details>
+    </div>
+  );
+};
+
+const RepositoryTechnicalSnapshotPanel = ({ item }: { item: ApiRepositoryItem }) => {
+  if (item.shareRequest?.revisions?.length) {
+    return <RevisionSnapshotPanel review={{ ...item.shareRequest, consumers: item.consumers }} />;
+  }
+
+  const request = item.request;
+  if (!request) {
+    return (
+      <div className="rounded-lg border border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
+        Snapshot فنی برای این نسخه هنوز بارگذاری نشده است.
+      </div>
+    );
+  }
+
+  const headerPreview = request.headers
+    .map(header => `${header.name}: ${header.sensitive ? header.maskedValue : header.valueTemplate}`)
+    .join('\n');
+  const queryPreview = request.queryParameters
+    .map(param => `${param.name}=${param.sensitive ? '***' : param.value}`)
+    .join('\n');
+  const cookiePreview = request.cookies
+    .map(cookie => `${cookie.name}=${cookie.sensitive ? cookie.maskedValue : cookie.valueReference}`)
+    .join('\n');
+
+  return (
+    <div className="space-y-3 xl:max-h-[calc(100dvh-13rem)] xl:overflow-y-auto xl:pl-1">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={request.method === 'GET' ? 'info' : request.method === 'POST' ? 'success' : 'warning'}>
+            {request.method}
+          </Badge>
+          <span className="min-w-0 flex-1 truncate text-left font-mono text-xs text-gray-900" dir="ltr" title={request.urlTemplate}>
+            {request.urlTemplate}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <SnapshotMetric label="API ID" value={item.apiId} />
+        <SnapshotMetric label="Version" value={`v${item.version}`} />
+        <SnapshotMetric label="Environment" value={request.environmentId} />
+        <SnapshotMetric label="Captured" value={formatDate(request.updatedAt)} mono={false} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
+        <SnapshotSection title="طبقه‌بندی و انتقال">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <SnapshotMetric label="نوع API" value={CLASSIFICATION_LABELS[request.classification.type]} mono={false} />
+            <SnapshotMetric label="Service ID" value={request.classification.serviceId || '-'} />
+            <SnapshotMetric label="Operation" value={request.classification.operationPath || '-'} />
+            <SnapshotMetric label="TLS" value={request.tls.verifyCertificate ? 'تأیید گواهی فعال' : 'بدون تأیید گواهی'} mono={false} />
+          </div>
+        </SnapshotSection>
+
+        <SnapshotSection title="مستندات">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <SnapshotMetric label="عنوان" value={request.documentation.title || item.title} mono={false} />
+            <SnapshotMetric label="مالک" value={request.documentation.owner || request.createdBy} mono={false} />
+            <SnapshotMetric label="نسخه سند" value={request.documentation.version || item.version} />
+            <SnapshotMetric label="آخرین تغییر" value={formatDate(request.updatedAt)} mono={false} />
+          </div>
+        </SnapshotSection>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 2xl:grid-cols-2">
+        <SnapshotSection title="Header، Query و Cookie">
+          <div className="space-y-3">
+            <div>
+              <FieldLabel>Headers</FieldLabel>
+              <CodeBlock value={headerPreview || '-'} minHeight="max-h-44 min-h-24" />
+            </div>
+            <div>
+              <FieldLabel>Query Parameters</FieldLabel>
+              <CodeBlock value={queryPreview || '-'} minHeight="max-h-36 min-h-20" />
+            </div>
+            {cookiePreview ? (
+              <div>
+                <FieldLabel>Cookies</FieldLabel>
+                <CodeBlock value={cookiePreview} minHeight="max-h-32 min-h-20" />
+              </div>
+            ) : null}
+          </div>
+        </SnapshotSection>
+
+        <SnapshotSection title="Body و Authentication">
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <SnapshotMetric label="Body Type" value={request.bodyType || '-'} />
+              <SnapshotMetric label="Auth Type" value={request.authentication.type || 'none'} />
+            </div>
+            <div>
+              <FieldLabel>Body</FieldLabel>
+              <CodeBlock value={prettySnapshot(request.bodyTemplate || '-')} minHeight="max-h-64 min-h-32" />
+            </div>
+          </div>
+        </SnapshotSection>
+      </div>
+
+      <details className="rounded-lg border border-gray-200 bg-white p-3">
+        <summary className="cursor-pointer text-sm font-semibold text-gray-900">Raw JSON برای Audit</summary>
+        <div className="mt-3">
+          <CodeBlock value={JSON.stringify({ request, consumers: item.consumers }, null, 2)} minHeight="max-h-96 min-h-52" />
         </div>
       </details>
     </div>

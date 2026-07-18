@@ -112,6 +112,16 @@ const API_CONSOLE_POLICY = {
 };
 
 const USER_ROLES = ['SYSTEM_ADMIN', 'DEVELOPER', 'QA_LEAD', 'QA_SPECIALIST', 'BA', 'SECURITY_REVIEWER', 'TECH_LEAD', 'PRODUCT_OWNER'];
+const ROLE_LABELS = {
+  SYSTEM_ADMIN: 'مدیر سیستم',
+  DEVELOPER: 'توسعه‌دهنده',
+  QA_LEAD: 'سرپرست QA',
+  QA_SPECIALIST: 'متخصص QA',
+  BA: 'تحلیلگر کسب‌وکار',
+  SECURITY_REVIEWER: 'بازبین امنیت',
+  TECH_LEAD: 'سرپرست فنی',
+  PRODUCT_OWNER: 'مالک محصول',
+};
 const SHARE_STATUSES = new Set(['DRAFT', 'PENDING_REVIEW', 'RETURNED', 'APPROVED', 'DEPRECATED']);
 const USAGE_EVENT_TYPES = new Set(['ADDED_TO_CONSOLE', 'API_OPENED', 'API_EXECUTED', 'REMOVED_FROM_CONSOLE', 'NEW_VERSION_VIEWED']);
 const SEMVER_REGEX = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -3293,8 +3303,8 @@ function consumerCandidates(context) {
     consumerType: 'ROLE',
     roleKey: role,
     applicationId: scope[0] || context.applicationId,
-    label: role,
-    description: 'Role-based API consumer',
+    label: ROLE_LABELS[role] || role,
+    description: `همه کاربران دارای نقش ${ROLE_LABELS[role] || role}`,
   }));
   return [...users, ...roles];
 }
@@ -3696,7 +3706,7 @@ async function routeRequest(req, parsedUrl, body) {
       request.sharingStatus === 'APPROVED'
     );
     if (!sourceRequest) throw new ApiConsoleError('INVALID_URL', 'Shared API version not found.', 404);
-    const canUpdate = sourceRequest.createdBy === context.userId || roleAllowed(context.role, ['QA_LEAD', 'SYSTEM_ADMIN']);
+    const canUpdate = roleAllowed(context.role, ['QA_LEAD', 'SYSTEM_ADMIN']);
     if (!canUpdate) throw new ApiConsoleError('AUTHENTICATION_ERROR', 'User is not authorized to update API consumers.', 403);
     const consumers = normalizeConsumers(body.consumers || body.data?.consumers || [], sourceRequest, context);
     if (!consumers.length) throw new ApiConsoleError('CORE_VALIDATION_ERROR', 'انتخاب حداقل یک مصرف‌کننده الزامی است.');
