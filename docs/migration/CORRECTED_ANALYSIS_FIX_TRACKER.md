@@ -150,7 +150,7 @@ Post-decision locking now covers the editable evidence surface:
 
 Admin observability now exists in the frontend/mock layer:
 
-- A System Admin operations page exposes Command Trace, Notification Outbox, and correlated Audit records.
+- A System Admin operations page exposes human-readable command trace, notification delivery queue, and correlated audit records.
 - The page supports search across command name, correlation id, idempotency key, notification id, entity id, and status.
 - Admin can process queued outbox items and retry failed delivery items.
 - The page is wired into the Admin navigation and protected by the audit/admin permission path.

@@ -377,12 +377,23 @@ All users (system-wide)
 ### Available Actions
 - View Details
 - View Role Assignments
+- Create user only when national code and phone number are not already registered
+- Delete a user from the active user list
 - Add or update one Role without disabling the user's other Roles
+- Activate or deactivate an existing Role assignment
+- Set a user's login password
 - Consolidate duplicate active Assignments for the same Role while preserving its Application set
 
 ### Backend APIs
 - `GET /users`
 - `GET /users/:id`
+- `POST /users`
+- `DELETE /users/:id`
+- role activation/update commands
+- password update command
+- `userApi.authenticate`
+- `userApi.requestPasswordResetOtp`
+- `userApi.resetPasswordWithOtp`
 
 ### Frontend Route/Component
 - Route: `/users`
@@ -422,19 +433,25 @@ The current frontend/mock route inventory includes these additional cartables an
 
 - Route/page: `/admin-operations` / `AdminOperationsPage.tsx`
 - Access: `SYSTEM_ADMIN`
-- Purpose: command trace, outbox, operational observability, and admin unlock monitoring in the mock layer.
+- Purpose: human-readable command trace, notification outbox, operational observability, and correlated audit review.
 
 ### Application Management
 
 - Route/page: `/applications` / `ApplicationsPage.tsx`
 - Access: `SYSTEM_ADMIN`
 - Purpose: manage systems/applications and store the three CDE test roots used by Playwright discovery.
+- Status: systems can be activated or deactivated without deleting their record.
+- CDE validation: entered roots must be valid URLs that start with `https://cde.edus.ir/` and match the field pattern:
+  - Front: `https://cde.edus.ir/front/...`
+  - Back NodeJS/DataService: `https://cde.edus.ir/dservice/...`
+  - Gateway: `https://cde.edus.ir/back/...`
 
 ### Settings
 
 - Route/page: `/settings` / `SettingsPage.tsx`
 - Access: `SYSTEM_ADMIN`
-- Purpose: configure mock Playwright runner settings, integration feature flags, CDE adapter settings, and FAVA adapter settings.
+- Purpose: configure categorized notification/security settings, Playwright runner settings, integration feature flags, CDE/FAVA adapter settings, and per-Application VersionHistory workflow policy.
+- Workflow policy changes refresh active contexts so a QA-owned policy immediately grants QA Lead the final VersionHistory decision capability for that Application.
 
 ## 10. System Admin - Audit (C18)
 

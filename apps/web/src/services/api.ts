@@ -62,7 +62,9 @@ import {
   loadPersistedUtmsState,
   savePersistedUtmsState,
   schedulePersistedUtmsStateSave,
+  type PersistedPasswordResetOtp,
   type PersistedUtmsState,
+  type PersistedUserCredential,
 } from './persistentStore';
 import {
   mockTestRequests,
@@ -97,6 +99,17 @@ import { isSemVer } from '../utils/semver';
 import { DESCRIPTION_MAX_LENGTH, hasInvalidBuildNumber, isValidSystemUrl, validateRequestTitle } from '../utils/inputRules';
 import { haveSameApplication } from '../utils/testManagementScope';
 // UserRoleAssignment type is available via mockUserRoleAssignments
+
+const DEFAULT_USER_PASSWORD = '123456';
+const MIN_USER_PASSWORD_LENGTH = 6;
+const PASSWORD_RESET_OTP_TTL_MS = 10 * 60 * 1000;
+
+let userCredentials: PersistedUserCredential[] = mockUsers.map(user => ({
+  userId: user.id,
+  password: DEFAULT_USER_PASSWORD,
+  updatedAt: user.updatedAt,
+}));
+let passwordResetOtps: PersistedPasswordResetOtp[] = [];
 
 // Simulate API delay
 const wait = (ms: number = 300) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -277,6 +290,8 @@ function currentPersistentState(): PersistedUtmsState {
     users: [...mutableUsers],
     applications: mutableApplications.map(applyWorkflowPolicyToApplication),
     userRoleAssignments: [...mockUserRoleAssignments],
+    userCredentials: userCredentials.map(credential => ({ ...credential })),
+    passwordResetOtps: passwordResetOtps.map(otp => ({ ...otp })),
     commandTraces: [...commandTraces],
     systemIntegrationSettings: {
       ...systemIntegrationSettings,
@@ -329,6 +344,16 @@ function applyPersistedState(persisted: PersistedUtmsState): void {
   if (Array.isArray(state.userRoleAssignments)) {
     replaceArrayContents(mockUserRoleAssignments, state.userRoleAssignments);
   }
+
+  if (Array.isArray(state.userCredentials)) {
+    userCredentials = state.userCredentials;
+  }
+
+  if (Array.isArray(state.passwordResetOtps)) {
+    passwordResetOtps = state.passwordResetOtps.filter(otp => new Date(otp.expiresAt).getTime() > Date.now());
+  }
+
+  ensureCredentialsForUsers();
 
   if (Array.isArray(state.commandTraces)) {
     commandTraces = state.commandTraces;
@@ -5070,7 +5095,117 @@ const localDashboardApi = {
 // Mutable users list for CRUD
 let mutableUsers = [...mockUsers];
 
+function ensureCredentialsForUsers(): void {
+  const knownUserIds = new Set(mutableUsers.map(user => user.id));
+  userCredentials = userCredentials.filter(credential => knownUserIds.has(credential.userId));
+  mutableUsers.forEach(user => {
+    if (!userCredentials.some(credential => credential.userId === user.id)) {
+      userCredentials.push({
+        userId: user.id,
+        password: DEFAULT_USER_PASSWORD,
+        updatedAt: user.updatedAt,
+      });
+    }
+  });
+}
+
+function assertPasswordIsUsable(password: string): void {
+  if (!password || password.length < MIN_USER_PASSWORD_LENGTH) {
+    throw new Error('PASSWORD_TOO_SHORT');
+  }
+}
+
+function setStoredUserPassword(userId: string, password: string): void {
+  assertPasswordIsUsable(password);
+  const updatedAt = new Date().toISOString();
+  const existing = userCredentials.find(credential => credential.userId === userId);
+  if (existing) {
+    existing.password = password;
+    existing.updatedAt = updatedAt;
+    return;
+  }
+  userCredentials.push({ userId, password, updatedAt });
+}
+
+function findUserCredential(userId: string): PersistedUserCredential {
+  ensureCredentialsForUsers();
+  const credential = userCredentials.find(item => item.userId === userId);
+  if (!credential) {
+    throw new Error('USER_CREDENTIAL_NOT_FOUND');
+  }
+  return credential;
+}
+
+function maskEmailAddress(email: string): string {
+  const [local = '', domain = ''] = email.split('@');
+  if (!domain) return email;
+  const visibleLocal = local.length <= 2 ? local[0] || '*' : `${local.slice(0, 2)}***`;
+  return `${visibleLocal}@${domain}`;
+}
+
+function resolveUserEmail(user: User): string {
+  return user.email || `${user.phoneNumber}@utms.local`;
+}
+
+function generateOtpCode(): string {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+export async function authenticateUserByPassword(phoneNumber: string, password: string): Promise<User | null> {
+  await delay(500);
+  const user = mutableUsers.find(item => item.phoneNumber === phoneNumber && item.isActive);
+  if (!user) return null;
+  return findUserCredential(user.id).password === password ? { ...user } : null;
+}
+
+export async function requestPasswordResetOtp(phoneNumber: string): Promise<{ maskedEmail: string; otpCode: string } | null> {
+  await delay(500);
+  const user = mutableUsers.find(item => item.phoneNumber === phoneNumber && item.isActive);
+  if (!user) return null;
+  const requestedAt = new Date().toISOString();
+  const code = generateOtpCode();
+  passwordResetOtps = passwordResetOtps.filter(otp => otp.userId !== user.id);
+  passwordResetOtps.push({
+    userId: user.id,
+    code,
+    requestedAt,
+    expiresAt: new Date(Date.now() + PASSWORD_RESET_OTP_TTL_MS).toISOString(),
+  });
+  return {
+    maskedEmail: maskEmailAddress(resolveUserEmail(user)),
+    otpCode: code,
+  };
+}
+
+export async function resetPasswordWithOtp(
+  phoneNumber: string,
+  code: string,
+  newPassword: string
+): Promise<boolean> {
+  await delay(500);
+  assertPasswordIsUsable(newPassword);
+  const user = mutableUsers.find(item => item.phoneNumber === phoneNumber && item.isActive);
+  if (!user) return false;
+  const otp = passwordResetOtps.find(item => item.userId === user.id && item.code === code.trim());
+  if (!otp || new Date(otp.expiresAt).getTime() < Date.now()) return false;
+  setStoredUserPassword(user.id, newPassword);
+  passwordResetOtps = passwordResetOtps.filter(item => item.userId !== user.id);
+  return true;
+}
+
 const localUserApi = {
+  async authenticate(phoneNumber: string, password: string): Promise<User | null> {
+    return authenticateUserByPassword(phoneNumber, password);
+  },
+
+  async requestPasswordResetOtp(phoneNumber: string): Promise<{ maskedEmail: string; otpCode: string } | null> {
+    return requestPasswordResetOtp(phoneNumber);
+  },
+
+  async resetPasswordWithOtp(phoneNumber: string, code: string, newPassword: string): Promise<boolean> {
+    return resetPasswordWithOtp(phoneNumber, code, newPassword);
+  },
+
   async getAll(): Promise<User[]> {
     await delay();
     return [...mutableUsers];
@@ -5081,12 +5216,30 @@ const localUserApi = {
     return mutableUsers.find(u => u.id === id) || null;
   },
 
-  async create(data: Partial<User>): Promise<User> {
+  async getRoleAssignments(userId?: string): Promise<UserRoleAssignment[]> {
     await delay();
+    return mockUserRoleAssignments
+      .filter(assignment => !userId || assignment.userId === userId)
+      .map(assignment => ({
+        ...assignment,
+        applicationIds: assignment.applicationIds ? [...assignment.applicationIds] : undefined,
+      }));
+  },
+
+  async create(data: Partial<User> & { password?: string }): Promise<User> {
+    await delay();
+    const nationalCode = (data.nationalCode || '').trim();
+    const phoneNumber = (data.phoneNumber || '').trim();
+    if (nationalCode && mutableUsers.some(user => user.nationalCode === nationalCode)) {
+      throw new Error('DUPLICATE_USER');
+    }
+    if (phoneNumber && mutableUsers.some(user => user.phoneNumber === phoneNumber)) {
+      throw new Error('DUPLICATE_USER');
+    }
     const newUser: User = {
       id: uuidv4(),
-      nationalCode: data.nationalCode || '',
-      phoneNumber: data.phoneNumber || '',
+      nationalCode,
+      phoneNumber,
       fullName: data.fullName || '',
       email: data.email,
       isActive: true,
@@ -5095,6 +5248,7 @@ const localUserApi = {
     };
     mutableUsers.unshift(newUser);
     mockUsers.unshift(newUser);
+    setStoredUserPassword(newUser.id, data.password || DEFAULT_USER_PASSWORD);
     return newUser;
   },
 
@@ -5123,7 +5277,7 @@ const localUserApi = {
     });
 
     const assignmentsForRole = mockUserRoleAssignments.filter(assignment =>
-      assignment.userId === userId && assignment.role === data.role && assignment.isActive
+      assignment.userId === userId && assignment.role === data.role
     );
     const existingAssignment = assignmentsForRole[0];
     const assignment: UserRoleAssignment = existingAssignment || {
@@ -5158,7 +5312,22 @@ const localUserApi = {
     await delay();
     const idx = mutableUsers.findIndex(u => u.id === id);
     if (idx === -1) return null;
-    mutableUsers[idx] = { ...requireAt(mutableUsers, idx), ...data, updatedAt: new Date().toISOString() };
+    const currentUser = requireAt(mutableUsers, idx);
+    if (
+      data.nationalCode &&
+      data.nationalCode !== currentUser.nationalCode &&
+      mutableUsers.some(user => user.id !== id && user.nationalCode === data.nationalCode)
+    ) {
+      throw new Error('DUPLICATE_USER');
+    }
+    if (
+      data.phoneNumber &&
+      data.phoneNumber !== currentUser.phoneNumber &&
+      mutableUsers.some(user => user.id !== id && user.phoneNumber === data.phoneNumber)
+    ) {
+      throw new Error('DUPLICATE_USER');
+    }
+    mutableUsers[idx] = { ...currentUser, ...data, updatedAt: new Date().toISOString() };
     return requireAt(mutableUsers, idx);
   },
 
@@ -5168,6 +5337,68 @@ const localUserApi = {
     if (idx === -1) return null;
     mutableUsers[idx] = { ...requireAt(mutableUsers, idx), isActive: false, updatedAt: new Date().toISOString() };
     return requireAt(mutableUsers, idx);
+  },
+
+  async deleteUser(id: string, actorUserId?: string): Promise<boolean> {
+    await delay();
+    const idx = mutableUsers.findIndex(u => u.id === id);
+    if (idx === -1) return false;
+    const removedUser = requireAt(mutableUsers, idx);
+    mutableUsers.splice(idx, 1);
+    const seedIdx = mockUsers.findIndex(user => user.id === id);
+    if (seedIdx !== -1) {
+      mockUsers.splice(seedIdx, 1);
+    }
+    userCredentials = userCredentials.filter(credential => credential.userId !== id);
+    passwordResetOtps = passwordResetOtps.filter(otp => otp.userId !== id);
+    replaceArrayContents(
+      mockUserRoleAssignments,
+      mockUserRoleAssignments.filter(assignment => assignment.userId !== id)
+    );
+    if (actorUserId) {
+      createAuditLog(actorUserId, undefined, 'USER', id, 'DELETE', removedUser, null, { area: 'USER_ADMIN' });
+    }
+    return true;
+  },
+
+  async setPassword(id: string, password: string, actorUserId?: string): Promise<User | null> {
+    await delay();
+    const idx = mutableUsers.findIndex(u => u.id === id);
+    if (idx === -1) return null;
+    setStoredUserPassword(id, password);
+    mutableUsers[idx] = { ...requireAt(mutableUsers, idx), updatedAt: new Date().toISOString() };
+    if (actorUserId) {
+      createAuditLog(actorUserId, undefined, 'USER', id, 'UPDATE', null, { passwordUpdated: true }, { area: 'USER_PASSWORD' });
+    }
+    return requireAt(mutableUsers, idx);
+  },
+
+  async setRoleActive(
+    userId: string,
+    role: UserRole,
+    isActive: boolean,
+    actorUserId?: string
+  ): Promise<UserRoleAssignment[]> {
+    await delay();
+    const assignments = mockUserRoleAssignments.filter(assignment =>
+      assignment.userId === userId && assignment.role === role
+    );
+    assignments.forEach(assignment => {
+      assignment.isActive = isActive;
+    });
+    if (actorUserId && assignments.length > 0) {
+      createAuditLog(
+        actorUserId,
+        undefined,
+        'ROLE_ASSIGNMENT',
+        `${userId}:${role}`,
+        'ROLE_CHANGE',
+        null,
+        { role, isActive },
+        { area: 'USER_ROLE_ADMIN' }
+      );
+    }
+    return assignments;
   },
 
   async lookupByNationalCode(nationalCode: string): Promise<User | null> {
@@ -5314,6 +5545,30 @@ const localWorkflowPolicyApi = {
 // Application API (Admin) — Item #2 fix: actual CRUD
 // ============================================
 
+const APPLICATION_CDE_ROOT_PREFIXES: Record<'cdeFrontUrl' | 'cdeDataServiceUrl' | 'cdeGatewayUrl', string> = {
+  cdeFrontUrl: 'https://cde.edus.ir/front/',
+  cdeDataServiceUrl: 'https://cde.edus.ir/dservice/',
+  cdeGatewayUrl: 'https://cde.edus.ir/back/',
+};
+
+function assertApplicationCdeRoots(data: Partial<Application>): void {
+  (Object.keys(APPLICATION_CDE_ROOT_PREFIXES) as Array<keyof typeof APPLICATION_CDE_ROOT_PREFIXES>).forEach(field => {
+    const value = data[field]?.trim();
+    if (!value) return;
+    if (!value.startsWith('https://cde.edus.ir/')) {
+      throw new Error('APPLICATION_CDE_ROOT_INVALID');
+    }
+    if (!value.startsWith(APPLICATION_CDE_ROOT_PREFIXES[field])) {
+      throw new Error('APPLICATION_CDE_ROOT_INVALID');
+    }
+    try {
+      new URL(value);
+    } catch {
+      throw new Error('APPLICATION_CDE_ROOT_INVALID');
+    }
+  });
+}
+
 const localApplicationApi = {
   async getAll(): Promise<Application[]> {
     await delay();
@@ -5328,6 +5583,7 @@ const localApplicationApi = {
 
   async create(data: Partial<Application>): Promise<Application> {
     await delay();
+    assertApplicationCdeRoots(data);
     const id = data.id || uuidv4();
     const workflowPolicyId = setApplicationWorkflowPolicy(id, data.workflowPolicyId || getWorkflowPolicy().id);
     const app: Application = {
@@ -5349,6 +5605,7 @@ const localApplicationApi = {
 
   async update(id: string, data: Partial<Application>): Promise<Application | null> {
     await delay();
+    assertApplicationCdeRoots(data);
     const idx = mutableApplications.findIndex(a => a.id === id);
     if (idx === -1) return null;
     const workflowPolicyId = data.workflowPolicyId

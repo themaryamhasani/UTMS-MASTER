@@ -14,9 +14,12 @@ import type {
   WorkflowCapability,
   WorkflowPolicy,
 } from '../types';
-import { mockUsers, mockApplications, mockUserRoleAssignments } from '../services/seedData';
-import { ensureDataPersistenceReady } from '../services/api';
-import { canRolePerformWorkflowCapability, getWorkflowPolicy } from '../services/workflowPolicyStore';
+import { applicationApi, ensureDataPersistenceReady, userApi } from '../services/api';
+import {
+  canRolePerformWorkflowCapability,
+  getWorkflowPolicy,
+  syncApplicationWorkflowPolicies,
+} from '../services/workflowPolicyStore';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -31,19 +34,21 @@ interface AuthState {
   getAvailableContexts: () => AvailableContext[];
 }
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 function getAssignmentApplicationIds(assignment: UserRoleAssignment, allApplicationIds: string[]): string[] {
   if (assignment.scope === 'APP') return allApplicationIds;
   return assignment.applicationIds?.length ? assignment.applicationIds : [assignment.applicationId];
 }
 
-function buildAvailableContexts(user: User): AvailableContext[] {
-  const activeApplications = mockApplications.filter(application => application.isActive);
+function buildAvailableContexts(
+  user: User,
+  applicationsSource: Application[],
+  assignmentsSource: UserRoleAssignment[]
+): AvailableContext[] {
+  const activeApplications = applicationsSource.filter(application => application.isActive);
   const allApplicationIds = activeApplications.map(application => application.id);
   const assignmentsByRole = new Map<UserRole, UserRoleAssignment[]>();
 
-  mockUserRoleAssignments
+  assignmentsSource
     .filter(assignment => assignment.userId === user.id && assignment.isActive)
     .forEach(assignment => {
       const roleAssignments = assignmentsByRole.get(assignment.role) ?? [];
@@ -81,6 +86,16 @@ function buildAvailableContexts(user: User): AvailableContext[] {
   });
 
   return contexts;
+}
+
+async function loadAvailableContexts(user: User): Promise<AvailableContext[]> {
+  await ensureDataPersistenceReady();
+  const [applications, roleAssignments] = await Promise.all([
+    applicationApi.getAll(),
+    userApi.getRoleAssignments(user.id),
+  ]);
+  syncApplicationWorkflowPolicies(applications);
+  return buildAvailableContexts(user, applications, roleAssignments);
 }
 
 function createActiveContext(user: User, selectedContext: AvailableContext): ActiveContext {
@@ -145,6 +160,9 @@ function availableContextSignature(contexts: AvailableContext[]): string {
     contextId: context.contextId,
     assignmentIds: [...context.assignmentIds].sort(),
     applicationIds: [...context.scopeApplicationIds].sort(),
+    applicationPolicyIds: context.applications
+      .map(application => `${application.id}:${application.workflowPolicyId || ''}`)
+      .sort(),
     role: context.role,
     scope: context.scope,
     automatedTestsEnabled: context.automatedTestsEnabled ?? null,
@@ -175,13 +193,11 @@ export const useAuthStore = create<AuthState>()(
       activeContext: null,
       availableContexts: [],
 
-      login: async (phoneNumber: string, _password: string) => {
-        await ensureDataPersistenceReady();
-        await delay(500);
-        const user = mockUsers.find(u => u.phoneNumber === phoneNumber && u.isActive);
+      login: async (phoneNumber: string, password: string) => {
+        const user = await userApi.authenticate(phoneNumber, password);
         if (!user) return false;
 
-        const contexts = buildAvailableContexts(user);
+        const contexts = await loadAvailableContexts(user);
 
         set({
           isAuthenticated: true,
@@ -203,11 +219,10 @@ export const useAuthStore = create<AuthState>()(
       },
 
       refreshContexts: async () => {
-        await ensureDataPersistenceReady();
         const { activeContext, availableContexts, isAuthenticated, user } = get();
         if (!isAuthenticated || !user) return;
 
-        const contexts = buildAvailableContexts(user);
+        const contexts = await loadAvailableContexts(user);
         const selectedContext = findMatchingContext(contexts, activeContext);
         const nextActiveContext = selectedContext ? createActiveContext(user, selectedContext) : null;
 
@@ -225,29 +240,28 @@ export const useAuthStore = create<AuthState>()(
       },
 
       switchContext: (contextId: string) => {
-        const { user } = get();
+        const { user, availableContexts: currentAvailableContexts } = get();
         if (!user?.isActive) return false;
 
-        // Rebuild from current active assignments and resolve only the opaque
-        // context id. Role/application values supplied by the UI are never trusted.
-        const contexts = buildAvailableContexts(user);
+        const contexts = currentAvailableContexts;
         const selectedContext = contexts.find(context => context.contextId === contextId);
         if (!selectedContext) {
-          const { availableContexts, activeContext } = get();
+          const { activeContext } = get();
           if (
-            availableContextSignature(availableContexts) === availableContextSignature(contexts) &&
+            availableContextSignature(currentAvailableContexts) === availableContextSignature(contexts) &&
             activeContext === null
           ) {
             return false;
           }
           set({ availableContexts: contexts, activeContext: null });
+          void get().refreshContexts().catch(() => undefined);
           return false;
         }
 
         const nextActiveContext = createActiveContext(user, selectedContext);
-        const { availableContexts, activeContext } = get();
+        const { availableContexts: latestAvailableContexts, activeContext } = get();
         if (
-          availableContextSignature(availableContexts) === availableContextSignature(contexts) &&
+          availableContextSignature(latestAvailableContexts) === availableContextSignature(contexts) &&
           contextSignature(activeContext) === contextSignature(nextActiveContext)
         ) {
           return true;
@@ -283,7 +297,16 @@ export const useAuthStore = create<AuthState>()(
           };
         }
 
-        const availableContexts = buildAvailableContexts(persisted.user);
+        const availableContexts = Array.isArray(persisted.availableContexts)
+          ? persisted.availableContexts
+          : [];
+        syncApplicationWorkflowPolicies(
+          availableContexts.flatMap(context => context.applications?.length
+            ? context.applications
+            : context.application
+              ? [context.application]
+              : [])
+        );
         const selectedContext = findMatchingContext(availableContexts, persisted.activeContext);
         return {
           ...currentState,
@@ -292,7 +315,7 @@ export const useAuthStore = create<AuthState>()(
           availableContexts,
           activeContext: selectedContext
             ? createActiveContext(persisted.user, selectedContext)
-            : null,
+            : (persisted.activeContext as ActiveContext | null | undefined) ?? null,
         };
       },
     }

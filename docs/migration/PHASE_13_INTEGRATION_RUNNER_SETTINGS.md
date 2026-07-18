@@ -13,6 +13,7 @@ This document records the frontend/mock implementation boundary for modular inte
   - update Playwright runner settings
   - update each external adapter
 - Settings page now manages:
+  - categorized notification/security settings
   - Playwright feature flag
   - Playwright auto-discovery flag
   - runner id
@@ -27,6 +28,11 @@ This document records the frontend/mock implementation boundary for modular inte
   - Back NodeJS / DataService root URL, e.g. `https://cde.edus.ir/dservice/directory/medu-community%3EApp`
   - Gateway root URL
 - Current gateway URL pattern: `https://cde.edus.ir/back/medu-ai/medu-community%3E?return=/workspace/medu-ai`.
+- Application Back-office validates entered CDE roots inline:
+  - every entered root must start with `https://cde.edus.ir/`
+  - Front roots must follow `https://cde.edus.ir/front/...`
+  - Back NodeJS/DataService roots must follow `https://cde.edus.ir/dservice/...`
+  - Gateway roots must follow `https://cde.edus.ir/back/...`
 - Playwright run creation reads the runner configuration for command, working directory, timeout, runner id, artifact paths, and user-selected Playwright command options.
 - The Playwright start form exposes Browser/Project, headed mode, workers, retries, max failures, trace, and reporter as UI controls and converts them to command options.
 - Playwright discovery reads test files from the configured Application CDE roots when they exist; otherwise it falls back to the mock repository file list.

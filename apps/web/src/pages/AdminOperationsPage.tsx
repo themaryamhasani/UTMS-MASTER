@@ -9,6 +9,7 @@ import { Badge } from '../components/ui/Badge';
 import { useAuthStore } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
 import { auditLogApi, commandTraceApi, notificationApi } from '../services/api';
+import { formatDisplayId } from '../utils/displayId';
 import type {
   AuditLog,
   CartableFilterParams,
@@ -21,7 +22,7 @@ type OperationsTab = 'commands' | 'outbox' | 'audit';
 
 const TRACE_STATUS_LABELS: Record<CommandTrace['status'], string> = {
   COMPLETED: 'تکمیل شده',
-  REPLAYED: 'Replay شده',
+  REPLAYED: 'تکراری پذیرفته شده',
 };
 
 const DELIVERY_STATUS_LABELS: Record<NotificationOutboxItem['status'], string> = {
@@ -29,6 +30,77 @@ const DELIVERY_STATUS_LABELS: Record<NotificationOutboxItem['status'], string> =
   DELIVERED: 'تحویل شده',
   FAILED: 'ناموفق',
 };
+
+const COMMAND_NAME_LABELS: Record<string, string> = {
+  'versionHistory.create': 'ثبت درخواست تصمیم انتشار',
+  'versionHistory.submitForQAReview': 'ارسال برای بررسی QA',
+  'versionHistory.setQAQuality': 'ثبت نظر کیفیت QA',
+  'versionHistory.decide': 'ثبت تصمیم نهایی انتشار',
+  'versionHistory.publish': 'ثبت انتشار',
+  'versionHistory.emergencyPublish': 'ثبت انتشار اضطراری',
+  'versionHistory.acceptRisk': 'پذیرش ریسک انتشار',
+  'testRun.unlock': 'باز کردن قفل اجرای تست',
+  'bug.unlock': 'باز کردن قفل باگ',
+};
+
+const COMMAND_SOURCE_LABELS: Record<string, string> = {
+  UI: 'ثبت‌شده از رابط کاربری',
+  API: 'ثبت‌شده از API',
+  SYSTEM: 'ثبت‌شده توسط سیستم',
+  RUNNER: 'ثبت‌شده توسط Runner',
+};
+
+const ENTITY_TYPE_LABELS: Record<string, string> = {
+  TEST_REQUEST: 'درخواست تست',
+  REQUIREMENT: 'نیازمندی',
+  FLOW: 'جریان',
+  TEST_CASE: 'تست‌کیس',
+  TEST_RUN: 'اجرای تست',
+  BUG: 'باگ',
+  RETEST_TASK: 'کار تست مجدد',
+  RUN_ISSUE: 'مانع اجرا',
+  CHECKLIST: 'چک‌لیست',
+  VERSION_HISTORY: 'تصمیم انتشار',
+  RELEASE_PUBLISH: 'تصمیم انتشار',
+  PLAYWRIGHT_RUN: 'اجرای Playwright',
+  PLAYWRIGHT_TEST_FILE: 'فایل تست Playwright',
+  USER: 'کاربر',
+  APPLICATION: 'سامانه',
+  ROLE_ASSIGNMENT: 'نقش کاربر',
+};
+
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  CREATE: 'ایجاد',
+  UPDATE: 'ویرایش',
+  DELETE: 'حذف',
+  STATUS_CHANGE: 'تغییر وضعیت',
+  ASSIGN: 'ارجاع',
+  SUBMIT: 'ارسال',
+  REVIEW: 'بررسی',
+  APPROVE: 'تایید',
+  REJECT: 'رد',
+  CANCEL: 'لغو',
+  FINALIZE: 'نهایی‌سازی',
+  UNLOCK: 'باز کردن قفل',
+  PUBLISH: 'انتشار',
+  EMERGENCY_PUBLISH: 'انتشار اضطراری',
+  ROLE_CHANGE: 'تغییر نقش',
+  LOGIN: 'ورود',
+  LOGOUT: 'خروج',
+  CONTEXT_SWITCH: 'تغییر محیط کاری',
+};
+
+const CHANNEL_LABELS: Record<string, string> = {
+  IN_APP: 'داخل سامانه',
+  EMAIL: 'ایمیل',
+  SMS: 'پیامک',
+};
+
+const getHumanLabel = (labels: Record<string, string>, value: string | undefined): string =>
+  value ? labels[value] || value : '-';
+
+const formatOperationId = (value: string | undefined, prefix: string): string =>
+  value ? formatDisplayId(value, prefix) : '-';
 
 const getTraceColor = (status: CommandTrace['status']): 'success' | 'warning' | 'default' =>
   status === 'COMPLETED' ? 'success' : 'warning';
@@ -117,11 +189,11 @@ export const AdminOperationsPage: React.FC = () => {
   const commandColumns = [
     {
       key: 'commandName',
-      title: 'Command',
+      title: 'عملیات ثبت‌شده',
       render: (item: CommandTrace) => (
         <div>
-          <p className="font-medium text-gray-900">{item.commandName}</p>
-          <p className="text-xs text-gray-500">{item.source}</p>
+          <p className="font-medium text-gray-900">{getHumanLabel(COMMAND_NAME_LABELS, item.commandName)}</p>
+          <p className="text-xs text-gray-500">{getHumanLabel(COMMAND_SOURCE_LABELS, item.source)}</p>
         </div>
       ),
     },
@@ -134,26 +206,26 @@ export const AdminOperationsPage: React.FC = () => {
     },
     {
       key: 'entity',
-      title: 'موجودیت',
+      title: 'موضوع اثرگرفته',
       render: (item: CommandTrace) => (
         <div className="text-sm">
-          <p>{item.entityType || '-'}</p>
-          <p className="font-mono text-xs text-gray-500">{item.entityId || '-'}</p>
+          <p>{getHumanLabel(ENTITY_TYPE_LABELS, item.entityType)}</p>
+          <p className="font-mono text-xs text-gray-500">{formatOperationId(item.entityId, 'ENT')}</p>
         </div>
       ),
     },
     {
       key: 'correlationId',
-      title: 'Correlation',
+      title: 'شناسه پیگیری',
       render: (item: CommandTrace) => (
-        <p className="font-mono text-xs text-gray-700 break-all">{item.correlationId}</p>
+        <p className="font-mono text-xs text-gray-700">{formatOperationId(item.correlationId, 'COR')}</p>
       ),
     },
     {
       key: 'idempotencyKey',
-      title: 'Idempotency',
+      title: 'کلید جلوگیری از تکرار',
       render: (item: CommandTrace) => (
-        <p className="font-mono text-xs text-gray-700 break-all">{item.idempotencyKey || '-'}</p>
+        <p className="font-mono text-xs text-gray-700">{formatOperationId(item.idempotencyKey, 'KEY')}</p>
       ),
     },
     {
@@ -172,7 +244,7 @@ export const AdminOperationsPage: React.FC = () => {
     {
       key: 'channel',
       title: 'کانال',
-      render: (item: NotificationOutboxItem) => <Badge variant="info">{item.channel}</Badge>,
+      render: (item: NotificationOutboxItem) => <Badge variant="info">{getHumanLabel(CHANNEL_LABELS, item.channel)}</Badge>,
     },
     {
       key: 'status',
@@ -183,21 +255,21 @@ export const AdminOperationsPage: React.FC = () => {
     },
     {
       key: 'notificationId',
-      title: 'Notification',
+      title: 'اعلان',
       render: (item: NotificationOutboxItem) => (
-        <p className="font-mono text-xs text-gray-700 break-all">{item.notificationId}</p>
+        <p className="font-mono text-xs text-gray-700">{formatOperationId(item.notificationId, 'NOT')}</p>
       ),
     },
     {
       key: 'correlationId',
-      title: 'Correlation',
+      title: 'شناسه پیگیری',
       render: (item: NotificationOutboxItem) => (
-        <p className="font-mono text-xs text-gray-700 break-all">{item.correlationId || '-'}</p>
+        <p className="font-mono text-xs text-gray-700">{formatOperationId(item.correlationId, 'COR')}</p>
       ),
     },
     {
       key: 'retryCount',
-      title: 'Retry',
+      title: 'تلاش ارسال',
       render: (item: NotificationOutboxItem) => (
         <span className="text-sm font-medium">{item.retryCount}</span>
       ),
@@ -220,28 +292,28 @@ export const AdminOperationsPage: React.FC = () => {
       title: 'عملیات',
       render: (item: AuditLog) => (
         <div>
-          <p className="font-medium text-gray-900">{item.action}</p>
-          <p className="text-xs text-gray-500">{item.entityType}</p>
+          <p className="font-medium text-gray-900">{getHumanLabel(AUDIT_ACTION_LABELS, item.action)}</p>
+          <p className="text-xs text-gray-500">{getHumanLabel(ENTITY_TYPE_LABELS, item.entityType)}</p>
         </div>
       ),
     },
     {
       key: 'entityId',
-      title: 'موجودیت',
-      render: (item: AuditLog) => <p className="font-mono text-xs break-all">{item.entityId}</p>,
+      title: 'موضوع اثرگرفته',
+      render: (item: AuditLog) => <p className="font-mono text-xs">{formatOperationId(item.entityId, 'ENT')}</p>,
     },
     {
       key: 'correlationId',
-      title: 'Correlation',
+      title: 'شناسه پیگیری',
       render: (item: AuditLog) => (
-        <p className="font-mono text-xs break-all">{String(item.metadata?.correlationId ?? '-')}</p>
+        <p className="font-mono text-xs">{formatOperationId(String(item.metadata?.correlationId || ''), 'COR')}</p>
       ),
     },
     {
       key: 'idempotencyKey',
-      title: 'Idempotency',
+      title: 'کلید جلوگیری از تکرار',
       render: (item: AuditLog) => (
-        <p className="font-mono text-xs break-all">{String(item.metadata?.idempotencyKey ?? '-')}</p>
+        <p className="font-mono text-xs">{formatOperationId(String(item.metadata?.idempotencyKey || ''), 'KEY')}</p>
       ),
     },
     {
@@ -257,25 +329,25 @@ export const AdminOperationsPage: React.FC = () => {
   ];
 
   const tabs: Array<{ id: OperationsTab; label: string; count: number; icon: React.ReactNode }> = [
-    { id: 'commands', label: 'Command Trace', count: commandData?.total || 0, icon: <Fingerprint className="w-4 h-4" /> },
-    { id: 'outbox', label: 'Outbox اعلان', count: outboxItems.length, icon: <Bell className="w-4 h-4" /> },
-    { id: 'audit', label: 'Audit مرتبط', count: auditWithCommandMetadata.length, icon: <History className="w-4 h-4" /> },
+    { id: 'commands', label: 'ردپای دستورها', count: commandData?.total || 0, icon: <Fingerprint className="w-4 h-4" /> },
+    { id: 'outbox', label: 'صف ارسال اعلان', count: outboxItems.length, icon: <Bell className="w-4 h-4" /> },
+    { id: 'audit', label: 'ممیزی مرتبط', count: auditWithCommandMetadata.length, icon: <History className="w-4 h-4" /> },
   ];
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Header
         title="کنسول عملیات و مشاهده‌پذیری"
-        subtitle="Command Trace، Outbox و Correlation"
+        subtitle="ردپای دستورها، صف اعلان‌ها و شناسه پیگیری هر عملیات"
         onRefresh={loadData}
         refreshing={loading}
         actions={
           <div className="flex gap-2">
             <Button variant="secondary" icon={<RefreshCw className="w-4 h-4" />} onClick={processOutbox}>
-              پردازش Outbox
+              پردازش صف اعلان
             </Button>
             <Button variant="warning" icon={<RotateCcw className="w-4 h-4" />} onClick={retryFailed}>
-              Retry ناموفق‌ها
+              تلاش دوباره ناموفق‌ها
             </Button>
           </div>
         }
@@ -283,9 +355,9 @@ export const AdminOperationsPage: React.FC = () => {
 
       <main className="p-4 sm:p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <StatCard title="Command Trace" value={commandData?.total || 0} icon={<Fingerprint className="w-6 h-6" />} />
-          <StatCard title="Outbox در صف" value={outboxItems.filter(item => item.status === 'QUEUED').length} icon={<Bell className="w-6 h-6" />} variant="warning" />
-          <StatCard title="Audit با Correlation" value={auditWithCommandMetadata.length} icon={<Activity className="w-6 h-6" />} variant="primary" />
+          <StatCard title="دستورهای ثبت‌شده" value={commandData?.total || 0} icon={<Fingerprint className="w-6 h-6" />} />
+          <StatCard title="اعلان‌های در صف" value={outboxItems.filter(item => item.status === 'QUEUED').length} icon={<Bell className="w-6 h-6" />} variant="warning" />
+          <StatCard title="ممیزی‌های قابل پیگیری" value={auditWithCommandMetadata.length} icon={<Activity className="w-6 h-6" />} variant="primary" />
         </div>
 
         <Card className="mb-6" padding="sm">
@@ -309,7 +381,7 @@ export const AdminOperationsPage: React.FC = () => {
             <CartableSearchInput
               value={filters.search || ''}
               onChange={(search) => setFilters({ ...filters, search, page: 1 })}
-              placeholder="جستجو در command، correlation، idempotency..."
+              placeholder="جستجو در عملیات، شناسه پیگیری یا کلید تکرار..."
               className="min-w-[220px]"
             />
           </div>
@@ -317,7 +389,7 @@ export const AdminOperationsPage: React.FC = () => {
 
         {activeTab === 'commands' && (
           <>
-            <Table columns={commandColumns} data={commandData?.data || []} loading={loading} emptyMessage="Command trace ثبت نشده است." />
+            <Table columns={commandColumns} data={commandData?.data || []} loading={loading} emptyMessage="هنوز ردپای عملیاتی ثبت نشده است." />
             {commandData && commandData.total > 0 && (
               <Pagination
                 page={commandData.page}
@@ -332,11 +404,11 @@ export const AdminOperationsPage: React.FC = () => {
         )}
 
         {activeTab === 'outbox' && (
-          <Table columns={outboxColumns} data={filteredOutbox} loading={loading} emptyMessage="Outbox فعالی وجود ندارد." />
+          <Table columns={outboxColumns} data={filteredOutbox} loading={loading} emptyMessage="اعلانی در صف ارسال نیست." />
         )}
 
         {activeTab === 'audit' && (
-          <Table columns={auditColumns} data={auditWithCommandMetadata} loading={loading} emptyMessage="Audit مرتبط با command metadata یافت نشد." />
+          <Table columns={auditColumns} data={auditWithCommandMetadata} loading={loading} emptyMessage="ممیزی قابل پیگیری برای این فیلتر پیدا نشد." />
         )}
       </main>
     </div>

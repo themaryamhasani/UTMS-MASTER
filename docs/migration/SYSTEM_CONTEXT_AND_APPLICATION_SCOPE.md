@@ -77,6 +77,9 @@
 - شناسه‌های Requirement تکراری حذف می‌شوند و شناسه مفقود یا خارج از سامانه پذیرفته نمی‌شود.
 - Assignee درخواست تست باید `QA_SPECIALIST` یا `QA_LEAD` فعال همان سامانه باشد.
 - ثبت یا بروزرسانی یک Role در مدیریت کاربران، Roleهای دیگر کاربر را غیرفعال نمی‌کند؛ Assignmentهای تکراری همان Role ادغام می‌شوند.
+- مدیریت کاربران از ایجاد کاربر با کد ملی یا شماره تلفن تکراری جلوگیری می‌کند، حذف کاربر را از لیست کاربری اعمال می‌کند و امکان فعال/غیرفعال کردن نقش موجود را نگه می‌دارد.
+- رمز ورود کاربران در credential store دامنه ثبت می‌شود؛ Login رمز را بررسی می‌کند و فراموشی رمز با OTP و تعریف رمز جدید در mock قابل اجرا است.
+- Login، Context selection و صفحه مدیریت کاربران Role Assignmentها را از `userApi.getRoleAssignments` می‌خوانند تا نقش‌های ثبت‌شده از مسیر backend RPC بلافاصله در UI و ورود کاربر دیده شوند.
 
 این خطاهای دامنه‌ای برای تشخیص نقض Scope استفاده می‌شوند: `APPLICATION_REQUIRED`، `APPLICATION_NOT_FOUND`، `APPLICATION_OUT_OF_SCOPE`، `SELECTED_REQUIREMENT_OUT_OF_SCOPE`، `TEST_REQUEST_OUT_OF_SCOPE`، `TEST_RUN_APPLICATION_MISMATCH`، `BUG_APPLICATION_MISMATCH`، `RUN_ISSUE_APPLICATION_MISMATCH` و `PLAYWRIGHT_APPLICATION_MISMATCH`.
 

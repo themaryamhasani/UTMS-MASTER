@@ -21,6 +21,7 @@ This document records the frontend/mock boundary for modular VersionHistory auth
   - `versionHistory:comment`
   - `versionHistory:view`
 - The Settings page lets System Admin switch a mock Application policy.
+- When System Admin switches an Application to `qa-owned-release`, active contexts are refreshed and QA Lead can immediately use `versionHistory:decide` for pending VersionHistory records in that Application.
 - The mock API accepts the active role for VersionHistory commands and validates it against the Application policy.
 
 ## Backend Boundary

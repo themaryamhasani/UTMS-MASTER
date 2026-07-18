@@ -6,14 +6,16 @@ This manual test plan matches the current frontend/mock implementation after pha
 
 | # | Scenario | Steps | Expected result |
 |---|---|---|---|
-| 1.1 | Valid login | Enter a seeded phone number and password | Context selection is shown. |
+| 1.1 | Valid login | Enter a seeded phone number with the current password. Default seeded password is `123456`. | Context selection is shown. |
 | 1.2 | Invalid phone | Enter an invalid phone | Inline Persian validation appears. |
-| 1.3 | Context selection | Select one available role/application context | Dashboard loads with scoped sidebar. |
-| 1.4 | Logout | Click logout | Internal modal appears; confirming returns to login. |
-| 1.5 | QA Specialist without automated tests | Select a QA Specialist assignment with automated tests disabled | Playwright and Playwright Files cartables are hidden. |
-| 1.6 | Duplicate same-role Assignments | Login as a user with the same Role on multiple Applications | One Context is shown for that Role and all real Application names are listed. |
-| 1.7 | In-session Role switch | Use the Header/Sidebar Context switcher | No logout occurs; Dashboard opens and route state is rebuilt for the new Role. |
-| 1.8 | Revoked persisted Context | Disable the persisted Assignment, then refresh | Context is rebuilt from active Assignments and the invalid Context is not trusted. |
+| 1.3 | Invalid password | Enter a seeded phone number with a wrong password | Login is blocked with an inline Persian error. |
+| 1.4 | Forgot password | Request OTP, enter the code, and define a new password | The password is updated and login succeeds with the new password. |
+| 1.5 | Context selection | Select one available role/application context | Dashboard loads with scoped sidebar. |
+| 1.6 | Logout | Click logout | Internal modal appears; confirming returns to login. |
+| 1.7 | QA Specialist without automated tests | Select a QA Specialist assignment with automated tests disabled | Playwright and Playwright Files cartables are hidden. |
+| 1.8 | Duplicate same-role Assignments | Login as a user with the same Role on multiple Applications | One Context is shown for that Role and all real Application names are listed. |
+| 1.9 | In-session Role switch | Use the Header/Sidebar Context switcher | No logout occurs; Dashboard opens and route state is rebuilt for the new Role. |
+| 1.10 | Revoked persisted Context | Disable the persisted Assignment, then refresh | Context is rebuilt from active Assignments and the invalid Context is not trusted. |
 
 ## 2. Form Validation
 

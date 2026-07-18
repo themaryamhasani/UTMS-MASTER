@@ -30,7 +30,7 @@
 - `apps/web/src/index.css`: tokenها و overrideهای روشن/شب برای layout، فرم، جدول، modal، badge، toast، code block و نمودارها.
 - `apps/web/src/main.tsx`: قراردادن کل برنامه داخل `ThemeProvider`.
 
-پیش‌نمایش HTML پاسخ API عمداً با کلاس `theme-light-preview` مستقل از theme سامانه نگه داشته می‌شود. thumb سوییچ‌های تنظیمات و Playwright نیز از کلاس `theme-switch-thumb` استفاده می‌کند تا در حالت شب قابل رؤیت بماند.
+پیش‌نمایش HTML پاسخ API عمداً با کلاس `theme-light-preview` مستقل از theme سامانه نگه داشته می‌شود. Toggleهای Settings با thumb ثابت و قابل دسترس بازطراحی شده‌اند؛ سایر سوییچ‌های Playwright و فرم‌ها همچنان از کلاس `theme-switch-thumb` استفاده می‌کنند تا در حالت شب قابل رؤیت بمانند.
 
 ## اصلاحات دسترس‌پذیری مرتبط
 

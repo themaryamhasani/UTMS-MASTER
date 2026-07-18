@@ -79,6 +79,14 @@ export function setApplicationWorkflowPolicy(applicationId: string, policyId: st
   return policy.id;
 }
 
+export function syncApplicationWorkflowPolicies(
+  applications: Array<Pick<Application, 'id' | 'workflowPolicyId'>>
+): void {
+  applications.forEach(application => {
+    setApplicationWorkflowPolicy(application.id, application.workflowPolicyId || defaultPolicyId);
+  });
+}
+
 export function applyWorkflowPolicyToApplication(application: Application): Application {
   return {
     ...application,

@@ -77,8 +77,10 @@ const READ_OPERATION_POLICIES = new Set([
   'notificationApi.getUnreadCount',
   'notificationApi.getOutbox',
   'attachmentApi.getByEntity',
+  'userApi.authenticate',
   'userApi.getAll',
   'userApi.getById',
+  'userApi.getRoleAssignments',
   'userApi.lookupByNationalCode',
   'userApi.getDevelopers',
   'userApi.getQASpecialists',
@@ -116,6 +118,16 @@ let recoveryProbe: Promise<unknown> | null = null;
 
 function shouldUseDomainBackend(): boolean {
   return typeof window !== 'undefined' && DOMAIN_API_MODE !== 'mock';
+}
+
+function isReadOperation(service: string, method: string): boolean {
+  return READ_OPERATION_POLICIES.has(`${service}.${method}`);
+}
+
+function clearReadCacheAfterMutation(service: string, method: string): void {
+  if (!isReadOperation(service, method)) {
+    readResponseCache.clear();
+  }
 }
 
 function isCircuitOpen(): boolean {
@@ -289,15 +301,21 @@ export function createDomainRpcProxy<TService extends ServiceObject>(service: st
 
       return async (...args: unknown[]) => {
         if (!shouldUseDomainBackend()) {
-          return localMethod.apply(target, args);
+          const result = await localMethod.apply(target, args);
+          clearReadCacheAfterMutation(service, property);
+          return result;
         }
 
         if (isCircuitOpen()) {
-          return localMethod.apply(target, args);
+          const result = await localMethod.apply(target, args);
+          clearReadCacheAfterMutation(service, property);
+          return result;
         }
 
         if (isHalfOpenProbeInProgress()) {
-          return localMethod.apply(target, args);
+          const result = await localMethod.apply(target, args);
+          clearReadCacheAfterMutation(service, property);
+          return result;
         }
 
         try {
@@ -305,13 +323,16 @@ export function createDomainRpcProxy<TService extends ServiceObject>(service: st
           recoveryProbe = backendCall;
           const result = await backendCall;
           circuitOpenedUntil = 0;
+          clearReadCacheAfterMutation(service, property);
           return result;
         } catch (error) {
           if (DOMAIN_API_MODE === 'strict') throw error;
           if (isTransportError(error) || (error as { backendUnavailable?: boolean }).backendUnavailable) {
             openFallbackCircuit();
           }
-          return localMethod.apply(target, args);
+          const result = await localMethod.apply(target, args);
+          clearReadCacheAfterMutation(service, property);
+          return result;
         } finally {
           if (recoveryProbe) {
             recoveryProbe = null;

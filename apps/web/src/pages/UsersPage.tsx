@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, User, Shield, Building2, Plus, Trash2, Eye, Key } from 'lucide-react';
+import { Search, User, Shield, Building2, Plus, Trash2, Eye, Key, EyeOff, Power } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -10,14 +10,14 @@ import { Input, Select } from '../components/ui/Input';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { userApi, applicationApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
-import type { User as UserType, Application, UserRole, AccessScope, CartableFilterParams } from '../types';
+import type { User as UserType, Application, UserRole, AccessScope, CartableFilterParams, UserRoleAssignment } from '../types';
 import { ROLE_LABELS } from '../types';
-import { mockUserRoleAssignments } from '../services/seedData';
 
 export const UsersPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const [users, setUsers] = useState<UserType[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [roleAssignments, setRoleAssignments] = useState<UserRoleAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<CartableFilterParams>({ page: 1, limit: 10, search: '' });
 
@@ -25,6 +25,7 @@ export const UsersPage: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -39,6 +40,9 @@ export const UsersPage: React.FC = () => {
   const [selectedSystems, setSelectedSystems] = useState<string[]>([]);
   const [automatedTestsEnabled, setAutomatedTestsEnabled] = useState(true);
   const [generatedPassword, setGeneratedPassword] = useState('');
+  const [passwordDraft, setPasswordDraft] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [showUserPassword, setShowUserPassword] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   useEffect(() => { if (activeContext) loadData(); }, [activeContext]);
@@ -46,8 +50,12 @@ export const UsersPage: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [u, a] = await Promise.all([userApi.getAll(), applicationApi.getAll()]);
-      setUsers(u); setApplications(a);
+      const [u, a, assignments] = await Promise.all([
+        userApi.getAll(),
+        applicationApi.getAll(),
+        userApi.getRoleAssignments(),
+      ]);
+      setUsers(u); setApplications(a); setRoleAssignments(assignments);
     } catch { toast.error('خطا در بارگذاری.'); }
     finally { setLoading(false); }
   };
@@ -61,6 +69,10 @@ export const UsersPage: React.FC = () => {
   const handleNationalCodeLookup = async () => {
     if (!nationalCodeInput || nationalCodeInput.length !== 10) {
       setFormErrors({ nationalCode: 'کد ملی باید ۱۰ رقم باشد.' });
+      return;
+    }
+    if (users.some(user => user.nationalCode === nationalCodeInput)) {
+      setFormErrors({ nationalCode: 'کاربری با این کد ملی قبلاً ثبت شده است.' });
       return;
     }
     setLookupLoading(true);
@@ -124,12 +136,15 @@ export const UsersPage: React.FC = () => {
   const validateCreateForm = (): boolean => {
     const errors: Record<string, string> = {};
     if (!nationalCodeInput || nationalCodeInput.length !== 10) errors.nationalCode = 'کد ملی باید ۱۰ رقم باشد.';
+    else if (users.some(user => user.nationalCode === nationalCodeInput)) errors.nationalCode = 'کاربری با این کد ملی قبلاً ثبت شده است.';
     if (!foundName.trim()) errors.fullName = 'نام و نام خانوادگی الزامی است.';
     if (!foundPhone.trim()) errors.phoneNumber = 'شماره تلفن الزامی است.';
     else if (!/^09\d{9}$/.test(foundPhone)) errors.phoneNumber = 'شماره تلفن باید ۱۱ رقم و با ۰۹ شروع شود.';
+    else if (users.some(user => user.phoneNumber === foundPhone.trim())) errors.phoneNumber = 'کاربری با این شماره تلفن قبلاً ثبت شده است.';
     if (!selectedRole) errors.role = 'انتخاب نقش الزامی است.';
     if (accessScope === 'SYSTEMS' && selectedSystems.length === 0) errors.systems = 'حداقل یک سامانه باید انتخاب شود.';
     if (!generatedPassword) errors.password = 'تولید رمز عبور الزامی است.';
+    else if (generatedPassword.length < 6) errors.password = 'رمز عبور باید حداقل ۶ کاراکتر باشد.';
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -142,6 +157,7 @@ export const UsersPage: React.FC = () => {
         nationalCode: nationalCodeInput,
         fullName: foundName.trim(),
         phoneNumber: foundPhone.trim(),
+        password: generatedPassword,
       });
       await userApi.replaceRoleAssignments(createdUser.id, {
         role: selectedRole as UserRole,
@@ -153,7 +169,13 @@ export const UsersPage: React.FC = () => {
       setShowCreateModal(false);
       resetCreateForm();
       loadData();
-    } catch { toast.error('خطا در ایجاد کاربر.'); }
+    } catch (error) {
+      if (error instanceof Error && error.message === 'DUPLICATE_USER') {
+        toast.error('این کاربر قبلاً ثبت شده است.');
+      } else {
+        toast.error('خطا در ایجاد کاربر.');
+      }
+    }
     finally { setActionLoading(false); }
   };
 
@@ -174,8 +196,8 @@ export const UsersPage: React.FC = () => {
       setSelectedSystems([]);
       return;
     }
-    const assignments = mockUserRoleAssignments.filter(assignment =>
-      assignment.userId === selectedUser.id && assignment.role === value && assignment.isActive
+    const assignments = roleAssignments.filter(assignment =>
+      assignment.userId === selectedUser.id && assignment.role === value
     );
     if (!assignments.length) {
       setAccessScope('SYSTEMS');
@@ -217,16 +239,69 @@ export const UsersPage: React.FC = () => {
     if (!selectedUser) return;
     setActionLoading(true);
     try {
-      toast.success(`کاربر «${selectedUser.fullName}» غیرفعال شد.`);
+      const deleted = await userApi.deleteUser(selectedUser.id, activeContext?.userId);
+      if (!deleted) {
+        toast.error('کاربر پیدا نشد.');
+        return;
+      }
+      toast.success(`کاربر «${selectedUser.fullName}» حذف شد.`);
       setShowDeleteConfirm(false); loadData();
     } catch { toast.error('خطا.'); }
     finally { setActionLoading(false); }
   };
 
+  const openPasswordModal = (user: UserType) => {
+    setSelectedUser(user);
+    setPasswordDraft('');
+    setPasswordConfirm('');
+    setShowUserPassword(false);
+    setFormErrors({});
+    setShowPasswordModal(true);
+  };
+
+  const handleSetPassword = async () => {
+    if (!selectedUser) return;
+    const errors: Record<string, string> = {};
+    if (passwordDraft.length < 6) errors.password = 'رمز عبور باید حداقل ۶ کاراکتر باشد.';
+    if (passwordDraft !== passwordConfirm) errors.passwordConfirm = 'تکرار رمز عبور یکسان نیست.';
+    setFormErrors(errors);
+    if (Object.keys(errors).length) return;
+
+    setActionLoading(true);
+    try {
+      const updated = await userApi.setPassword(selectedUser.id, passwordDraft, activeContext?.userId);
+      if (!updated) {
+        toast.error('کاربر پیدا نشد.');
+        return;
+      }
+      toast.success(`رمز عبور «${selectedUser.fullName}» تنظیم شد.`);
+      setShowPasswordModal(false);
+      loadData();
+    } catch {
+      toast.error('خطا در تنظیم رمز عبور.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleToggleRoleActive = async (managedRole: UserRole, isActive: boolean) => {
+    if (!selectedUser) return;
+    setActionLoading(true);
+    try {
+      await userApi.setRoleActive(selectedUser.id, managedRole, isActive, activeContext?.userId);
+      toast.success(`نقش ${ROLE_LABELS[managedRole]} ${isActive ? 'فعال' : 'غیرفعال'} شد.`);
+      await loadData();
+    } catch {
+      toast.error('خطا در تغییر وضعیت نقش.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const getUserRoles = (userId: string) => {
-    const byRole = new Map<UserRole, typeof mockUserRoleAssignments>();
-    mockUserRoleAssignments
-      .filter(assignment => assignment.userId === userId && assignment.isActive)
+    const byRole = new Map<UserRole, UserRoleAssignment[]>();
+    roleAssignments
+      .filter(assignment => assignment.userId === userId)
       .forEach(assignment => {
         const rows = byRole.get(assignment.role) || [];
         rows.push(assignment);
@@ -238,6 +313,7 @@ export const UsersPage: React.FC = () => {
       )));
       return {
         role: assignedRole,
+        isActive: assignments.some(assignment => assignment.isActive),
         scope: assignments.some(assignment => assignment.scope === 'APP') ? 'APP' as const : 'SYSTEMS' as const,
         automatedTestsEnabled: assignedRole === 'QA_SPECIALIST'
           ? assignments.every(assignment => assignment.automatedTestsEnabled !== false)
@@ -282,9 +358,10 @@ export const UsersPage: React.FC = () => {
           <div className="flex flex-wrap gap-1">
             {roles.map((r, i) => (
               <div key={i} className="flex flex-wrap gap-1">
-                <Badge variant={r.scope === 'APP' ? 'info' : 'secondary'} size="sm">
+                <Badge variant={!r.isActive ? 'default' : r.scope === 'APP' ? 'info' : 'secondary'} size="sm">
                   {ROLE_LABELS[r.role]} ({r.scope === 'APP' ? 'همه سامانه‌ها' : r.applications.map(application => application.name).join('، ') || 'سامانه نامشخص'})
                 </Badge>
+                {!r.isActive && <Badge variant="danger" size="sm">غیرفعال</Badge>}
                 {r.role === 'QA_SPECIALIST' && (
                   <Badge variant={r.automatedTestsEnabled !== false ? 'success' : 'warning'} size="sm">
                     تست خودکار {r.automatedTestsEnabled !== false ? 'فعال' : 'غیرفعال'}
@@ -305,6 +382,8 @@ export const UsersPage: React.FC = () => {
             onClick={(e) => { e.stopPropagation(); setSelectedUser(item); setShowDetailModal(true); }}>مشاهده</Button>
           {canEdit && <Button size="sm" variant="ghost" icon={<Plus className="w-3.5 h-3.5" />}
             onClick={(e) => { e.stopPropagation(); openEditUser(item); }}>مدیریت نقش‌ها</Button>}
+          {canEdit && <Button size="sm" variant="ghost" icon={<Key className="w-3.5 h-3.5" />}
+            onClick={(e) => { e.stopPropagation(); openPasswordModal(item); }}>تنظیم رمز</Button>}
           {canDelete && <Button size="sm" variant="ghost" className="text-red-600" icon={<Trash2 className="w-3.5 h-3.5" />}
             onClick={(e) => { e.stopPropagation(); setSelectedUser(item); setShowDeleteConfirm(true); }}>حذف</Button>}
         </div>
@@ -520,6 +599,56 @@ export const UsersPage: React.FC = () => {
         )}
       </Modal>
 
+      {/* Password Modal */}
+      <Modal isOpen={showPasswordModal} onClose={() => setShowPasswordModal(false)} title="تنظیم رمز عبور کاربر" size="md">
+        {selectedUser && (
+          <div className="space-y-4">
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-500">کاربر: <span className="font-medium text-gray-900">{selectedUser.fullName}</span></p>
+              <p className="text-sm text-gray-500">شماره تلفن: <span className="font-mono" dir="ltr">{selectedUser.phoneNumber}</span></p>
+            </div>
+            <div>
+              <label htmlFor="admin-password" className="block text-sm font-medium text-gray-700 mb-1">
+                رمز عبور جدید *
+              </label>
+              <div className="relative">
+                <input
+                  id="admin-password"
+                  type={showUserPassword ? 'text' : 'password'}
+                  value={passwordDraft}
+                  onChange={(e) => setPasswordDraft(e.target.value)}
+                  className={`w-full rounded-lg border px-3 py-2 pl-10 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    formErrors.password ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  aria-label={showUserPassword ? 'مخفی کردن رمز' : 'نمایش رمز'}
+                  onClick={() => setShowUserPassword(prev => !prev)}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showUserPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              {formErrors.password && <p role="alert" className="mt-1 text-sm text-red-600">{formErrors.password}</p>}
+            </div>
+            <Input
+              label="تکرار رمز عبور جدید *"
+              type={showUserPassword ? 'text' : 'password'}
+              value={passwordConfirm}
+              onChange={(e) => setPasswordConfirm(e.target.value)}
+              error={formErrors.passwordConfirm}
+              autoComplete="new-password"
+            />
+            <div className="flex gap-3 justify-end pt-4 border-t">
+              <Button variant="secondary" onClick={() => setShowPasswordModal(false)}>انصراف</Button>
+              <Button onClick={handleSetPassword} loading={actionLoading} disabled={actionLoading}>ثبت رمز</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       {/* Detail Modal */}
       <Modal isOpen={showDetailModal} onClose={() => setShowDetailModal(false)} title="جزئیات کاربر" size="lg">
         {selectedUser && (
@@ -536,6 +665,11 @@ export const UsersPage: React.FC = () => {
             <div>
               <h4 className="font-medium text-gray-900 mb-3 flex items-center gap-2"><Shield className="w-5 h-5 text-purple-500" /> نقش‌ها و دسترسی‌ها</h4>
               <div className="space-y-2">
+                {getUserRoles(selectedUser.id).length === 0 && (
+                  <div className="p-3 bg-gray-50 rounded-lg border text-sm text-gray-500">
+                    نقشی برای این کاربر ثبت نشده است.
+                  </div>
+                )}
                 {getUserRoles(selectedUser.id).map((r, i) => (
                   <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
                     <div className="flex items-center gap-3">
@@ -551,7 +685,20 @@ export const UsersPage: React.FC = () => {
                           تست خودکار {r.automatedTestsEnabled !== false ? 'فعال' : 'غیرفعال'}
                         </Badge>
                       )}
+                      <Badge variant={r.isActive ? 'success' : 'danger'}>{r.isActive ? 'نقش فعال' : 'نقش غیرفعال'}</Badge>
                       <Badge variant={r.scope === 'APP' ? 'info' : 'secondary'}>{ROLE_LABELS[r.role]}</Badge>
+                      {canEdit && (
+                        <Button
+                          size="sm"
+                          variant={r.isActive ? 'warning' : 'secondary'}
+                          className={!r.isActive ? 'text-green-700' : undefined}
+                          icon={<Power className="w-3.5 h-3.5" />}
+                          onClick={() => handleToggleRoleActive(r.role, !r.isActive)}
+                          disabled={actionLoading}
+                        >
+                          {r.isActive ? 'غیرفعال کردن' : 'فعال کردن'}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -560,6 +707,8 @@ export const UsersPage: React.FC = () => {
             <div className="flex gap-3 justify-end pt-4 border-t">
               {canEdit && <Button variant="secondary" icon={<Plus className="w-4 h-4" />}
                 onClick={() => { setShowDetailModal(false); openEditUser(selectedUser); }}>افزودن یا بروزرسانی نقش</Button>}
+              {canEdit && <Button variant="secondary" icon={<Key className="w-4 h-4" />}
+                onClick={() => { setShowDetailModal(false); openPasswordModal(selectedUser); }}>تنظیم رمز</Button>}
               <Button variant="secondary" onClick={() => setShowDetailModal(false)}>بستن</Button>
             </div>
           </div>
@@ -567,9 +716,9 @@ export const UsersPage: React.FC = () => {
       </Modal>
 
       <ConfirmModal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={handleDelete} title="حذف/غیرفعال‌سازی کاربر"
-        message={`آیا از غیرفعال‌سازی کاربر «${selectedUser?.fullName}» اطمینان دارید؟`}
-        variant="danger" confirmText="غیرفعال‌سازی" loading={actionLoading} />
+        onConfirm={handleDelete} title="حذف کاربر"
+        message={`آیا از حذف کاربر «${selectedUser?.fullName}» اطمینان دارید؟ این کاربر از فهرست کاربران حذف می‌شود.`}
+        variant="danger" confirmText="حذف" loading={actionLoading} />
     </div>
   );
 };

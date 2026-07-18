@@ -10,8 +10,10 @@ This document outlines the test scenarios for the UTMS Cartable system.
 ### Login Flow
 | Scenario | Steps | Expected |
 |----------|-------|----------|
-| Valid login | Enter valid phone, any password | Success, show context selection |
+| Valid login | Enter valid phone and the current password | Success, show context selection |
+| Invalid password | Enter valid phone with wrong password | Error message |
 | Invalid phone | Enter non-existent phone | Error message |
+| Forgot password | Request OTP, enter the received code, define a new password | Password is updated and login succeeds with the new password |
 | Context selection | Select app + role | Dashboard displayed |
 | Logout | Click logout | Return to login |
 

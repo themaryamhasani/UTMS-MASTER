@@ -1,7 +1,7 @@
 # گزارش هماهنگی فرانت و بک UTMS
 
-تاریخ بررسی: 2026-07-16
-وضعیت به‌روزرسانی: اتصال backend domain RPC در همین تاریخ اضافه شد.
+تاریخ بررسی: 2026-07-18
+وضعیت به‌روزرسانی: اتصال backend domain RPC برقرار است و تنظیمات UI دیگر وضعیت دامنه را به‌عنوان `Mock API (MVP)` نمایش نمی‌دهد.
 
 ## جمع‌بندی اجرایی
 
@@ -76,7 +76,7 @@
 - `DashboardPage.tsx` از `dashboardApi`, `testRequestApi`, `bugApi`, `checklistApi`, `releasePublishApi` استفاده می‌کند.
 - `TestRequestsPage.tsx` از `testRequestApi`, `requirementApi`, `userApi`, `flowApi` استفاده می‌کند.
 - `UsersPage.tsx` از `userApi` و `applicationApi` استفاده می‌کند.
-- `SettingsPage.tsx` حتی در UI عبارت `Mock API (MVP)` را نمایش می‌دهد.
+- `SettingsPage.tsx` اطلاعات سیستم را با وضعیت فعلی monorepo نمایش می‌دهد: `React 19.2.6 + Vite 7.3.6`، `Domain RPC + API Console server`، TypeScript 5.9.3 و Playwright 1.55.0.
 
 ### 2. گزارش‌های عمومی backend contract نداشتند
 

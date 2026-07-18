@@ -74,6 +74,7 @@
 - The default Application policy keeps QA Lead as quality reviewer and Tech Lead as final decision owner
 - A QA-owned policy is available for Applications where QA Lead owns both quality review and final publish/version decision
 - System Admin can switch the mock workflow policy per Application from Settings
+- Switching to the QA-owned policy refreshes active contexts and grants QA Lead the final `versionHistory:decide` capability for that Application
 - Backend implementation should persist policies and enforce the same `versionHistory:*` capabilities server-side
 
 ## Item 11: Phase 9 VersionHistory Snapshot and Notifications
@@ -106,7 +107,7 @@
 - Playwright runner settings are mock-configurable from Settings
 - CDE and FAVA adapters are feature-flagged and store credential references only
 - Playwright discovery/start respect the Playwright feature flag and auto-discovery setting
-- Application CDE roots currently follow the Front, Back NodeJS/DataService, and Gateway URL patterns provided for `cde.edus.ir`
+- Application CDE roots are validated to start with `https://cde.edus.ir/` and to match the configured Front, Back NodeJS/DataService, or Gateway URL pattern
 - Playwright files created or edited inside UTMS are treated as managed files and remain selectable for execution even if auto-discovery is disabled
 - Reporter selection is simulated end-to-end in the mock layer: command option, report artifact extension/MIME, in-modal preview, and downloadable file content are kept consistent
 - Playwright report content includes named Passed, Skipped, Cancelled, and Failed details; failed details include file location and code frame

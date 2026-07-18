@@ -5,6 +5,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useAuthStore } from '../stores/authStore';
 import { applicationApi, systemSettingsApi, workflowPolicyApi } from '../services/api';
+import { syncApplicationWorkflowPolicies } from '../services/workflowPolicyStore';
 import { toast } from '../components/ui/Toast';
 import type {
   Application,
@@ -31,8 +32,31 @@ interface SettingItem {
   options?: { value: string; label: string }[];
 }
 
+const ToggleSwitch: React.FC<{ checked: boolean; label: string; onChange: () => void }> = ({
+  checked,
+  label,
+  onChange,
+}) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    aria-label={label}
+    onClick={onChange}
+    className={`relative h-7 w-14 flex-shrink-0 rounded-full transition-colors ${
+      checked ? 'bg-blue-600' : 'bg-gray-300'
+    }`}
+  >
+    <span
+      className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${
+        checked ? 'right-8' : 'right-1'
+      }`}
+    />
+  </button>
+);
+
 export const SettingsPage: React.FC = () => {
-  const { activeContext } = useAuthStore();
+  const { activeContext, refreshContexts } = useAuthStore();
   const [applications, setApplications] = useState<Application[]>([]);
   const [workflowPolicies, setWorkflowPolicies] = useState<WorkflowPolicy[]>([]);
   const [workflowLoading, setWorkflowLoading] = useState(true);
@@ -89,6 +113,7 @@ export const SettingsPage: React.FC = () => {
         workflowPolicyApi.getAll(),
       ]);
       const integrationSettings = await systemSettingsApi.getIntegrationSettings();
+      syncApplicationWorkflowPolicies(apps);
       setApplications(apps);
       setWorkflowPolicies(policies);
       setRunnerDraft(integrationSettings.playwright);
@@ -150,7 +175,9 @@ export const SettingsPage: React.FC = () => {
         toast.error('سامانه یافت نشد.');
         return;
       }
+      syncApplicationWorkflowPolicies([updated]);
       setApplications(prev => prev.map(app => app.id === applicationId ? updated : app));
+      await refreshContexts();
       toast.success('سیاست گردش‌کار انتشار به‌روزرسانی شد.');
     } catch {
       toast.error('خطا در به‌روزرسانی سیاست گردش‌کار.');
@@ -203,62 +230,75 @@ export const SettingsPage: React.FC = () => {
     },
   ];
 
+  const renderSettingSection = (section: SettingSection) => (
+    <Card key={section.id}>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="p-2 bg-gray-100 rounded-lg">
+          {section.icon}
+        </div>
+        <div className="min-w-0">
+          <h3 className="font-semibold text-gray-900">{section.title}</h3>
+          <p className="text-sm text-gray-500">{section.description}</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {section.settings.map((setting) => (
+          <div
+            key={setting.id}
+            className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 last:border-0"
+          >
+            <div className="min-w-0">
+              <p className="font-medium text-gray-900">{setting.label}</p>
+              {setting.description && (
+                <p className="text-sm text-gray-500">{setting.description}</p>
+              )}
+            </div>
+            {setting.type === 'toggle' && (
+              <ToggleSwitch
+                checked={Boolean(setting.value)}
+                label={setting.label}
+                onChange={() => handleToggle(setting.id)}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header
         title="تنظیمات سیستم"
-        subtitle="پیکربندی و تنظیمات"
+        subtitle="پیکربندی دسته‌بندی‌شده سامانه، اجرا و سیاست انتشار"
       />
 
       <main className="p-4 sm:p-6">
-        <div className="max-w-3xl mx-auto space-y-6">
-          {sections.map((section) => (
-            <Card key={section.id}>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-gray-100 rounded-lg">
-                  {section.icon}
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">{section.title}</h3>
-                  <p className="text-sm text-gray-500">{section.description}</p>
-                </div>
-              </div>
+        <div className="max-w-6xl mx-auto space-y-6">
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">اعلان و امنیت</h2>
+              <p className="text-sm text-gray-500">تنظیمات رفتار حساب، اعلان‌ها و کنترل‌های امنیتی.</p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {sections
+                .filter(section => ['notifications', 'security'].includes(section.id))
+                .map(renderSettingSection)}
+            </div>
+          </section>
 
-              <div className="space-y-4">
-                {section.settings.map((setting) => (
-                  <div
-                    key={setting.id}
-                    className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0"
-                  >
-                    <div>
-                      <p className="font-medium text-gray-900">{setting.label}</p>
-                      {setting.description && (
-                        <p className="text-sm text-gray-500">{setting.description}</p>
-                      )}
-                    </div>
-                    {setting.type === 'toggle' && (
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={Boolean(setting.value)}
-                        aria-label={setting.label}
-                        onClick={() => handleToggle(setting.id)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                          setting.value ? 'bg-blue-600' : 'bg-gray-300'
-                        }`}
-                      >
-                        <span
-                          className={`theme-switch-thumb inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                            setting.value ? 'translate-x-1' : 'translate-x-6'
-                          }`}
-                        />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </Card>
-          ))}
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">اجرای تست و اتصال‌ها</h2>
+              <p className="text-sm text-gray-500">تنظیمات Playwright، Adapterها و اتصال به سامانه‌های بیرونی.</p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {sections
+                .filter(section => ['playwright', 'integrations'].includes(section.id))
+                .map(renderSettingSection)}
+            </div>
+          </section>
 
           {runnerDraft && adapterDrafts && (
             <Card>
@@ -267,8 +307,8 @@ export const SettingsPage: React.FC = () => {
                   <Terminal className="w-5 h-5 text-purple-500" />
                 </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900">مرز Runner و Integration</h3>
-                  <p className="text-sm text-gray-500">تنظیمات mock برای اتصال بک‌اند، Runner و Adapterهای خارجی</p>
+                  <h3 className="font-semibold text-gray-900">جزئیات Runner و Adapterها</h3>
+                  <p className="text-sm text-gray-500">پیکربندی اجرای Playwright و اتصال‌های CDE/FAVA</p>
                 </div>
               </div>
 
@@ -444,27 +484,35 @@ export const SettingsPage: React.FC = () => {
 
             <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
               <div>
-                <p className="text-gray-500">نسخه سیستم</p>
-                <p className="font-mono font-medium">1.0.0-MVP</p>
+                <p className="text-gray-500">نسخه Workspace</p>
+                <p className="font-mono font-medium">utms 0.0.0</p>
               </div>
               <div>
                 <p className="text-gray-500">محیط</p>
-                <p className="font-mono font-medium">Development</p>
+                <p className="font-mono font-medium">Local development</p>
               </div>
               <div>
                 <p className="text-gray-500">Frontend</p>
-                <p className="font-mono font-medium">React 19 + Vite</p>
+                <p className="font-mono font-medium">React 19.2.6 + Vite 7.3.6</p>
               </div>
               <div>
                 <p className="text-gray-500">Backend</p>
-                <p className="font-mono font-medium">Mock API (MVP)</p>
+                <p className="font-mono font-medium">Domain RPC + API Console server</p>
+              </div>
+              <div>
+                <p className="text-gray-500">TypeScript</p>
+                <p className="font-mono font-medium">5.9.3</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Playwright</p>
+                <p className="font-mono font-medium">1.55.0</p>
               </div>
             </div>
           </Card>
 
           <div className="flex justify-end">
             <Button onClick={saveSystemSettings} loading={settingsSaving}>
-              ذخیره تنظیمات Runner و Integration
+              ذخیره تنظیمات اجرا و اتصال‌ها
             </Button>
           </div>
         </div>

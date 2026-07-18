@@ -15,7 +15,8 @@ import { useAuthStore, canPerformWorkflowAction, getWorkflowPolicyForContext } f
 import { useDataScope } from '../utils/useDataScope';
 import { useApplicationLookup } from '../utils/useApplicationLookup';
 import { formatDisplayId } from '../utils/displayId';
-import { releasePublishApi, commentApi, testRequestApi } from '../services/api';
+import { applicationApi, releasePublishApi, commentApi, testRequestApi } from '../services/api';
+import { syncApplicationWorkflowPolicies } from '../services/workflowPolicyStore';
 import { toast } from '../components/ui/Toast';
 import type { ReleasePublish, Bug, Comment, TestRequest, VersionHistoryEvidence, CartableFilterParams, PaginatedResponse, QAQualityStatus, VersionHistoryDecision, TestType } from '../types';
 import { 
@@ -124,10 +125,12 @@ export const ReleasesPage: React.FC = () => {
     if (!activeContext) return;
     setLoading(true);
     try {
-      const [response, requests] = await Promise.all([
+      const [response, requests, applications] = await Promise.all([
         releasePublishApi.getAll(appId, filters),
         releasePublishApi.getPrimaryRequestCandidates(appId),
+        applicationApi.getAll(),
       ]);
+      syncApplicationWorkflowPolicies(applications);
       setData(response);
       setPrimaryRequestTitles(Object.fromEntries(requests.map(request => [request.id, request.title])));
     } catch {
@@ -161,7 +164,11 @@ export const ReleasesPage: React.FC = () => {
   const loadEligibleRequests = async () => {
     if (!activeContext) return;
     try {
-      const requests = await releasePublishApi.getPrimaryRequestCandidates(appId);
+      const [requests, applications] = await Promise.all([
+        releasePublishApi.getPrimaryRequestCandidates(appId),
+        applicationApi.getAll(),
+      ]);
+      syncApplicationWorkflowPolicies(applications);
       setEligibleRequests(requests.filter(req =>
         canPerformWorkflowAction(activeContext, 'versionHistory:create', req.applicationId)
       ));

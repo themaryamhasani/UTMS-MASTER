@@ -54,6 +54,19 @@ export interface PersistedSecurityReviewRecord {
   updatedAt: string;
 }
 
+export interface PersistedUserCredential {
+  userId: string;
+  password: string;
+  updatedAt: string;
+}
+
+export interface PersistedPasswordResetOtp {
+  userId: string;
+  code: string;
+  expiresAt: string;
+  requestedAt: string;
+}
+
 export interface PersistedUtmsState {
   schemaVersion: 1;
   savedAt: string;
@@ -78,6 +91,8 @@ export interface PersistedUtmsState {
   users: User[];
   applications: Application[];
   userRoleAssignments: UserRoleAssignment[];
+  userCredentials?: PersistedUserCredential[];
+  passwordResetOtps?: PersistedPasswordResetOtp[];
   commandTraces: CommandTrace[];
   systemIntegrationSettings: SystemIntegrationSettings;
   securityChecklistTemplate: PersistedSecurityChecklistTemplateItem[];

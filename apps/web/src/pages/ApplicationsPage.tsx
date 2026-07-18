@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Building2, Users, Plus, Edit, Trash2, Eye } from 'lucide-react';
+import { Search, Building2, Users, Plus, Edit, Power, Eye } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -13,6 +13,24 @@ import { toast } from '../components/ui/Toast';
 import type { Application, CartableFilterParams } from '../types';
 import { ROLE_LABELS } from '../types';
 import { mockUserRoleAssignments, mockUsers } from '../services/seedData';
+
+const CDE_BASE_URL = 'https://cde.edus.ir/';
+const CDE_ROOT_RULES = {
+  cdeFrontUrl: {
+    prefix: `${CDE_BASE_URL}front/`,
+    label: 'فرانت سامانه',
+  },
+  cdeDataServiceUrl: {
+    prefix: `${CDE_BASE_URL}dservice/`,
+    label: 'Back NodeJS / DataService',
+  },
+  cdeGatewayUrl: {
+    prefix: `${CDE_BASE_URL}back/`,
+    label: 'Gateway',
+  },
+} as const;
+
+type CdeRootField = keyof typeof CDE_ROOT_RULES;
 
 const emptyAppForm = {
   name: '',
@@ -51,7 +69,10 @@ export const ApplicationsPage: React.FC = () => {
   };
 
   const getAppUsers = (appId: string) => {
-    const assignments = mockUserRoleAssignments.filter(a => a.applicationId === appId && a.isActive);
+    const assignments = mockUserRoleAssignments.filter(a => {
+      const assignmentApplicationIds = a.applicationIds?.length ? a.applicationIds : [a.applicationId];
+      return a.isActive && (a.scope === 'APP' || assignmentApplicationIds.includes(appId));
+    });
     const userIds = [...new Set(assignments.map(a => a.userId))];
     return userIds.map(uid => {
       const user = mockUsers.find(u => u.id === uid);
@@ -60,10 +81,32 @@ export const ApplicationsPage: React.FC = () => {
     }).filter(u => u.user);
   };
 
+  const validateCdeRoot = (field: CdeRootField): string | undefined => {
+    const value = appForm[field].trim();
+    if (!value) return undefined;
+    const rule = CDE_ROOT_RULES[field];
+    if (!value.startsWith(CDE_BASE_URL)) {
+      return `آدرس ${rule.label} باید با ${CDE_BASE_URL} شروع شود.`;
+    }
+    if (!value.startsWith(rule.prefix)) {
+      return `آدرس ${rule.label} باید مطابق هینت همین فیلد باشد.`;
+    }
+    try {
+      new URL(value);
+    } catch {
+      return `آدرس ${rule.label} معتبر نیست.`;
+    }
+    return undefined;
+  };
+
   const validateForm = () => {
     const errors: Record<string, string> = {};
     if (!appForm.name.trim()) errors.name = 'نام سامانه الزامی است.';
     if (!appForm.code.trim()) errors.code = 'کد سامانه الزامی است.';
+    (Object.keys(CDE_ROOT_RULES) as CdeRootField[]).forEach(field => {
+      const error = validateCdeRoot(field);
+      if (error) errors[field] = error;
+    });
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -82,7 +125,13 @@ export const ApplicationsPage: React.FC = () => {
       });
       toast.success(`سامانه «${appForm.name}» با موفقیت ایجاد شد.`);
       setShowCreateModal(false); setAppForm(emptyAppForm); loadData();
-    } catch { toast.error('خطا در ایجاد سامانه.'); }
+    } catch (error) {
+      if (error instanceof Error && error.message === 'APPLICATION_CDE_ROOT_INVALID') {
+        toast.error('آدرس‌های CDE باید مطابق هینت و با https://cde.edus.ir/ باشند.');
+      } else {
+        toast.error('خطا در ایجاد سامانه.');
+      }
+    }
     finally { setActionLoading(false); }
   };
 
@@ -100,16 +149,23 @@ export const ApplicationsPage: React.FC = () => {
       });
       toast.success(`سامانه «${appForm.name}» ویرایش شد.`);
       setShowEditModal(false); loadData();
-    } catch { toast.error('خطا در ویرایش.'); }
+    } catch (error) {
+      if (error instanceof Error && error.message === 'APPLICATION_CDE_ROOT_INVALID') {
+        toast.error('آدرس‌های CDE باید مطابق هینت و با https://cde.edus.ir/ باشند.');
+      } else {
+        toast.error('خطا در ویرایش.');
+      }
+    }
     finally { setActionLoading(false); }
   };
 
-  const handleDelete = async () => {
+  const handleToggleActive = async () => {
     if (!selectedApp) return;
     setActionLoading(true);
     try {
-      await applicationApi.deactivate(selectedApp.id);
-      toast.success(`سامانه «${selectedApp.name}» غیرفعال شد.`);
+      const nextActive = !selectedApp.isActive;
+      await applicationApi.update(selectedApp.id, { isActive: nextActive });
+      toast.success(`سامانه «${selectedApp.name}» ${nextActive ? 'فعال' : 'غیرفعال'} شد.`);
       setShowDeleteConfirm(false); loadData();
     } catch { toast.error('خطا.'); }
     finally { setActionLoading(false); }
@@ -183,8 +239,15 @@ export const ApplicationsPage: React.FC = () => {
                   });
                   setShowEditModal(true);
                 }}>ویرایش</Button>
-              <Button size="sm" variant="ghost" className="text-red-600" icon={<Trash2 className="w-3.5 h-3.5" />}
-                onClick={(e) => { e.stopPropagation(); setSelectedApp(item); setShowDeleteConfirm(true); }}>حذف</Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className={item.isActive ? 'text-amber-700' : 'text-green-700'}
+                icon={<Power className="w-3.5 h-3.5" />}
+                onClick={(e) => { e.stopPropagation(); setSelectedApp(item); setShowDeleteConfirm(true); }}
+              >
+                {item.isActive ? 'غیرفعال' : 'فعال‌سازی'}
+              </Button>
             </>
           )}
         </div>
@@ -236,6 +299,7 @@ export const ApplicationsPage: React.FC = () => {
               placeholder="https://cde.edus.ir/front/directory/medu-community%3EApp"
               value={appForm.cdeFrontUrl}
               onChange={(e) => setAppForm({ ...appForm, cdeFrontUrl: e.target.value })}
+              error={formErrors.cdeFrontUrl}
               dir="ltr"
             />
             <Input
@@ -243,6 +307,7 @@ export const ApplicationsPage: React.FC = () => {
               placeholder="https://cde.edus.ir/dservice/directory/medu-community%3EApp"
               value={appForm.cdeDataServiceUrl}
               onChange={(e) => setAppForm({ ...appForm, cdeDataServiceUrl: e.target.value })}
+              error={formErrors.cdeDataServiceUrl}
               dir="ltr"
             />
             <Input
@@ -250,6 +315,7 @@ export const ApplicationsPage: React.FC = () => {
               placeholder="https://cde.edus.ir/back/medu-ai/medu-community%3E?return=/workspace/medu-ai"
               value={appForm.cdeGatewayUrl}
               onChange={(e) => setAppForm({ ...appForm, cdeGatewayUrl: e.target.value })}
+              error={formErrors.cdeGatewayUrl}
               dir="ltr"
             />
           </div>
@@ -278,18 +344,21 @@ export const ApplicationsPage: React.FC = () => {
               label="آدرس فرانت سامانه در CDE"
               value={appForm.cdeFrontUrl}
               onChange={(e) => setAppForm({ ...appForm, cdeFrontUrl: e.target.value })}
+              error={formErrors.cdeFrontUrl}
               dir="ltr"
             />
             <Input
               label="آدرس Back NodeJS / DataService در CDE"
               value={appForm.cdeDataServiceUrl}
               onChange={(e) => setAppForm({ ...appForm, cdeDataServiceUrl: e.target.value })}
+              error={formErrors.cdeDataServiceUrl}
               dir="ltr"
             />
             <Input
               label="آدرس Gateway در CDE"
               value={appForm.cdeGatewayUrl}
               onChange={(e) => setAppForm({ ...appForm, cdeGatewayUrl: e.target.value })}
+              error={formErrors.cdeGatewayUrl}
               dir="ltr"
             />
           </div>
@@ -356,6 +425,17 @@ export const ApplicationsPage: React.FC = () => {
                   });
                   setShowEditModal(true);
                 }}>ویرایش</Button>}
+              {canManage && <Button
+                variant="secondary"
+                className={selectedApp.isActive ? 'text-amber-700' : 'text-green-700'}
+                icon={<Power className="w-4 h-4" />}
+                onClick={() => {
+                  setShowDetailModal(false);
+                  setShowDeleteConfirm(true);
+                }}
+              >
+                {selectedApp.isActive ? 'غیرفعال کردن' : 'فعال‌سازی'}
+              </Button>}
               <Button variant="secondary" onClick={() => setShowDetailModal(false)}>بستن</Button>
             </div>
           </div>
@@ -363,9 +443,9 @@ export const ApplicationsPage: React.FC = () => {
       </Modal>
 
       <ConfirmModal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={handleDelete} title="حذف سامانه"
-        message={`آیا از حذف/غیرفعال‌سازی سامانه «${selectedApp?.name}» اطمینان دارید؟`}
-        variant="danger" confirmText="حذف" loading={actionLoading} />
+        onConfirm={handleToggleActive} title={selectedApp?.isActive ? 'غیرفعال کردن سامانه' : 'فعال‌سازی سامانه'}
+        message={`آیا از ${selectedApp?.isActive ? 'غیرفعال کردن' : 'فعال‌سازی'} سامانه «${selectedApp?.name}» اطمینان دارید؟`}
+        variant={selectedApp?.isActive ? 'warning' : 'primary'} confirmText={selectedApp?.isActive ? 'غیرفعال کردن' : 'فعال‌سازی'} loading={actionLoading} />
     </div>
   );
 };
