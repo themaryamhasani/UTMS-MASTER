@@ -2056,7 +2056,6 @@ export const OnlineApiConsolePage: React.FC = () => {
     <div className="min-h-screen bg-gray-50">
       <Header
         title="Online API Console"
-        subtitle="API client داخلی برای Import cURL، ویرایش Core-aware، اجرای امن از backend Runner و ساخت سند"
         onRefresh={loadAll}
         refreshing={loading}
         actions={canManageGeneralSettings ? (
@@ -2111,7 +2110,6 @@ export const OnlineApiConsolePage: React.FC = () => {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h2 className="text-sm font-semibold text-gray-900">Requestهای من</h2>
-                    <p className="text-xs text-gray-500">هر user فقط Request و Collectionهای خودش را می‌بیند.</p>
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <Button

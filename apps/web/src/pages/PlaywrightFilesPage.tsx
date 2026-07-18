@@ -338,7 +338,6 @@ export const PlaywrightFilesPage: React.FC = () => {
     <div className="min-h-screen bg-gray-50">
       <Header
         title="فایل‌های تست Playwright"
-        subtitle="مشاهده، ایجاد و ویرایش فایل‌های تست خوانده‌شده از CDE"
         onRefresh={() => {
           loadFiles();
           if (formData.applicationId) loadFolders(formData.applicationId);

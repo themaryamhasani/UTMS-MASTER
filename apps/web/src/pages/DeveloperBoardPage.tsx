@@ -369,7 +369,6 @@ export const DeveloperBoardPage: React.FC = () => {
     <div className="min-h-screen bg-gray-50">
       <Header
         title="برد توسعه"
-        subtitle={`${bugs.length} باگ قابل اقدام برای ${activeContext.user.fullName}`}
         onRefresh={loadBugs}
         refreshing={loading}
       />

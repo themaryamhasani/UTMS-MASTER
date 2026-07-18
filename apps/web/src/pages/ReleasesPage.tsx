@@ -14,17 +14,41 @@ import { Input, Textarea, Select } from '../components/ui/Input';
 import { useAuthStore, canPerformWorkflowAction, getWorkflowPolicyForContext } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
 import { useApplicationLookup } from '../utils/useApplicationLookup';
+import { formatDisplayId } from '../utils/displayId';
 import { releasePublishApi, commentApi, testRequestApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
-import type { ReleasePublish, Bug, Comment, TestRequest, VersionHistoryEvidence, CartableFilterParams, PaginatedResponse, QAQualityStatus, VersionHistoryDecision } from '../types';
+import type { ReleasePublish, Bug, Comment, TestRequest, VersionHistoryEvidence, CartableFilterParams, PaginatedResponse, QAQualityStatus, VersionHistoryDecision, TestType } from '../types';
 import { 
   RELEASE_PUBLISH_STATUS_LABELS, 
   QA_QUALITY_STATUS_LABELS,
   BUG_SEVERITY_LABELS,
   TEST_RUN_STATUS_LABELS,
   PRIORITY_LABELS,
-  TEST_REQUEST_STATUS_LABELS
+  TEST_REQUEST_STATUS_LABELS,
+  TEST_TYPE_LABELS
 } from '../types';
+
+const REQUEST_ENVIRONMENT_LABELS: Record<string, string> = {
+  development: 'توسعه',
+  staging: 'آزمایشی',
+  production: 'تولید',
+};
+
+const REQUEST_TEST_TYPE_FALLBACK_LABELS: Record<string, string> = {
+  SECURITY_TEST: 'تست امنیت',
+  PERFORMANCE_TEST: 'تست کارایی',
+  PLAYWRIGHT: 'پلی‌رایت',
+  PLAYWRIGHT_TEST: 'تست پلی‌رایت',
+};
+
+const formatRequestEnvironment = (environment: string) =>
+  REQUEST_ENVIRONMENT_LABELS[environment] || environment;
+
+const formatRequestTestType = (testType: string) =>
+  TEST_TYPE_LABELS[testType as TestType] || REQUEST_TEST_TYPE_FALLBACK_LABELS[testType] || testType;
+
+const formatRequestTestTypes = (testTypes?: string[]) =>
+  testTypes?.length ? testTypes.map(formatRequestTestType).join('، ') : '-';
 
 export const ReleasesPage: React.FC = () => {
   const { activeContext } = useAuthStore();
@@ -380,7 +404,7 @@ export const ReleasesPage: React.FC = () => {
   const testCaseItems = evidence?.testCases.map(tc => ({
     id: tc.id,
     title: tc.title,
-    subtitle: `${tc.scenario || 'بدون سناریو'} | Requirement: ${tc.requirementId}`,
+    subtitle: `${tc.scenario || 'بدون سناریو'} | Requirement: ${formatDisplayId(tc.requirementId, 'REQ')}`,
     status: tc.status,
   })) || [];
   const testRunItems = (status?: string | string[]) => {
@@ -389,7 +413,7 @@ export const ReleasesPage: React.FC = () => {
       .filter(run => !statuses || statuses.includes(run.status))
       .map(run => ({
         id: run.id,
-        title: run.testCase?.title || run.testCaseId,
+        title: run.testCase?.title || formatDisplayId(run.testCaseId, 'TC'),
         subtitle: `نسخه ${run.version}${run.buildNumber ? ` / بیلد ${run.buildNumber}` : ''}`,
         status: TEST_RUN_STATUS_LABELS[run.status],
       }));
@@ -408,8 +432,8 @@ export const ReleasesPage: React.FC = () => {
     .filter(task => !statuses || statuses.includes(task.status))
     .map(task => ({
       id: task.id,
-      title: task.bug?.title || task.bugId,
-      subtitle: `Run قبلی: ${task.previousRun?.testCase?.title || task.previousRunId}`,
+      title: task.bug?.title || formatDisplayId(task.bugId, 'BUG'),
+      subtitle: `Run قبلی: ${task.previousRun?.testCase?.title || formatDisplayId(task.previousRunId, 'RUN')}`,
       status: task.status,
     }));
   };
@@ -466,17 +490,10 @@ export const ReleasesPage: React.FC = () => {
     },
     {
       key: 'primaryTestRequestId',
-      title: 'Primary Request',
+      title: 'درخواست تست',
       render: (item: ReleasePublish) => {
         const requestTitle = primaryRequestTitles[item.primaryTestRequestId];
-        return (
-          <div>
-            <p className="font-medium text-gray-900">{requestTitle || item.primaryTestRequestId}</p>
-            {requestTitle && (
-              <p className="mt-0.5 font-mono text-xs text-gray-500" dir="ltr">{item.primaryTestRequestId}</p>
-            )}
-          </div>
-        );
+        return <p className="font-medium text-gray-900">{requestTitle || formatDisplayId(item.primaryTestRequestId, 'REQ')}</p>;
       },
     },
     ...(shouldShowSystemColumn ? [{
@@ -598,7 +615,6 @@ export const ReleasesPage: React.FC = () => {
       <div className="min-h-screen bg-gray-50">
         <Header
           title="وضعیت انتشار درخواست‌های من"
-          subtitle="نمای فقط خواندنی برای مشاهده VersionHistory و وضعیت پابلیش درخواست‌های ثبت‌شده توسط شما"
           onRefresh={loadDeveloperReleaseRequests}
           refreshing={loading}
         />
@@ -873,18 +889,18 @@ export const ReleasesPage: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
                     <div><p className="text-xs text-gray-500">نسخه</p><p className="font-medium">{primaryRequestDetails.version}</p></div>
                     <div><p className="text-xs text-gray-500">بیلد</p><p className="font-medium">{primaryRequestDetails.buildNumber || '-'}</p></div>
-                    <div><p className="text-xs text-gray-500">محیط</p><p className="font-medium">{primaryRequestDetails.environment}</p></div>
-                    <div><p className="text-xs text-gray-500">وضعیت</p><p className="font-medium">{primaryRequestDetails.status}</p></div>
+                    <div><p className="text-xs text-gray-500">محیط</p><p className="font-medium">{formatRequestEnvironment(primaryRequestDetails.environment)}</p></div>
+                    <div><p className="text-xs text-gray-500">وضعیت</p><StatusBadge status={primaryRequestDetails.status} labels={TEST_REQUEST_STATUS_LABELS} /></div>
                     <div><p className="text-xs text-gray-500">اولویت</p><p className="font-medium">{PRIORITY_LABELS[primaryRequestDetails.priority]}</p></div>
                     <div><p className="text-xs text-gray-500">سطح ریسک</p><p className="font-medium">{PRIORITY_LABELS[primaryRequestDetails.riskLevel]}</p></div>
                     <div><p className="text-xs text-gray-500">درخواست‌دهنده</p><p className="font-medium">{primaryRequestDetails.requester?.fullName || '-'}</p></div>
                     <div><p className="text-xs text-gray-500">تستر</p><p className="font-medium">{primaryRequestDetails.assignee?.fullName || '-'}</p></div>
                     <div className="md:col-span-2"><p className="text-xs text-gray-500">آدرس سامانه</p><p className="font-medium text-blue-700">{primaryRequestDetails.systemUrl || '-'}</p></div>
-                    <div className="md:col-span-2"><p className="text-xs text-gray-500">نوع تست</p><p className="font-medium">{primaryRequestDetails.testTypes?.join('، ') || '-'}</p></div>
+                    <div className="md:col-span-2"><p className="text-xs text-gray-500">نوع تست</p><p className="font-medium">{formatRequestTestTypes(primaryRequestDetails.testTypes)}</p></div>
                   </div>
                 </div>
               ) : (
-                <p className="text-sm text-gray-600">{selectedRelease.primaryTestRequestId}</p>
+                <p className="text-sm text-gray-600">{formatDisplayId(selectedRelease.primaryTestRequestId, 'REQ')}</p>
               )}
             </div>
 
@@ -965,7 +981,7 @@ export const ReleasesPage: React.FC = () => {
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-500">Playwright:</span>
+                    <span className="text-sm text-gray-500">پلی‌رایت:</span>
                     {selectedRelease.snapshot.playwrightPassRate !== undefined ? (
                       <span className="font-medium">{selectedRelease.snapshot.playwrightPassRate}%</span>
                     ) : (
@@ -1195,12 +1211,12 @@ export const ReleasesPage: React.FC = () => {
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <span>نسخه: <strong>{primaryRequestDetails.version}</strong></span>
                 <span>بیلد: <strong>{primaryRequestDetails.buildNumber || '-'}</strong></span>
-                <span>محیط: <strong>{primaryRequestDetails.environment}</strong></span>
+                <span>محیط: <strong>{formatRequestEnvironment(primaryRequestDetails.environment)}</strong></span>
                 <span>اولویت: <strong>{PRIORITY_LABELS[primaryRequestDetails.priority]}</strong></span>
                 <span>ریسک: <strong>{PRIORITY_LABELS[primaryRequestDetails.riskLevel]}</strong></span>
                 <span>تستر: <strong>{primaryRequestDetails.assignee?.fullName || '-'}</strong></span>
                 <span className="col-span-2">آدرس سامانه: <strong>{primaryRequestDetails.systemUrl || '-'}</strong></span>
-                <span className="col-span-2">نوع تست: <strong>{primaryRequestDetails.testTypes?.join('، ') || '-'}</strong></span>
+                <span className="col-span-2">نوع تست: <strong>{formatRequestTestTypes(primaryRequestDetails.testTypes)}</strong></span>
               </div>
             </div>
           )}
@@ -1297,7 +1313,7 @@ export const ReleasesPage: React.FC = () => {
                   </div>
                   {item.status && <span className="text-xs px-2 py-1 bg-white border rounded text-gray-600">{item.status}</span>}
                 </div>
-                <p className="text-xs text-gray-400 mt-2">{item.id}</p>
+                <p className="text-xs text-gray-400 mt-2">{formatDisplayId(item.id)}</p>
               </div>
             ))
           )}

@@ -22,16 +22,17 @@ import { toast } from '../components/ui/Toast';
 import { isSemVer, SEMVER_HINT } from '../utils/semver';
 import { BUILD_NUMBER_INPUT_HINT, sanitizeBuildNumberInput, sanitizeVersionInput, VERSION_INPUT_HINT } from '../utils/inputRules';
 import { filterByRequestApplication, filterTestCasesForExecution } from '../utils/testManagementScope';
+import { formatDisplayId } from '../utils/displayId';
 import type {
   TestRun, TestCase, TestRequest, Bug, RetestTask, User, Comment, Requirement, Attachment, AttachmentType,
   CartableFilterParams, PaginatedResponse,
-  TestRunStatus, TestRunPurpose, BugSeverity, BugStatus, Priority, RunIssueType,
+  TestRunStatus, TestRunPurpose, BugSeverity, BugStatus, Priority, RunIssueType, TestType,
 } from '../types';
 import {
   TEST_RUN_STATUS_LABELS, BUG_STATUS_LABELS, BUG_SEVERITY_LABELS,
   PRIORITY_LABELS, RUN_ISSUE_TYPE_LABELS,
   TEST_TYPE_LABELS, TEST_RUN_PURPOSE_LABELS, RETEST_TASK_STATUS_LABELS,
-  ATTACHMENT_TYPE_LABELS,
+  ATTACHMENT_TYPE_LABELS, TEST_REQUEST_STATUS_LABELS,
 } from '../types';
 
 // Bug transitions
@@ -73,6 +74,28 @@ const EXECUTION_PURPOSES: Array<{ value: TestRunPurpose; label: string }> = [
   { value: 'PERFORMANCE_TEST', label: 'تست کارایی' },
   { value: 'EXPLORATORY', label: 'تست اکتشافی' },
 ];
+
+const REQUEST_ENVIRONMENT_LABELS: Record<string, string> = {
+  development: 'توسعه',
+  staging: 'آزمایشی',
+  production: 'تولید',
+};
+
+const REQUEST_TEST_TYPE_FALLBACK_LABELS: Record<string, string> = {
+  SECURITY_TEST: 'تست امنیت',
+  PERFORMANCE_TEST: 'تست کارایی',
+  PLAYWRIGHT: 'پلی‌رایت',
+  PLAYWRIGHT_TEST: 'تست پلی‌رایت',
+};
+
+const formatRequestEnvironment = (environment?: string) =>
+  environment ? REQUEST_ENVIRONMENT_LABELS[environment] || environment : '-';
+
+const formatRequestTestType = (testType: string) =>
+  TEST_TYPE_LABELS[testType as TestType] || REQUEST_TEST_TYPE_FALLBACK_LABELS[testType] || testType;
+
+const formatRequestTestTypes = (testTypes?: string[]) =>
+  testTypes?.length ? testTypes.map(formatRequestTestType).join('، ') : '-';
 
 // Bug entry in step 2 multi-bug form
 interface BugEntry {
@@ -155,6 +178,14 @@ export const TestRunsBugsPage: React.FC = () => {
   const [showBugDetailModal, setShowBugDetailModal] = useState(false);
   const [showRunDetailModal, setShowRunDetailModal] = useState(false);
   const [runDetailStep, setRunDetailStep] = useState(1); // 1=details, 2=bugs
+  const [runDetailSections, setRunDetailSections] = useState<Record<string, boolean>>({
+    request: true,
+    run: true,
+    retest: false,
+    testCase: true,
+    result: true,
+    attachments: false,
+  });
   const [showDevStatusModal, setShowDevStatusModal] = useState(false);
   const [showAssignBugModal, setShowAssignBugModal] = useState(false);
   const [selectedBug, setSelectedBug] = useState<Bug | null>(null);
@@ -910,7 +941,7 @@ export const TestRunsBugsPage: React.FC = () => {
 
   if (!activeContext) return null;
   const getAvailableTransitions = (bug: Bug) => {
-    if (bug.isLocked) return [];
+    if (bug.isLocked || bug.lockedByVersionHistoryId) return [];
     if (isDeveloper && bug.assigneeId === activeContext.userId) return DEV_BUG_TRANSITIONS[bug.status] || [];
     if (isQA || role === 'SYSTEM_ADMIN') return QA_BUG_TRANSITIONS[bug.status] || [];
     return [];
@@ -925,6 +956,18 @@ export const TestRunsBugsPage: React.FC = () => {
     ? openRetestTasks.find(t => getRetestTaskBugIds(t).includes(selectedBug.id))
     : undefined;
   const selectedRunBugs = selectedRun ? getBugsForRun(selectedRun.id) : [];
+  const selectedRunRequest = selectedRun
+    ? testRequests.find(request => request.id === selectedRun.testRequestId)
+    : undefined;
+  const selectedRunIsLocked = !!selectedRun && (selectedRun.isLocked || !!selectedRun.lockedByVersionHistoryId);
+  const selectedBugIsLocked = !!selectedBug && (selectedBug.isLocked || !!selectedBug.lockedByVersionHistoryId);
+  const formatLockDisplay = (locked: boolean, versionHistoryId?: string) => {
+    if (!locked) return 'باز';
+    return versionHistoryId ? `قفل شده - ${formatDisplayId(versionHistoryId, 'VH')}` : 'قفل شده';
+  };
+  const toggleRunDetailSection = (section: string) => {
+    setRunDetailSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
 
   // Detail field renderer
   const DetailField = ({ label, value, icon }: { label: string; value: string | undefined; icon?: React.ReactNode }) => (
@@ -933,6 +976,36 @@ export const TestRunsBugsPage: React.FC = () => {
       <div><p className="text-xs text-gray-500">{label}</p><p className="text-sm font-medium text-gray-900">{value || '-'}</p></div>
     </div>
   );
+
+  const AccordionSection = ({
+    id,
+    title,
+    icon,
+    children,
+  }: {
+    id: string;
+    title: string;
+    icon?: React.ReactNode;
+    children: React.ReactNode;
+  }) => {
+    const isOpen = runDetailSections[id] ?? true;
+    return (
+      <section className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <button
+          type="button"
+          onClick={() => toggleRunDetailSection(id)}
+          className="flex w-full items-center justify-between gap-3 bg-gray-50 px-4 py-3 text-right hover:bg-gray-100"
+        >
+          <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+            {icon}
+            {title}
+          </span>
+          {isOpen ? <ChevronUp className="h-4 w-4 text-gray-500" /> : <ChevronDown className="h-4 w-4 text-gray-500" />}
+        </button>
+        {isOpen && <div className="p-4">{children}</div>}
+      </section>
+    );
+  };
 
   const canEditRun = canPerformAction(role!, 'test-run:edit');
   const canDeleteRun = canPerformAction(role!, 'test-run:delete');
@@ -1003,8 +1076,8 @@ export const TestRunsBugsPage: React.FC = () => {
                 <div key={task.id} className="p-4 bg-white border border-purple-100 rounded-lg shadow-sm">
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div>
-                      <p className="font-medium text-gray-900">{task.previousRun?.testCase?.title || task.bug?.title || task.bugId}</p>
-                      <p className="text-xs text-gray-500 mt-1">Run قبلی: {task.previousRun?.testCase?.title || task.previousRunId}</p>
+                      <p className="font-medium text-gray-900">{task.previousRun?.testCase?.title || task.bug?.title || formatDisplayId(task.bugId, 'BUG')}</p>
+                      <p className="text-xs text-gray-500 mt-1">Run قبلی: {task.previousRun?.testCase?.title || formatDisplayId(task.previousRunId, 'RUN')}</p>
                       <p className="text-xs text-purple-700 mt-1">
                         {getRetestTaskBugIds(task).length} باگ آماده Retest/Regression
                         {task.assignedTo?.fullName ? ` | مسئول: ${task.assignedTo.fullName}` : ''}
@@ -1102,7 +1175,6 @@ export const TestRunsBugsPage: React.FC = () => {
               value={selectedWizardTestRequest?.applicationId || ''}
               onChange={() => undefined}
               disabled
-              hint="سامانه به‌صورت قطعی از درخواست تست انتخاب‌شده تعیین می‌شود."
             />
 
             {selectedWizardTestRequest && (
@@ -1192,7 +1264,7 @@ export const TestRunsBugsPage: React.FC = () => {
               <div className="p-4 bg-purple-50 rounded-lg border border-purple-200 space-y-3">
                 <p className="text-sm font-medium text-purple-800">📋 انتخاب تست ران قبلی (برای {wizardPurposes.includes('RETEST') ? 'Retest' : 'Regression'})</p>
                 <Select label="تست ران قبلی *" value={wizardPrevRunId} onChange={(e) => { clearWizardError('previousRunId'); setWizardPrevRunId(e.target.value); setWizardPrevRunExpanded(false); }}
-                  options={wizardPreviousRuns.map(r => ({ value: r.id, label: `${r.testCase?.title || r.id} — v${r.version} — ${TEST_RUN_STATUS_LABELS[r.status]}` }))} placeholder="انتخاب تست ران قبلی" disabled={!!activeRetestTaskId} error={wizardErrors.previousRunId} />
+                  options={wizardPreviousRuns.map(r => ({ value: r.id, label: `${r.testCase?.title || formatDisplayId(r.id, 'RUN')} — v${r.version} — ${TEST_RUN_STATUS_LABELS[r.status]}` }))} placeholder="انتخاب تست ران قبلی" disabled={!!activeRetestTaskId} error={wizardErrors.previousRunId} />
                 {/* Previous Run Accordion */}
                 {wizardPrevRunId && getPrevRun() && (
                   <div className="border rounded-lg overflow-hidden">
@@ -1270,7 +1342,7 @@ export const TestRunsBugsPage: React.FC = () => {
                       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div>
                           <p className="font-medium text-gray-900">
-                            {index + 1}. {bug?.title || bugId}
+                            {index + 1}. {bug?.title || formatDisplayId(bugId, 'BUG')}
                           </p>
                           <p className="mt-1 text-xs text-gray-500">
                             وضعیت فعلی: {bug ? BUG_STATUS_LABELS[bug.status] : '-'}
@@ -1433,7 +1505,7 @@ export const TestRunsBugsPage: React.FC = () => {
                   { value: '', label: 'بدون Run قبلی' },
                   ...allRuns
                     .filter(run => run.id !== selectedRun.id)
-                    .map(run => ({ value: run.id, label: `${run.testCase?.title || run.id} - v${run.version} - ${TEST_RUN_STATUS_LABELS[run.status]}` })),
+                    .map(run => ({ value: run.id, label: `${run.testCase?.title || formatDisplayId(run.id, 'RUN')} - v${run.version} - ${TEST_RUN_STATUS_LABELS[run.status]}` })),
                 ]}
                 disabled={!canEditRunFields(selectedRun)}
               />
@@ -1678,7 +1750,7 @@ export const TestRunsBugsPage: React.FC = () => {
                 <div className="flex items-start justify-between">
                   <h3 className="text-lg font-semibold text-gray-900">{selectedRun.testCase?.title || '-'}</h3>
                   <div className="flex items-center gap-2">
-                    {selectedRun.isLocked && (
+                    {selectedRunIsLocked && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700">
                         <Lock className="w-3.5 h-3.5" />
                         قفل شده
@@ -1687,8 +1759,42 @@ export const TestRunsBugsPage: React.FC = () => {
                     <StatusBadge status={selectedRun.status} labels={TEST_RUN_STATUS_LABELS} />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
-                  <DetailField label="شناسه اجرا" value={selectedRun.id} icon={<Hash className="w-4 h-4" />} />
+
+                <AccordionSection id="request" title="درخواست تست انتخاب‌شده" icon={<FileText className="h-4 w-4 text-blue-500" />}>
+                  {selectedRunRequest ? (
+                    <div className="space-y-3">
+                      <div>
+                        <p className="font-medium text-gray-900">{selectedRunRequest.title}</p>
+                        {selectedRunRequest.description && (
+                          <p className="mt-1 text-sm text-gray-600">{selectedRunRequest.description}</p>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 md:grid-cols-4">
+                        <DetailField label="شناسه درخواست" value={formatDisplayId(selectedRunRequest.id, 'REQ')} icon={<Hash className="w-4 h-4" />} />
+                        <DetailField label="سامانه" value={getApplicationName(selectedRunRequest.applicationId)} icon={<Layers className="w-4 h-4" />} />
+                        <DetailField label="نسخه" value={selectedRunRequest.version} />
+                        <DetailField label="شماره بیلد" value={selectedRunRequest.buildNumber || '-'} />
+                        <DetailField label="محیط" value={formatRequestEnvironment(selectedRunRequest.environment)} />
+                        <div className="py-2">
+                          <p className="text-xs text-gray-500">وضعیت درخواست</p>
+                          <StatusBadge status={selectedRunRequest.status} labels={TEST_REQUEST_STATUS_LABELS} />
+                        </div>
+                        <DetailField label="اولویت" value={PRIORITY_LABELS[selectedRunRequest.priority]} />
+                        <DetailField label="سطح ریسک" value={PRIORITY_LABELS[selectedRunRequest.riskLevel]} />
+                        <DetailField label="نوع تست" value={formatRequestTestTypes(selectedRunRequest.testTypes)} />
+                        <DetailField label="درخواست‌دهنده" value={selectedRunRequest.requester?.fullName || '-'} icon={<UserIcon className="w-4 h-4" />} />
+                        <DetailField label="تستر" value={selectedRunRequest.assignee?.fullName || '-'} icon={<UserIcon className="w-4 h-4" />} />
+                        <DetailField label="آدرس سامانه" value={selectedRunRequest.systemUrl || '-'} />
+                      </div>
+                    </div>
+                  ) : (
+                    <DetailField label="شناسه درخواست" value={formatDisplayId(selectedRun.testRequestId, 'REQ')} icon={<Hash className="w-4 h-4" />} />
+                  )}
+                </AccordionSection>
+
+                <AccordionSection id="run" title="اطلاعات اجرا" icon={<PlayCircle className="h-4 w-4 text-blue-500" />}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  <DetailField label="شناسه اجرا" value={formatDisplayId(selectedRun.id, 'RUN')} icon={<Hash className="w-4 h-4" />} />
                   <DetailField label="سامانه" value={getApplicationName(selectedRun.applicationId)} icon={<Layers className="w-4 h-4" />} />
                   <DetailField label="نسخه" value={selectedRun.version} icon={<Layers className="w-4 h-4" />} />
                   <DetailField label="شماره بیلد" value={selectedRun.buildNumber || '-'} icon={<Hash className="w-4 h-4" />} />
@@ -1696,26 +1802,35 @@ export const TestRunsBugsPage: React.FC = () => {
                   <DetailField label="اجراکننده" value={selectedRun.executedBy?.fullName || '-'} icon={<UserIcon className="w-4 h-4" />} />
                   <DetailField label="تاریخ اجرا" value={selectedRun.executedAt ? new Date(selectedRun.executedAt).toLocaleString('fa-IR') : '-'} icon={<Clock className="w-4 h-4" />} />
                   <DetailField label="تاریخ ایجاد" value={new Date(selectedRun.createdAt).toLocaleString('fa-IR')} icon={<Clock className="w-4 h-4" />} />
-                  <DetailField label="قفل تصمیم انتشار" value={selectedRun.isLocked ? (selectedRun.lockedByVersionHistoryId || 'قفل شده') : 'باز'} icon={<Lock className="w-4 h-4" />} />
-                </div>
-                {selectedRun.isLocked && (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-                    این Run پس از تصمیم VersionHistory قفل شده است. تغییر فقط با Unlock ممیزی‌شده توسط System Admin مجاز است.
+                  <DetailField label="قفل تصمیم انتشار" value={formatLockDisplay(selectedRunIsLocked, selectedRun.lockedByVersionHistoryId)} icon={<Lock className="w-4 h-4" />} />
+                  </div>
+                </AccordionSection>
+                {selectedRunIsLocked && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                    <span>این Run پس از تصمیم VersionHistory قفل شده است. تغییر فقط با Unlock ممیزی‌شده توسط System Admin مجاز است.</span>
+                    {canAdminUnlock && (
+                      <Button
+                        size="sm"
+                        variant="warning"
+                        icon={<Unlock className="w-4 h-4" />}
+                        onClick={() => openUnlockModal({ type: 'RUN', id: selectedRun.id, title: selectedRun.testCase?.title || formatDisplayId(selectedRun.id, 'RUN') })}
+                      >
+                        Unlock
+                      </Button>
+                    )}
                   </div>
                 )}
                 {(selectedRun.retestTaskId || selectedRun.previousRunId || selectedRun.purposes?.length) && (
-                  <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-                    <h4 className="font-medium text-purple-800 mb-2 flex items-center gap-2"><Target className="w-4 h-4" /> اطلاعات Retest/Regression</h4>
+                  <AccordionSection id="retest" title="اطلاعات Retest/Regression" icon={<Target className="h-4 w-4 text-purple-500" />}>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                      <DetailField label="RetestTask" value={selectedRun.retestTaskId || '-'} />
-                      <DetailField label="Run قبلی" value={selectedRun.previousRunId || '-'} />
+                      <DetailField label="RetestTask" value={selectedRun.retestTaskId ? formatDisplayId(selectedRun.retestTaskId, 'RT') : '-'} />
+                      <DetailField label="Run قبلی" value={selectedRun.previousRunId ? formatDisplayId(selectedRun.previousRunId, 'RUN') : '-'} />
                       <DetailField label="اهداف اجرا" value={selectedRun.purposes?.map(p => TEST_RUN_PURPOSE_LABELS[p]).join('، ') || '-'} />
                     </div>
-                  </div>
+                  </AccordionSection>
                 )}
                 {selectedRun.testCase && (
-                  <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                    <h4 className="font-medium text-blue-800 mb-2 flex items-center gap-2"><FileText className="w-4 h-4" /> اطلاعات تست کیس</h4>
+                  <AccordionSection id="testCase" title="اطلاعات تست‌کیس" icon={<FileText className="h-4 w-4 text-blue-500" />}>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                       <DetailField label="عنوان" value={selectedRun.testCase.title} />
                       <DetailField label="نوع تست" value={TEST_TYPE_LABELS[selectedRun.testCase.testType]} />
@@ -1724,21 +1839,23 @@ export const TestRunsBugsPage: React.FC = () => {
                     </div>
                     {selectedRun.testCase.scenario && <div className="mt-2 p-2 bg-white rounded"><p className="text-xs text-gray-500">سناریو</p><p className="text-sm">{selectedRun.testCase.scenario}</p></div>}
                     {selectedRun.testCase.expectedResult && <div className="mt-2 p-2 bg-white rounded"><p className="text-xs text-gray-500">نتیجه مورد انتظار</p><p className="text-sm">{selectedRun.testCase.expectedResult}</p></div>}
-                  </div>
+                  </AccordionSection>
                 )}
                 {selectedRun.actualResult && (
-                  <div className={`p-4 rounded-lg ${selectedRun.status === 'PASSED' ? 'bg-green-50 border border-green-200' : selectedRun.status === 'FAILED' ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border'}`}>
+                  <AccordionSection id="result" title="نتیجه واقعی" icon={<Target className="h-4 w-4 text-gray-500" />}>
+                    <div className={`rounded-lg p-4 ${selectedRun.status === 'PASSED' ? 'bg-green-50 border border-green-200' : selectedRun.status === 'FAILED' ? 'bg-red-50 border border-red-200' : 'bg-gray-50 border'}`}>
                     <p className="text-xs text-gray-500 mb-1">نتیجه واقعی</p><p className="text-sm whitespace-pre-wrap">{selectedRun.actualResult}</p>
-                  </div>
+                    </div>
+                  </AccordionSection>
                 )}
                 {/* Uploaded files display */}
                 {wizardFiles.length > 0 && (
-                  <div className="p-3 bg-gray-50 rounded-lg">
+                  <AccordionSection id="attachments" title="فایل‌های پیوست" icon={<Paperclip className="h-4 w-4 text-gray-500" />}>
                     <p className="text-xs text-gray-500 mb-2">فایل‌های پیوست</p>
                     {wizardFiles.map((f, i) => (
                       <div key={i} className="flex items-center gap-2 p-1.5 text-sm"><Paperclip className="w-3.5 h-3.5 text-gray-400" /><a href="#" className="text-blue-600 hover:underline">{f.name}</a><span className="text-xs text-gray-400">({(f.size / 1024).toFixed(0)} KB)</span></div>
                     ))}
-                  </div>
+                  </AccordionSection>
                 )}
                 <div className="flex justify-between pt-4 border-t">
                   <Button variant="secondary" onClick={() => { setShowRunDetailModal(false); setRunDetailStep(1); }}>بستن</Button>
@@ -1752,11 +1869,11 @@ export const TestRunsBugsPage: React.FC = () => {
                         ویرایش
                       </Button>
                     )}
-                    {canAdminUnlock && selectedRun.isLocked && (
+                    {canAdminUnlock && selectedRunIsLocked && (
                       <Button
                         variant="warning"
                         icon={<Unlock className="w-4 h-4" />}
-                        onClick={() => openUnlockModal({ type: 'RUN', id: selectedRun.id, title: selectedRun.testCase?.title || selectedRun.id })}
+                        onClick={() => openUnlockModal({ type: 'RUN', id: selectedRun.id, title: selectedRun.testCase?.title || formatDisplayId(selectedRun.id, 'RUN') })}
                       >
                         Unlock
                       </Button>
@@ -1854,7 +1971,7 @@ export const TestRunsBugsPage: React.FC = () => {
               <div className="flex items-center gap-3"><div className="p-2 bg-red-100 rounded-lg"><BugIcon className="w-6 h-6 text-red-600" /></div>
                 <div><h3 className="text-lg font-semibold">{selectedBug.title}</h3><p className="text-sm text-gray-500">گزارش‌دهنده: {selectedBug.reportedBy?.fullName}</p></div></div>
               <div className="flex items-center gap-2">
-                {selectedBug.isLocked && (
+                {selectedBugIsLocked && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700">
                     <Lock className="w-3.5 h-3.5" />
                     قفل شده
@@ -1865,16 +1982,16 @@ export const TestRunsBugsPage: React.FC = () => {
             </div>
             {/* All fields */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
-              <DetailField label="شناسه" value={selectedBug.id} icon={<Hash className="w-4 h-4" />} />
+              <DetailField label="شناسه" value={formatDisplayId(selectedBug.id, 'BUG')} icon={<Hash className="w-4 h-4" />} />
               <DetailField label="شدت" value={BUG_SEVERITY_LABELS[selectedBug.severity]} />
               <DetailField label="اولویت" value={PRIORITY_LABELS[selectedBug.priority]} />
               <DetailField label="وضعیت" value={BUG_STATUS_LABELS[selectedBug.status]} />
               <DetailField label="Developer" value={selectedBug.assignee?.fullName || 'تخصیص نیافته'} icon={<UserIcon className="w-4 h-4" />} />
               <DetailField label="نسخه رفع" value={selectedBug.fixedVersion || '-'} />
               <DetailField label="تاریخ ایجاد" value={new Date(selectedBug.createdAt).toLocaleString('fa-IR')} icon={<Clock className="w-4 h-4" />} />
-              <DetailField label="قفل تصمیم انتشار" value={selectedBug.isLocked ? (selectedBug.lockedByVersionHistoryId || 'قفل شده') : 'باز'} icon={<Lock className="w-4 h-4" />} />
+              <DetailField label="قفل تصمیم انتشار" value={formatLockDisplay(selectedBugIsLocked, selectedBug.lockedByVersionHistoryId)} icon={<Lock className="w-4 h-4" />} />
             </div>
-            {selectedBug.isLocked && (
+            {selectedBugIsLocked && (
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
                 این Bug پس از تصمیم VersionHistory قفل شده است و برای تغییر نیاز به Unlock ممیزی‌شده دارد.
               </div>
@@ -1945,7 +2062,7 @@ export const TestRunsBugsPage: React.FC = () => {
                   بازگردانی به {BUG_STATUS_LABELS[selectedBug.previousStatus!]}
                 </Button>
               )}
-              {canAdminUnlock && selectedBug.isLocked && (
+              {canAdminUnlock && selectedBugIsLocked && (
                 <Button
                   variant="warning"
                   icon={<Unlock className="w-4 h-4" />}
@@ -1954,16 +2071,16 @@ export const TestRunsBugsPage: React.FC = () => {
                   Unlock
                 </Button>
               )}
-              {canRetestBug && !selectedBug.isLocked && selectedBug.status === 'RETEST_READY' && selectedOpenRetestTask && canStartRetestTask(selectedOpenRetestTask) && (
+              {canRetestBug && !selectedBugIsLocked && selectedBug.status === 'RETEST_READY' && selectedOpenRetestTask && canStartRetestTask(selectedOpenRetestTask) && (
                 <Button variant="primary" icon={<PlayCircle className="w-4 h-4" />} onClick={() => handleStartRetestTask(selectedOpenRetestTask)}>
                   شروع از Task بازآزمون
                 </Button>
               )}
-              {canRetestBug && role !== 'QA_LEAD' && !selectedBug.isLocked && selectedBug.status === 'RETEST_READY' && !selectedOpenRetestTask && <>
+              {canRetestBug && role !== 'QA_LEAD' && !selectedBugIsLocked && selectedBug.status === 'RETEST_READY' && !selectedOpenRetestTask && <>
                 <Button variant="primary" icon={<CheckCircle className="w-4 h-4" />} onClick={() => { setConfirmAction({ action: 'pass', message: 'Retest و Regression موفق؟' }); setShowConfirmModal(true); }}>موفق</Button>
                 <Button variant="danger" icon={<XCircle className="w-4 h-4" />} onClick={() => { setConfirmAction({ action: 'fail', message: 'ناموفق؟' }); setShowConfirmModal(true); }}>ناموفق</Button>
               </>}
-              {canRetestBug && role !== 'QA_LEAD' && !selectedBug.isLocked && selectedBug.status === 'RETEST_PASSED' && <Button onClick={() => { setConfirmAction({ action: 'close', message: 'بستن؟' }); setShowConfirmModal(true); }}>بستن باگ</Button>}
+              {canRetestBug && role !== 'QA_LEAD' && !selectedBugIsLocked && selectedBug.status === 'RETEST_PASSED' && <Button onClick={() => { setConfirmAction({ action: 'close', message: 'بستن؟' }); setShowConfirmModal(true); }}>بستن باگ</Button>}
               <Button variant="secondary" onClick={() => setShowBugDetailModal(false)}>بستن</Button>
             </div>
           </div>

@@ -10,6 +10,7 @@ import { Button } from '../components/ui/Button';
 import { toast } from '../components/ui/Toast';
 import { useAuthStore } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
+import { formatDisplayId } from '../utils/displayId';
 import { auditLogApi } from '../services/api';
 import type { AuditLog, CartableFilterParams, PaginatedResponse } from '../types';
 
@@ -277,7 +278,7 @@ export const AuditPage: React.FC = () => {
               <div>
                 <p className="text-gray-500">شناسه موجودیت</p>
                 <p className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
-                  {selectedLog.entityId}
+                  {formatDisplayId(selectedLog.entityId)}
                 </p>
               </div>
             </div>
