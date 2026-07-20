@@ -1,7 +1,13 @@
+@import "@fontsource/vazirmatn/300.css";
+@import "@fontsource/vazirmatn/400.css";
+@import "@fontsource/vazirmatn/500.css";
+@import "@fontsource/vazirmatn/600.css";
+@import "@fontsource/vazirmatn/700.css";
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
+  --utms-font-sans: 'Vazirmatn', 'Segoe UI', Tahoma, Arial, sans-serif;
   color-scheme: light;
   --theme-canvas: #f8fafc;
   --theme-surface: #ffffff;
@@ -41,14 +47,10 @@ html.dark {
   --theme-selection-text: #eff6ff;
 }
 
-/* Vazirmatn Font */
-* {
-  font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-}
-
 /* RTL Support */
 html {
   direction: rtl;
+  font-family: var(--utms-font-sans);
   min-width: 320px;
   overflow-x: hidden;
   text-size-adjust: 100%;
@@ -62,9 +64,18 @@ body,
 }
 
 body {
+  font-family: var(--utms-font-sans);
   overflow-x: hidden;
   background: var(--theme-canvas);
   color: var(--theme-text);
+}
+
+button,
+input,
+optgroup,
+select,
+textarea {
+  font-family: inherit;
 }
 
 main,
