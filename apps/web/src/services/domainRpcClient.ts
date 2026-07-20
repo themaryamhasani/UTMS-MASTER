@@ -1,4 +1,8 @@
 type ServiceObject = Record<string, unknown>;
+interface DomainRpcProxyOptions {
+  backendOnly?: boolean;
+  backendRequiredMethods?: readonly string[];
+}
 
 const metaEnv = import.meta.env ?? {};
 const DOMAIN_RPC_BASE = (metaEnv.VITE_DOMAIN_API_BASE_URL || '/api/domain').replace(/\/$/, '');
@@ -7,6 +11,11 @@ const FALLBACK_COOLDOWN_MS = Number(metaEnv.VITE_DOMAIN_RPC_FALLBACK_COOLDOWN_MS
 const READ_RESPONSE_CACHE_TTL_MS = Number(metaEnv.VITE_DOMAIN_RPC_READ_CACHE_TTL_MS || 750);
 const inFlightReadRequests = new Map<string, Promise<unknown>>();
 const readResponseCache = new Map<string, { expiresAt: number; value: unknown }>();
+const DATABASE_ONLY_SERVICES = new Set([
+  'applicationApi',
+  'userApi',
+  'workflowPolicyApi',
+]);
 
 const READ_OPERATION_POLICIES = new Set([
   'testRequestApi.getAll',
@@ -116,8 +125,24 @@ const READ_OPERATION_POLICIES = new Set([
 let circuitOpenedUntil = 0;
 let recoveryProbe: Promise<unknown> | null = null;
 
-function shouldUseDomainBackend(): boolean {
-  return typeof window !== 'undefined' && DOMAIN_API_MODE !== 'mock';
+function shouldUseDomainBackend(requiresBackend: boolean): boolean {
+  return typeof window !== 'undefined' && (requiresBackend || DOMAIN_API_MODE !== 'mock');
+}
+
+function requiresBackend(
+  service: string,
+  method: string,
+  options: DomainRpcProxyOptions
+): boolean {
+  return Boolean(
+    options.backendOnly ||
+    options.backendRequiredMethods?.includes(method) ||
+    DATABASE_ONLY_SERVICES.has(service)
+  );
+}
+
+function backendRequiredError(service: string, method: string): Error {
+  return new Error(`${service}.${method} requires the PostgreSQL-backed domain API.`);
 }
 
 function isReadOperation(service: string, method: string): boolean {
@@ -292,7 +317,11 @@ function callDomainRpcSingleFlight<T>(service: string, method: string, args: unk
   return trackedPromise;
 }
 
-export function createDomainRpcProxy<TService extends ServiceObject>(service: string, localService: TService): TService {
+export function createDomainRpcProxy<TService extends ServiceObject>(
+  service: string,
+  localService: TService,
+  options: DomainRpcProxyOptions = {}
+): TService {
   return new Proxy(localService, {
     get(target, property, receiver) {
       const value = Reflect.get(target, property, receiver);
@@ -300,19 +329,24 @@ export function createDomainRpcProxy<TService extends ServiceObject>(service: st
       const localMethod = value as (...args: unknown[]) => Promise<unknown>;
 
       return async (...args: unknown[]) => {
-        if (!shouldUseDomainBackend()) {
+        const mustUseBackend = requiresBackend(service, property, options);
+
+        if (!shouldUseDomainBackend(mustUseBackend)) {
+          if (mustUseBackend) {
+            throw backendRequiredError(service, property);
+          }
           const result = await localMethod.apply(target, args);
           clearReadCacheAfterMutation(service, property);
           return result;
         }
 
-        if (isCircuitOpen()) {
+        if (!mustUseBackend && isCircuitOpen()) {
           const result = await localMethod.apply(target, args);
           clearReadCacheAfterMutation(service, property);
           return result;
         }
 
-        if (isHalfOpenProbeInProgress()) {
+        if (!mustUseBackend && isHalfOpenProbeInProgress()) {
           const result = await localMethod.apply(target, args);
           clearReadCacheAfterMutation(service, property);
           return result;
@@ -326,7 +360,7 @@ export function createDomainRpcProxy<TService extends ServiceObject>(service: st
           clearReadCacheAfterMutation(service, property);
           return result;
         } catch (error) {
-          if (DOMAIN_API_MODE === 'strict') throw error;
+          if (mustUseBackend || DOMAIN_API_MODE === 'strict') throw error;
           if (isTransportError(error) || (error as { backendUnavailable?: boolean }).backendUnavailable) {
             openFallbackCircuit();
           }

@@ -1,3 +1,3 @@
 export async function seedDatabase(): Promise<void> {
-  // Domain seed files will be called from here when Prisma is introduced.
+  // The executable Prisma seed is index.cjs; this typed entry remains for future domain-organized seed composition.
 }

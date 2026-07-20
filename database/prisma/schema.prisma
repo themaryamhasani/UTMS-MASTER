@@ -1,11 +1,1888 @@
-// UTMS Prisma schema placeholder.
-// Concrete models should be added by backend module migrations.
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SYSTEM_ADMIN
+  DEVELOPER
+  QA_LEAD
+  QA_SPECIALIST
+  BA
+  SECURITY_REVIEWER
+  TECH_LEAD
+  PRODUCT_OWNER
+}
+
+enum AccessScope {
+  APP
+  SYSTEMS
+}
+
+enum Priority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TestRequestStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  ACCEPTED
+  REJECTED
+  CANCELLED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum RequirementStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  APPROVED
+}
+
+enum TestCaseStatus {
+  DRAFT
+  READY
+  OBSOLETE
+}
+
+enum TestType {
+  FUNCTIONAL
+  INTEGRATION
+  REGRESSION
+  SMOKE
+  UAT
+  SECURITY
+  PERFORMANCE
+}
+
+enum TestDesignTechnique {
+  REQUIREMENTS_BASED
+  EQUIVALENCE_PARTITIONING
+  BOUNDARY_VALUE
+  DECISION_TABLE
+  STATE_TRANSITION
+  SCENARIO
+  CLASSIFICATION_TREE
+  COMBINATORIAL
+  CAUSE_EFFECT
+  SYNTAX
+  RANDOM
+  METAMORPHIC
+  STATEMENT
+  BRANCH
+  DECISION
+  BRANCH_CONDITION
+  BRANCH_CONDITION_COMBINATION
+  MCDC
+  DATA_FLOW
+  ERROR_GUESSING
+}
+
+enum QualityAttribute {
+  FUNCTIONALITY
+  RELIABILITY
+  USABILITY
+  EFFICIENCY
+  MAINTAINABILITY
+  PORTABILITY
+  SECURITY
+}
+
+enum TestRunStatus {
+  PENDING
+  IN_PROGRESS
+  PASSED
+  FAILED
+  BLOCKED
+  SKIPPED
+}
+
+enum TestRunPurpose {
+  SMOKE_TEST
+  FUNCTIONAL_TEST
+  REGRESSION_TEST
+  RETEST
+  UAT
+  INTEGRATION_TEST
+  SECURITY_TEST
+  PERFORMANCE_TEST
+  EXPLORATORY
+}
+
+enum RetestTaskStatus {
+  QUEUED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum BugSeverity {
+  CRITICAL
+  MAJOR
+  MINOR
+  TRIVIAL
+}
+
+enum BugStatus {
+  NEW
+  ASSIGNED
+  IN_PROGRESS
+  FIXED
+  RETEST_READY
+  RETEST_PASSED
+  RETEST_FAILED
+  REOPENED
+  CLOSED
+  REJECTED
+  NO_ACTION_NEEDED
+}
+
+enum RunIssueType {
+  ENVIRONMENT
+  ACCESS
+  DATA
+  DEPENDENCY
+}
+
+enum RunIssueStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum AttachmentType {
+  SCREENSHOT
+  LOG
+  VIDEO
+  REPORT
+  TRACE
+  DOCUMENT
+  OTHER
+}
+
+enum AttachmentStatus {
+  UPLOADED
+  VALID
+  INVALID
+  DELETED
+}
+
+enum EntityType {
+  TEST_REQUEST
+  REQUIREMENT
+  FLOW
+  TEST_CASE
+  TEST_RUN
+  BUG
+  RETEST_TASK
+  RUN_ISSUE
+  CHECKLIST
+  VERSION_HISTORY
+  RELEASE_PUBLISH
+  PLAYWRIGHT_RUN
+  PLAYWRIGHT_TEST_FILE
+}
+
+enum SystemEntityType {
+  TEST_REQUEST
+  REQUIREMENT
+  FLOW
+  TEST_CASE
+  TEST_RUN
+  BUG
+  RETEST_TASK
+  RUN_ISSUE
+  CHECKLIST
+  VERSION_HISTORY
+  RELEASE_PUBLISH
+  PLAYWRIGHT_RUN
+  PLAYWRIGHT_TEST_FILE
+  USER
+  APPLICATION
+  ROLE_ASSIGNMENT
+  API_COLLECTION
+  API_REQUEST
+  API_SHARE_REQUEST
+  API_EXECUTION
+}
+
+enum ChecklistType {
+  SECURITY
+  PERFORMANCE
+  PENETRATION
+}
+
+enum ChecklistStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  NOT_APPLICABLE
+}
+
+enum ChecklistResult {
+  PASS
+  FAIL
+  PARTIAL
+  NOT_TESTED
+}
+
+enum SecurityReviewStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum SecurityReviewItemResult {
+  PASS
+  FAIL
+  PARTIAL
+  NOT_TESTED
+  N_A
+}
+
+enum PlaywrightRunStatus {
+  PENDING
+  RUNNING
+  PASSED
+  FAILED
+  ERROR
+  CANCELLED
+}
+
+enum PlaywrightQueueStatus {
+  QUEUED
+  DISPATCHED
+  DONE
+  FAILED
+}
+
+enum PlaywrightProject {
+  chromium
+  firefox
+  webkit
+}
+
+enum PlaywrightCdeRootKind {
+  FRONT
+  DATASERVICE
+  GATEWAY
+}
+
+enum PlaywrightTestFileSource {
+  DISCOVERED
+  MANAGED
+}
+
+enum VersionHistoryStatus {
+  DRAFT
+  QA_REVIEW
+  PENDING_DECISION
+  APPROVED
+  CONDITIONAL
+  REJECTED
+  BLOCKED
+  EMERGENCY
+  PUBLISHED
+}
+
+enum VersionHistoryDecision {
+  APPROVED
+  CONDITIONAL
+  REJECTED
+  BLOCKED
+}
+
+enum VersionHistoryRequestKind {
+  PRIMARY
+  RELATED
+  SNAPSHOT
+}
+
+enum QAQualityStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  READY
+  NOT_READY
+  CONDITIONAL
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  STATUS_CHANGE
+  ASSIGN
+  SUBMIT
+  REVIEW
+  APPROVE
+  REJECT
+  CANCEL
+  FINALIZE
+  UNLOCK
+  PUBLISH
+  EMERGENCY_PUBLISH
+  ROLE_CHANGE
+  LOGIN
+  LOGOUT
+  CONTEXT_SWITCH
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  ERROR
+  SUCCESS
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SMS
+}
+
+enum NotificationDeliveryStatus {
+  QUEUED
+  DELIVERED
+  FAILED
+}
+
+enum CommandSource {
+  UI
+  API
+  SYSTEM
+  RUNNER
+}
+
+enum CommandTraceStatus {
+  COMPLETED
+  REPLAYED
+}
+
+enum VersionHistoryWorkflowMode {
+  TECH_LEAD_DECISION
+  QA_OWNED_DECISION
+}
+
+enum IntegrationProvider {
+  CDE
+  FAVA
+}
+
+enum IntegrationSyncDirection {
+  PULL
+  PUSH
+  BIDIRECTIONAL
+}
+
+enum IntegrationHealthStatus {
+  DISABLED
+  UNKNOWN
+  HEALTHY
+  DEGRADED
+}
+
+enum DomainEventStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+}
+
+enum ApiCollectionStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ApiSharingStatus {
+  DRAFT
+  PENDING_REVIEW
+  RETURNED
+  APPROVED
+  DEPRECATED
+}
+
+enum ApiRequestSourceType {
+  ORIGINAL
+  REFERENCE
+}
+
+enum ApiConsumerType {
+  USER
+  ROLE
+}
+
+enum ApiConsumerStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum ApiReferenceStatus {
+  ACTIVE
+  REMOVED
+}
+
+enum ApiExecutionStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  BLOCKED
+}
+
+enum ApiTransportResult {
+  SUCCESS
+  FAILED
+  BLOCKED
+  CANCELLED
+}
+
+enum ApiBusinessResult {
+  PASSED
+  FAILED
+  WARNING
+  NOT_EVALUATED
+}
+
+enum ApiResponseEvidenceType {
+  ACTUAL_EXECUTION
+  IMPORTED_EVIDENCE
+  MANUAL_EXAMPLE
+}
+
+enum ApiManualReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ApiEnvironmentKind {
+  DEVELOPMENT
+  TEST
+  PRE_PRODUCTION
+  PRODUCTION
+  CUSTOM
+}
+
+enum ApiNetworkZone {
+  PUBLIC
+  INTERNAL
+  RESTRICTED
+  TEST
+}
+
+enum ApiUsageEventType {
+  ADDED_TO_CONSOLE
+  API_OPENED
+  API_EXECUTED
+  REMOVED_FROM_CONSOLE
+  NEW_VERSION_VIEWED
+}
+
+enum ApiShareReviewAction {
+  APPROVED
+  RETURNED
+}
+
+enum ScheduledReportStatus {
+  ACTIVE
+  PAUSED
+  DISABLED
+}
+
+enum ReportDeliveryFormat {
+  JSON
+  CSV
+  PDF
+}
+
+enum ReportAlertStatus {
+  ACTIVE
+  PAUSED
+  DISABLED
+}
+
+model User {
+  id                      String                    @id @default(cuid())
+  nationalCode            String?                   @unique @map("national_code") @db.VarChar(32)
+  phoneNumber             String                    @unique @map("phone_number") @db.VarChar(32)
+  fullName                String                    @map("full_name") @db.VarChar(255)
+  email                   String?                   @unique @db.VarChar(320)
+  isActive                Boolean                   @default(true) @map("is_active")
+  createdAt               DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  roleAssignments         UserRoleAssignment[]      @relation("UserAssignments")
+  credential              UserCredential?
+  passwordResetOtps       PasswordResetOtp[]
+  sessions                UserSession[]
+  requestedTestRequests   TestRequest[]             @relation("TestRequestRequester")
+  assignedTestRequests    TestRequest[]             @relation("TestRequestAssignee")
+  reviewedTestRequests    TestRequest[]             @relation("TestRequestReviewer")
+  releaseDecisionRequests TestRequest[]             @relation("TestRequestReleaseDecisionBy")
+  createdRequirements     Requirement[]             @relation("RequirementCreator")
+  createdFlows            Flow[]                    @relation("FlowCreator")
+  createdTestCases        TestCase[]                @relation("TestCaseCreator")
+  executedRuns            TestRun[]                 @relation("TestRunExecutor")
+  unlockedRuns            TestRun[]                 @relation("TestRunUnlocker")
+  reportedBugs            Bug[]                     @relation("BugReporter")
+  assignedBugs            Bug[]                     @relation("BugAssignee")
+  unlockedBugs            Bug[]                     @relation("BugUnlocker")
+  createdRetestTasks      RetestTask[]              @relation("RetestTaskCreator")
+  assignedRetestTasks     RetestTask[]              @relation("RetestTaskAssignee")
+  startedRetestTasks      RetestTask[]              @relation("RetestTaskStarter")
+  reportedRunIssues       RunIssue[]                @relation("RunIssueReporter")
+  assignedRunIssues       RunIssue[]                @relation("RunIssueAssignee")
+  reviewedChecklists      Checklist[]               @relation("ChecklistReviewer")
+  uploadedAttachments     Attachment[]              @relation("AttachmentUploader")
+  triggeredPlaywrightRuns PlaywrightRun[]           @relation("PlaywrightRunTrigger")
+  createdPlaywrightFiles  PlaywrightTestFile[]      @relation("PlaywrightFileCreator")
+  qaReviewedVersions      VersionHistory[]          @relation("VersionHistoryQaReviewer")
+  decidedVersions         VersionHistory[]          @relation("VersionHistoryDecisionBy")
+  createdVersions         VersionHistory[]          @relation("VersionHistoryCreator")
+  createdVersionRevisions VersionHistoryRevision[]  @relation("VersionHistoryRevisionCreator")
+  auditLogs               AuditLog[]                @relation("AuditActor")
+  comments                Comment[]                 @relation("CommentAuthor")
+  notifications           Notification[]            @relation("NotificationRecipient")
+  notificationOutboxItems NotificationOutboxItem[]  @relation("NotificationOutboxRecipient")
+  commandTraces           CommandTrace[]            @relation("CommandTraceUser")
+  updatedRunnerSettings   PlaywrightRunnerSetting[] @relation("PlaywrightRunnerUpdatedBy")
+  reviewedSecurityReviews SecurityReview[]          @relation("SecurityReviewReviewer")
+  scheduledReports        ScheduledReport[]         @relation("ScheduledReportOwner")
+  reportAlerts            ReportAlert[]             @relation("ReportAlertOwner")
+
+  @@index([isActive])
+  @@map("users")
+}
+
+model UserCredential {
+  userId       String   @id @map("user_id")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  passwordHash String   @map("password_hash") @db.Text
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("user_credentials")
+}
+
+model PasswordResetOtp {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash    String    @map("code_hash") @db.Text
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  requestedAt DateTime  @default(now()) @map("requested_at") @db.Timestamptz(6)
+  consumedAt  DateTime? @map("consumed_at") @db.Timestamptz(6)
+
+  @@index([userId, expiresAt])
+  @@map("password_reset_otps")
+}
+
+model UserSession {
+  id                  String              @id @default(cuid())
+  userId              String              @map("user_id")
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignmentId        String?             @map("assignment_id")
+  assignment          UserRoleAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  contextId           String              @map("context_id")
+  role                UserRole
+  scope               AccessScope
+  applicationId       String?             @map("application_id")
+  application         Application?        @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  scopeApplicationIds String[]            @default([]) @map("scope_application_ids")
+  tokenHash           String              @map("token_hash") @db.Text
+  userAgent           String?             @map("user_agent") @db.Text
+  ipAddress           String?             @map("ip_address") @db.Inet
+  expiresAt           DateTime            @map("expires_at") @db.Timestamptz(6)
+  revokedAt           DateTime?           @map("revoked_at") @db.Timestamptz(6)
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, revokedAt])
+  @@index([contextId])
+  @@map("user_sessions")
+}
+
+model WorkflowPolicy {
+  id                             String                     @id
+  name                           String                     @db.VarChar(255)
+  description                    String                     @db.Text
+  versionHistoryMode             VersionHistoryWorkflowMode @map("version_history_mode")
+  qaReviewOwnerLabel             String                     @map("qa_review_owner_label") @db.VarChar(255)
+  decisionOwnerLabel             String                     @map("decision_owner_label") @db.VarChar(255)
+  requireIndependentDecisionRole Boolean                    @default(false) @map("require_independent_decision_role")
+  capabilityRoles                Json                       @default("{}") @map("capability_roles")
+  createdAt                      DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                      DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  applications                   Application[]
+
+  @@map("workflow_policies")
+}
+
+model Application {
+  id                    String                           @id @default(cuid())
+  name                  String                           @db.VarChar(255)
+  code                  String                           @unique @db.VarChar(80)
+  description           String?                          @db.Text
+  cdeFrontUrl           String?                          @map("cde_front_url") @db.Text
+  cdeDataServiceUrl     String?                          @map("cde_data_service_url") @db.Text
+  cdeGatewayUrl         String?                          @map("cde_gateway_url") @db.Text
+  workflowPolicyId      String?                          @map("workflow_policy_id")
+  workflowPolicy        WorkflowPolicy?                  @relation(fields: [workflowPolicyId], references: [id], onDelete: SetNull)
+  isActive              Boolean                          @default(true) @map("is_active")
+  createdAt             DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  roleAssignments       UserRoleAssignment[]             @relation("AssignmentDefaultApplication")
+  assignmentScopes      UserRoleAssignmentApplication[]
+  sessions              UserSession[]
+  testRequests          TestRequest[]
+  requirements          Requirement[]
+  testCases             TestCase[]
+  testRuns              TestRun[]
+  bugs                  Bug[]
+  retestTasks           RetestTask[]
+  runIssues             RunIssue[]
+  checklists            Checklist[]
+  securityReviews       SecurityReview[]
+  playwrightRuns        PlaywrightRun[]
+  playwrightTestFolders PlaywrightTestFolder[]
+  playwrightTestFiles   PlaywrightTestFile[]
+  hiddenPlaywrightPaths PlaywrightHiddenDiscoveredPath[]
+  versionHistories      VersionHistory[]
+  auditLogs             AuditLog[]
+  commandTraces         CommandTrace[]
+  apiCollections        ApiConsoleCollection[]
+  apiRequests           ApiConsoleRequest[]
+  apiShareRequests      ApiShareRequest[]
+  apiConsumers          ApiVersionConsumer[]
+  apiReferences         ApiConsoleReference[]
+  apiUsageEvents        ApiUsageEvent[]
+  scheduledReports      ScheduledReport[]
+  reportAlerts          ReportAlert[]
+
+  @@index([isActive])
+  @@map("applications")
+}
+
+model UserRoleAssignment {
+  id                    String                          @id @default(cuid())
+  userId                String                          @map("user_id")
+  user                  User                            @relation("UserAssignments", fields: [userId], references: [id], onDelete: Cascade)
+  applicationId         String                          @map("application_id")
+  application           Application                     @relation("AssignmentDefaultApplication", fields: [applicationId], references: [id], onDelete: Restrict)
+  applications          UserRoleAssignmentApplication[]
+  role                  UserRole
+  scope                 AccessScope
+  automatedTestsEnabled Boolean                         @default(false) @map("automated_tests_enabled")
+  isActive              Boolean                         @default(true) @map("is_active")
+  createdAt             DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sessions              UserSession[]
+
+  @@index([userId, role, isActive])
+  @@index([applicationId, role])
+  @@map("user_role_assignments")
+}
+
+model UserRoleAssignmentApplication {
+  assignmentId  String             @map("assignment_id")
+  applicationId String             @map("application_id")
+  assignment    UserRoleAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  application   Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([assignmentId, applicationId])
+  @@index([applicationId])
+  @@map("user_role_assignment_applications")
+}
+
+model TestRequest {
+  id                      String                   @id @default(cuid())
+  applicationId           String                   @map("application_id")
+  application             Application              @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  title                   String                   @db.VarChar(500)
+  description             String                   @db.Text
+  version                 String                   @db.VarChar(64)
+  buildNumber             String?                  @map("build_number") @db.VarChar(64)
+  environment             String                   @db.VarChar(120)
+  priority                Priority
+  riskLevel               Priority                 @map("risk_level")
+  status                  TestRequestStatus
+  systemUrl               String?                  @map("system_url") @db.Text
+  testTypes               TestType[]               @default([]) @map("test_types")
+  requesterId             String                   @map("requester_id")
+  requester               User                     @relation("TestRequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  assigneeId              String?                  @map("assignee_id")
+  assignee                User?                    @relation("TestRequestAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  requirementId           String?                  @map("requirement_id")
+  requirement             Requirement?             @relation("TestRequestPrimaryRequirement", fields: [requirementId], references: [id], onDelete: SetNull)
+  reviewedAt              DateTime?                @map("reviewed_at") @db.Timestamptz(6)
+  reviewedById            String?                  @map("reviewed_by_id")
+  reviewedBy              User?                    @relation("TestRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewNotes             String?                  @map("review_notes") @db.Text
+  submittedAt             DateTime?                @map("submitted_at") @db.Timestamptz(6)
+  versionHistoryId        String?                  @map("version_history_id")
+  versionHistory          VersionHistory?          @relation("TestRequestCurrentVersionHistory", fields: [versionHistoryId], references: [id], onDelete: SetNull)
+  qaQualityStatus         QAQualityStatus?         @map("qa_quality_status")
+  qaQualityNotes          String?                  @map("qa_quality_notes") @db.Text
+  releaseDecision         VersionHistoryDecision?  @map("release_decision")
+  releaseDecisionReason   String?                  @map("release_decision_reason") @db.Text
+  releaseDecisionById     String?                  @map("release_decision_by_id")
+  releaseDecisionBy       User?                    @relation("TestRequestReleaseDecisionBy", fields: [releaseDecisionById], references: [id], onDelete: SetNull)
+  releaseDecisionAt       DateTime?                @map("release_decision_at") @db.Timestamptz(6)
+  createdAt               DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  selectedRequirements    TestRequestRequirement[]
+  originatedRequirements  Requirement[]            @relation("RequirementOriginRequest")
+  testCases               TestCase[]
+  testRuns                TestRun[]
+  retestTasks             RetestTask[]
+  checklists              Checklist[]
+  playwrightRuns          PlaywrightRun[]
+  primaryVersionHistories VersionHistory[]         @relation("VersionHistoryPrimaryRequest")
+  versionHistoryLinks     VersionHistoryRequest[]
+
+  @@index([applicationId, status])
+  @@index([requesterId])
+  @@index([assigneeId])
+  @@index([version, buildNumber])
+  @@map("test_requests")
+}
+
+model TestRequestRequirement {
+  testRequestId String      @map("test_request_id")
+  requirementId String      @map("requirement_id")
+  testRequest   TestRequest @relation(fields: [testRequestId], references: [id], onDelete: Cascade)
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([testRequestId, requirementId])
+  @@index([requirementId])
+  @@map("test_request_requirements")
+}
+
+model Requirement {
+  id                     String                   @id @default(cuid())
+  applicationId          String                   @map("application_id")
+  application            Application              @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  title                  String                   @db.VarChar(500)
+  description            String                   @db.Text
+  acceptanceCriteria     String?                  @map("acceptance_criteria") @db.Text
+  riskNotes              String?                  @map("risk_notes") @db.Text
+  status                 RequirementStatus
+  isActive               Boolean                  @default(true) @map("is_active")
+  createdById            String                   @map("created_by_id")
+  createdBy              User                     @relation("RequirementCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  testRequestId          String?                  @map("test_request_id")
+  testRequest            TestRequest?             @relation("RequirementOriginRequest", fields: [testRequestId], references: [id], onDelete: SetNull)
+  createdAt              DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  flows                  Flow[]
+  testCases              TestCase[]
+  primaryForTestRequests TestRequest[]            @relation("TestRequestPrimaryRequirement")
+  requestLinks           TestRequestRequirement[]
+
+  @@index([applicationId, status, isActive])
+  @@index([createdById])
+  @@map("requirements")
+}
+
+model Flow {
+  id            String      @id @default(cuid())
+  requirementId String      @map("requirement_id")
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  title         String      @db.VarChar(500)
+  description   String      @db.Text
+  steps         String?     @db.Text
+  createdById   String      @map("created_by_id")
+  createdBy     User        @relation("FlowCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+  testCases     TestCase[]
+
+  @@index([requirementId])
+  @@map("flows")
+}
+
+model TestCase {
+  id                   String                @id @default(cuid())
+  applicationId        String                @map("application_id")
+  application          Application           @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  testRequestId        String?               @map("test_request_id")
+  testRequest          TestRequest?          @relation(fields: [testRequestId], references: [id], onDelete: SetNull)
+  requirementId        String                @map("requirement_id")
+  requirement          Requirement           @relation(fields: [requirementId], references: [id], onDelete: Restrict)
+  flowId               String?               @map("flow_id")
+  flow                 Flow?                 @relation(fields: [flowId], references: [id], onDelete: SetNull)
+  title                String                @db.VarChar(500)
+  scenario             String                @db.Text
+  preconditions        String                @db.Text
+  testData             String                @map("test_data") @db.Text
+  steps                String                @db.Text
+  expectedResult       String                @map("expected_result") @db.Text
+  testType             TestType              @map("test_type")
+  testDesignTechnique  TestDesignTechnique   @map("test_design_technique")
+  testDesignTechniques TestDesignTechnique[] @default([]) @map("test_design_techniques")
+  priority             Priority
+  riskLevel            Priority              @map("risk_level")
+  qualityAttribute     QualityAttribute      @map("quality_attribute")
+  automationCandidate  Boolean               @default(false) @map("automation_candidate")
+  regressionCandidate  Boolean               @default(false) @map("regression_candidate")
+  isActive             Boolean               @default(true) @map("is_active")
+  isComplete           Boolean               @default(false) @map("is_complete")
+  readinessErrors      String[]              @default([]) @map("readiness_errors")
+  status               TestCaseStatus
+  createdById          String                @map("created_by_id")
+  createdBy            User                  @relation("TestCaseCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  testRuns             TestRun[]
+  retestTasks          RetestTask[]
+  securityReviews      SecurityReview[]
+
+  @@index([applicationId, status, isActive])
+  @@index([requirementId])
+  @@index([testRequestId])
+  @@map("test_cases")
+}
+
+model TestRun {
+  id                       String           @id @default(cuid())
+  testCaseId               String           @map("test_case_id")
+  testCase                 TestCase         @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+  testRequestId            String           @map("test_request_id")
+  testRequest              TestRequest      @relation(fields: [testRequestId], references: [id], onDelete: Restrict)
+  applicationId            String           @map("application_id")
+  application              Application      @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  purposes                 TestRunPurpose[] @default([])
+  previousRunId            String?          @map("previous_run_id")
+  previousRun              TestRun?         @relation("TestRunPrevious", fields: [previousRunId], references: [id], onDelete: SetNull)
+  childRuns                TestRun[]        @relation("TestRunPrevious")
+  retestTaskId             String?          @map("retest_task_id")
+  retestTask               RetestTask?      @relation("TestRunRetestTask", fields: [retestTaskId], references: [id], onDelete: SetNull)
+  sourceBugId              String?          @map("source_bug_id")
+  sourceBug                Bug?             @relation("TestRunSourceBug", fields: [sourceBugId], references: [id], onDelete: SetNull)
+  version                  String           @db.VarChar(64)
+  buildNumber              String?          @map("build_number") @db.VarChar(64)
+  versionChangedReason     String?          @map("version_changed_reason") @db.Text
+  status                   TestRunStatus
+  actualResult             String?          @map("actual_result") @db.Text
+  executedById             String           @map("executed_by_id")
+  executedBy               User             @relation("TestRunExecutor", fields: [executedById], references: [id], onDelete: Restrict)
+  executedAt               DateTime?        @map("executed_at") @db.Timestamptz(6)
+  isFinalized              Boolean          @default(false) @map("is_finalized")
+  isLocked                 Boolean          @default(false) @map("is_locked")
+  lockedByVersionHistoryId String?          @map("locked_by_version_history_id")
+  lockedByVersionHistory   VersionHistory?  @relation("VersionHistoryLockedRuns", fields: [lockedByVersionHistoryId], references: [id], onDelete: SetNull)
+  lockedAt                 DateTime?        @map("locked_at") @db.Timestamptz(6)
+  unlockedById             String?          @map("unlocked_by_id")
+  unlockedBy               User?            @relation("TestRunUnlocker", fields: [unlockedById], references: [id], onDelete: SetNull)
+  unlockedAt               DateTime?        @map("unlocked_at") @db.Timestamptz(6)
+  unlockReason             String?          @map("unlock_reason") @db.Text
+  createdAt                DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  bugs                     Bug[]            @relation("BugTestRun")
+  runIssues                RunIssue[]
+  previousForRetestTasks   RetestTask[]     @relation("RetestTaskPreviousRun")
+  sourceForRetestTasks     RetestTask[]     @relation("RetestTaskSourceRun")
+  createdForRetestTasks    RetestTask[]     @relation("RetestTaskCreatedRun")
+
+  @@index([applicationId, status])
+  @@index([testRequestId])
+  @@index([testCaseId])
+  @@index([isLocked])
+  @@map("test_runs")
+}
+
+model Bug {
+  id                       String          @id @default(cuid())
+  applicationId            String          @map("application_id")
+  application              Application     @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  testRunId                String          @map("test_run_id")
+  testRun                  TestRun         @relation("BugTestRun", fields: [testRunId], references: [id], onDelete: Restrict)
+  title                    String          @db.VarChar(500)
+  description              String          @db.Text
+  stepsToReproduce         String          @map("steps_to_reproduce") @db.Text
+  expectedResult           String          @map("expected_result") @db.Text
+  actualResult             String          @map("actual_result") @db.Text
+  severity                 BugSeverity
+  priority                 Priority
+  status                   BugStatus
+  previousStatus           BugStatus?      @map("previous_status")
+  previousStatusChangedAt  DateTime?       @map("previous_status_changed_at") @db.Timestamptz(6)
+  assigneeId               String?         @map("assignee_id")
+  assignee                 User?           @relation("BugAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  reportedById             String          @map("reported_by_id")
+  reportedBy               User            @relation("BugReporter", fields: [reportedById], references: [id], onDelete: Restrict)
+  fixedVersion             String?         @map("fixed_version") @db.VarChar(64)
+  fixNotes                 String?         @map("fix_notes") @db.Text
+  externalToolLink         String?         @map("external_tool_link") @db.Text
+  externalToolId           String?         @map("external_tool_id") @db.VarChar(255)
+  isLocked                 Boolean         @default(false) @map("is_locked")
+  lockedByVersionHistoryId String?         @map("locked_by_version_history_id")
+  lockedByVersionHistory   VersionHistory? @relation("VersionHistoryLockedBugs", fields: [lockedByVersionHistoryId], references: [id], onDelete: SetNull)
+  lockedAt                 DateTime?       @map("locked_at") @db.Timestamptz(6)
+  unlockedById             String?         @map("unlocked_by_id")
+  unlockedBy               User?           @relation("BugUnlocker", fields: [unlockedById], references: [id], onDelete: SetNull)
+  unlockedAt               DateTime?       @map("unlocked_at") @db.Timestamptz(6)
+  unlockReason             String?         @map("unlock_reason") @db.Text
+  createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  retestTasks              RetestTask[]    @relation("RetestTaskPrimaryBug")
+  retestTaskLinks          RetestTaskBug[]
+  sourceRuns               TestRun[]       @relation("TestRunSourceBug")
+
+  @@index([applicationId, status, severity])
+  @@index([assigneeId])
+  @@index([reportedById])
+  @@index([testRunId])
+  @@map("bugs")
+}
+
+model RetestTask {
+  id             String           @id @default(cuid())
+  applicationId  String           @map("application_id")
+  application    Application      @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  bugId          String           @map("bug_id")
+  bug            Bug              @relation("RetestTaskPrimaryBug", fields: [bugId], references: [id], onDelete: Restrict)
+  bugLinks       RetestTaskBug[]
+  sourceRunId    String?          @map("source_run_id")
+  sourceRun      TestRun?         @relation("RetestTaskSourceRun", fields: [sourceRunId], references: [id], onDelete: SetNull)
+  previousRunId  String           @map("previous_run_id")
+  previousRun    TestRun          @relation("RetestTaskPreviousRun", fields: [previousRunId], references: [id], onDelete: Restrict)
+  testRequestId  String           @map("test_request_id")
+  testRequest    TestRequest      @relation(fields: [testRequestId], references: [id], onDelete: Restrict)
+  testCaseId     String           @map("test_case_id")
+  testCase       TestCase         @relation(fields: [testCaseId], references: [id], onDelete: Restrict)
+  purposes       TestRunPurpose[] @default([])
+  status         RetestTaskStatus
+  assignedToId   String?          @map("assigned_to_id")
+  assignedTo     User?            @relation("RetestTaskAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdById    String           @map("created_by_id")
+  createdBy      User             @relation("RetestTaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  startedById    String?          @map("started_by_id")
+  startedBy      User?            @relation("RetestTaskStarter", fields: [startedById], references: [id], onDelete: SetNull)
+  startedAt      DateTime?        @map("started_at") @db.Timestamptz(6)
+  completedAt    DateTime?        @map("completed_at") @db.Timestamptz(6)
+  createdRunId   String?          @unique @map("created_run_id")
+  createdRun     TestRun?         @relation("RetestTaskCreatedRun", fields: [createdRunId], references: [id], onDelete: SetNull)
+  runs           TestRun[]        @relation("TestRunRetestTask")
+  idempotencyKey String           @unique @map("idempotency_key") @db.VarChar(255)
+  correlationId  String?          @map("correlation_id") @db.VarChar(255)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([applicationId, status])
+  @@index([bugId])
+  @@index([assignedToId])
+  @@map("retest_tasks")
+}
+
+model RetestTaskBug {
+  retestTaskId String     @map("retest_task_id")
+  bugId        String     @map("bug_id")
+  retestTask   RetestTask @relation(fields: [retestTaskId], references: [id], onDelete: Cascade)
+  bug          Bug        @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([retestTaskId, bugId])
+  @@index([bugId])
+  @@map("retest_task_bugs")
+}
+
+model RunIssue {
+  id            String         @id @default(cuid())
+  testRunId     String         @map("test_run_id")
+  testRun       TestRun        @relation(fields: [testRunId], references: [id], onDelete: Restrict)
+  applicationId String         @map("application_id")
+  application   Application    @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  issueType     RunIssueType   @map("issue_type")
+  title         String         @db.VarChar(500)
+  description   String         @db.Text
+  status        RunIssueStatus
+  reportedById  String         @map("reported_by_id")
+  reportedBy    User           @relation("RunIssueReporter", fields: [reportedById], references: [id], onDelete: Restrict)
+  assigneeId    String?        @map("assignee_id")
+  assignee      User?          @relation("RunIssueAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  resolution    String?        @db.Text
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([applicationId, status])
+  @@index([testRunId])
+  @@map("run_issues")
+}
+
+model Checklist {
+  id            String           @id @default(cuid())
+  applicationId String           @map("application_id")
+  application   Application      @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  testRequestId String           @map("test_request_id")
+  testRequest   TestRequest      @relation(fields: [testRequestId], references: [id], onDelete: Restrict)
+  type          ChecklistType
+  status        ChecklistStatus
+  result        ChecklistResult?
+  notes         String?          @db.Text
+  reviewedById  String?          @map("reviewed_by_id")
+  reviewedBy    User?            @relation("ChecklistReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt    DateTime?        @map("reviewed_at") @db.Timestamptz(6)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  items         ChecklistItem[]
+
+  @@index([applicationId, status, type])
+  @@index([testRequestId])
+  @@map("checklists")
+}
+
+model ChecklistItem {
+  id          String           @id @default(cuid())
+  checklistId String           @map("checklist_id")
+  checklist   Checklist        @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  title       String           @db.VarChar(500)
+  description String?          @db.Text
+  result      ChecklistResult?
+  notes       String?          @db.Text
+  order       Int
+
+  @@index([checklistId, order])
+  @@map("checklist_items")
+}
+
+model SecurityChecklistTemplateItem {
+  id          String   @id @default(cuid())
+  title       String   @db.VarChar(500)
+  description String   @db.Text
+  order       Int
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([order])
+  @@map("security_checklist_template_items")
+}
+
+model SecurityReview {
+  id            String               @id @default(cuid())
+  testCaseId    String               @map("test_case_id")
+  testCase      TestCase             @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  testCaseTitle String               @map("test_case_title") @db.VarChar(500)
+  applicationId String               @map("application_id")
+  application   Application          @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  status        SecurityReviewStatus
+  reviewedById  String?              @map("reviewed_by_id")
+  reviewedBy    User?                @relation("SecurityReviewReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt    DateTime?            @map("reviewed_at") @db.Timestamptz(6)
+  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  items         SecurityReviewItem[]
+
+  @@unique([testCaseId])
+  @@index([applicationId, status])
+  @@map("security_reviews")
+}
+
+model SecurityReviewItem {
+  id          String                    @id @default(cuid())
+  reviewId    String                    @map("review_id")
+  review      SecurityReview            @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  title       String                    @db.VarChar(500)
+  description String                    @db.Text
+  result      SecurityReviewItemResult?
+  notes       String?                   @db.Text
+  order       Int
+
+  @@index([reviewId, order])
+  @@map("security_review_items")
+}
+
+model PlaywrightRun {
+  id               String                 @id @default(cuid())
+  applicationId    String                 @map("application_id")
+  application      Application            @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  testRequestId    String?                @map("test_request_id")
+  testRequest      TestRequest?           @relation(fields: [testRequestId], references: [id], onDelete: SetNull)
+  testCaseIds      String[]               @default([]) @map("test_case_ids")
+  testFilePath     String                 @map("test_file_path") @db.Text
+  environment      String                 @db.VarChar(120)
+  projects         PlaywrightProject[]    @default([])
+  headed           Boolean                @default(false)
+  workers          String?                @db.VarChar(32)
+  retries          Int?
+  maxFailures      String?                @map("max_failures") @db.VarChar(32)
+  trace            String?                @db.VarChar(64)
+  reporter         String?                @db.VarChar(32)
+  status           PlaywrightRunStatus
+  queueStatus      PlaywrightQueueStatus? @map("queue_status")
+  runnerId         String?                @map("runner_id") @db.VarChar(255)
+  command          String?                @db.Text
+  workingDirectory String?                @map("working_directory") @db.Text
+  timeoutSeconds   Int?                   @map("timeout_seconds")
+  artifactIds      String[]               @default([]) @map("artifact_ids")
+  artifactPaths    String[]               @default([]) @map("artifact_paths")
+  report           Json?
+  manualPath       Boolean                @default(false) @map("manual_path")
+  idempotencyKey   String?                @map("idempotency_key") @db.VarChar(255)
+  correlationId    String?                @map("correlation_id") @db.VarChar(255)
+  requestedAt      DateTime?              @map("requested_at") @db.Timestamptz(6)
+  dispatchedAt     DateTime?              @map("dispatched_at") @db.Timestamptz(6)
+  lastHeartbeatAt  DateTime?              @map("last_heartbeat_at") @db.Timestamptz(6)
+  startedAt        DateTime?              @map("started_at") @db.Timestamptz(6)
+  completedAt      DateTime?              @map("completed_at") @db.Timestamptz(6)
+  duration         Int?
+  totalTests       Int?                   @map("total_tests")
+  passedTests      Int?                   @map("passed_tests")
+  failedTests      Int?                   @map("failed_tests")
+  skippedTests     Int?                   @map("skipped_tests")
+  cancelledTests   Int?                   @map("cancelled_tests")
+  logs             String?                @db.Text
+  triggeredById    String                 @map("triggered_by_id")
+  triggeredBy      User                   @relation("PlaywrightRunTrigger", fields: [triggeredById], references: [id], onDelete: Restrict)
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([applicationId, status])
+  @@index([testRequestId])
+  @@index([correlationId])
+  @@map("playwright_runs")
+}
+
+model PlaywrightTestFolder {
+  id            String                @id @default(cuid())
+  applicationId String                @map("application_id")
+  application   Application           @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  rootKind      PlaywrightCdeRootKind @map("root_kind")
+  rootUrl       String                @map("root_url") @db.Text
+  relativePath  String                @map("relative_path") @db.Text
+  fullPath      String                @map("full_path") @db.Text
+  discoveredAt  DateTime              @default(now()) @map("discovered_at") @db.Timestamptz(6)
+
+  @@unique([applicationId, fullPath])
+  @@map("playwright_test_folders")
+}
+
+model PlaywrightTestFile {
+  id                 String                   @id @default(cuid())
+  applicationId      String                   @map("application_id")
+  application        Application              @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  rootKind           PlaywrightCdeRootKind    @map("root_kind")
+  rootUrl            String                   @map("root_url") @db.Text
+  source             PlaywrightTestFileSource
+  folderPath         String                   @map("folder_path") @db.Text
+  relativeFolderPath String                   @map("relative_folder_path") @db.Text
+  fileName           String                   @map("file_name") @db.VarChar(255)
+  fullPath           String                   @map("full_path") @db.Text
+  script             String                   @db.Text
+  description        String?                  @db.Text
+  createdById        String                   @map("created_by_id")
+  createdBy          User                     @relation("PlaywrightFileCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([applicationId, fullPath])
+  @@index([applicationId, source])
+  @@map("playwright_test_files")
+}
+
+model PlaywrightHiddenDiscoveredPath {
+  id            String      @id @default(cuid())
+  applicationId String      @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  fullPath      String      @map("full_path") @db.Text
+  hiddenAt      DateTime    @default(now()) @map("hidden_at") @db.Timestamptz(6)
+
+  @@unique([applicationId, fullPath])
+  @@map("playwright_hidden_discovered_paths")
+}
+
+model VersionHistory {
+  id                   String                   @id @default(cuid())
+  applicationId        String                   @map("application_id")
+  application          Application              @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  version              String                   @db.VarChar(64)
+  buildNumber          String?                  @map("build_number") @db.VarChar(64)
+  status               VersionHistoryStatus
+  primaryTestRequestId String                   @map("primary_test_request_id")
+  primaryTestRequest   TestRequest              @relation("VersionHistoryPrimaryRequest", fields: [primaryTestRequestId], references: [id], onDelete: Restrict)
+  isEmergency          Boolean                  @default(false) @map("is_emergency")
+  emergencyReason      String?                  @map("emergency_reason") @db.Text
+  riskDescription      String?                  @map("risk_description") @db.Text
+  riskAccepted         Boolean?                 @map("risk_accepted")
+  qaQualityStatus      QAQualityStatus?         @map("qa_quality_status")
+  qaQualityNotes       String?                  @map("qa_quality_notes") @db.Text
+  qaReviewedById       String?                  @map("qa_reviewed_by_id")
+  qaReviewedBy         User?                    @relation("VersionHistoryQaReviewer", fields: [qaReviewedById], references: [id], onDelete: SetNull)
+  qaReviewedAt         DateTime?                @map("qa_reviewed_at") @db.Timestamptz(6)
+  decision             VersionHistoryDecision?
+  decisionReason       String?                  @map("decision_reason") @db.Text
+  decisionById         String?                  @map("decision_by_id")
+  decisionBy           User?                    @relation("VersionHistoryDecisionBy", fields: [decisionById], references: [id], onDelete: SetNull)
+  decisionAt           DateTime?                @map("decision_at") @db.Timestamptz(6)
+  snapshot             Json?
+  decisionSnapshot     Json?                    @map("decision_snapshot")
+  creationCommand      Json?                    @map("creation_command")
+  lastCommand          Json?                    @map("last_command")
+  createdById          String                   @map("created_by_id")
+  createdBy            User                     @relation("VersionHistoryCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  publishedAt          DateTime?                @map("published_at") @db.Timestamptz(6)
+  createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  linkedRequests       VersionHistoryRequest[]
+  revisions            VersionHistoryRevision[]
+  currentTestRequests  TestRequest[]            @relation("TestRequestCurrentVersionHistory")
+  lockedRuns           TestRun[]                @relation("VersionHistoryLockedRuns")
+  lockedBugs           Bug[]                    @relation("VersionHistoryLockedBugs")
+
+  @@unique([applicationId, version, buildNumber])
+  @@index([applicationId, status])
+  @@index([primaryTestRequestId])
+  @@map("version_histories")
+}
+
+model VersionHistoryRequest {
+  versionHistoryId String                    @map("version_history_id")
+  testRequestId    String                    @map("test_request_id")
+  kind             VersionHistoryRequestKind
+  versionHistory   VersionHistory            @relation(fields: [versionHistoryId], references: [id], onDelete: Cascade)
+  testRequest      TestRequest               @relation(fields: [testRequestId], references: [id], onDelete: Restrict)
+  createdAt        DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([versionHistoryId, testRequestId, kind])
+  @@index([testRequestId])
+  @@map("version_history_requests")
+}
+
+model VersionHistoryRevision {
+  id               String          @id @default(cuid())
+  versionHistoryId String          @map("version_history_id")
+  versionHistory   VersionHistory  @relation(fields: [versionHistoryId], references: [id], onDelete: Cascade)
+  qaQualityStatus  QAQualityStatus @map("qa_quality_status")
+  qaQualityNotes   String          @map("qa_quality_notes") @db.Text
+  snapshot         Json
+  createdById      String          @map("created_by_id")
+  createdBy        User            @relation("VersionHistoryRevisionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([versionHistoryId, createdAt])
+  @@map("version_history_revisions")
+}
+
+model Attachment {
+  id           String           @id @default(cuid())
+  entityType   EntityType       @map("entity_type")
+  entityId     String           @map("entity_id")
+  type         AttachmentType
+  fileName     String           @map("file_name") @db.VarChar(500)
+  fileSize     BigInt           @map("file_size")
+  mimeType     String           @map("mime_type") @db.VarChar(255)
+  storagePath  String           @map("storage_path") @db.Text
+  sha256       String?          @db.VarChar(64)
+  status       AttachmentStatus
+  uploadedById String           @map("uploaded_by_id")
+  uploadedBy   User             @relation("AttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([entityType, entityId])
+  @@index([uploadedById])
+  @@map("attachments")
+}
+
+model AuditLog {
+  id            String           @id @default(cuid())
+  userId        String           @map("user_id")
+  user          User             @relation("AuditActor", fields: [userId], references: [id], onDelete: Restrict)
+  applicationId String?          @map("application_id")
+  application   Application?     @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  entityType    SystemEntityType @map("entity_type")
+  entityId      String           @map("entity_id")
+  action        AuditAction
+  previousValue String?          @map("previous_value") @db.Text
+  newValue      String?          @map("new_value") @db.Text
+  metadata      Json?
+  ipAddress     String?          @map("ip_address") @db.Inet
+  userAgent     String?          @map("user_agent") @db.Text
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([applicationId, createdAt])
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
+model Comment {
+  id         String     @id @default(cuid())
+  entityType EntityType @map("entity_type")
+  entityId   String     @map("entity_id")
+  content    String     @db.Text
+  authorId   String     @map("author_id")
+  author     User       @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([entityType, entityId])
+  @@index([authorId])
+  @@map("comments")
+}
+
+model Notification {
+  id             String                      @id @default(cuid())
+  userId         String                      @map("user_id")
+  user           User                        @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  title          String                      @db.VarChar(500)
+  message        String                      @db.Text
+  type           NotificationType
+  entityType     EntityType?                 @map("entity_type")
+  entityId       String?                     @map("entity_id")
+  channels       NotificationChannel[]       @default([])
+  deliveryStatus NotificationDeliveryStatus? @map("delivery_status")
+  deliveredAt    DateTime?                   @map("delivered_at") @db.Timestamptz(6)
+  correlationId  String?                     @map("correlation_id") @db.VarChar(255)
+  isRead         Boolean                     @default(false) @map("is_read")
+  createdAt      DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  outboxItems    NotificationOutboxItem[]
+
+  @@index([userId, isRead, createdAt])
+  @@index([entityType, entityId])
+  @@index([correlationId])
+  @@map("notifications")
+}
+
+model NotificationOutboxItem {
+  id             String                     @id @default(cuid())
+  notificationId String                     @map("notification_id")
+  notification   Notification               @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String                     @map("user_id")
+  user           User                       @relation("NotificationOutboxRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  channel        NotificationChannel
+  status         NotificationDeliveryStatus
+  retryCount     Int                        @default(0) @map("retry_count")
+  lastError      String?                    @map("last_error") @db.Text
+  correlationId  String?                    @map("correlation_id") @db.VarChar(255)
+  createdAt      DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  deliveredAt    DateTime?                  @map("delivered_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+  @@index([userId])
+  @@index([correlationId])
+  @@map("notification_outbox_items")
+}
+
+model CommandTrace {
+  id             String             @id @default(cuid())
+  commandName    String             @map("command_name") @db.VarChar(255)
+  entityType     SystemEntityType?  @map("entity_type")
+  entityId       String?            @map("entity_id")
+  applicationId  String?            @map("application_id")
+  application    Application?       @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  userId         String?            @map("user_id")
+  user           User?              @relation("CommandTraceUser", fields: [userId], references: [id], onDelete: SetNull)
+  idempotencyKey String?            @map("idempotency_key") @db.VarChar(255)
+  correlationId  String             @map("correlation_id") @db.VarChar(255)
+  source         CommandSource
+  status         CommandTraceStatus
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  replayedAt     DateTime?          @map("replayed_at") @db.Timestamptz(6)
+
+  @@index([applicationId, createdAt])
+  @@index([correlationId])
+  @@index([idempotencyKey])
+  @@map("command_traces")
+}
+
+model CommandIdempotencyRecord {
+  id              String            @id @default(cuid())
+  commandName     String            @map("command_name") @db.VarChar(255)
+  idempotencyKey  String            @map("idempotency_key") @db.VarChar(255)
+  payloadHash     String            @map("payload_hash") @db.VarChar(128)
+  responsePayload Json              @map("response_payload")
+  entityType      SystemEntityType? @map("entity_type")
+  entityId        String?           @map("entity_id")
+  userId          String?           @map("user_id")
+  applicationId   String?           @map("application_id")
+  correlationId   String?           @map("correlation_id") @db.VarChar(255)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([commandName, idempotencyKey])
+  @@index([correlationId])
+  @@map("command_idempotency_records")
+}
+
+model DomainEventOutbox {
+  id            String            @id @default(cuid())
+  type          String            @db.VarChar(255)
+  aggregateType String?           @map("aggregate_type") @db.VarChar(255)
+  aggregateId   String?           @map("aggregate_id") @db.VarChar(255)
+  payload       Json
+  status        DomainEventStatus @default(PENDING)
+  attempts      Int               @default(0)
+  lastError     String?           @map("last_error") @db.Text
+  occurredAt    DateTime          @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  publishedAt   DateTime?         @map("published_at") @db.Timestamptz(6)
+
+  @@index([status, occurredAt])
+  @@index([aggregateType, aggregateId])
+  @@map("domain_event_outbox")
+}
+
+model PlaywrightRunnerSetting {
+  id                      String   @id @default("default")
+  enabled                 Boolean  @default(true)
+  autoDiscovery           Boolean  @default(true) @map("auto_discovery")
+  runnerId                String   @map("runner_id") @db.VarChar(255)
+  commandTemplate         String   @map("command_template") @db.Text
+  defaultWorkingDirectory String   @map("default_working_directory") @db.Text
+  defaultTimeoutSeconds   Int      @map("default_timeout_seconds")
+  artifactRoot            String   @map("artifact_root") @db.Text
+  secretReference         String?  @map("secret_reference") @db.Text
+  updatedById             String?  @map("updated_by_id")
+  updatedBy               User?    @relation("PlaywrightRunnerUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("playwright_runner_settings")
+}
+
+model IntegrationAdapterSetting {
+  id                  String                   @id @default(cuid())
+  provider            IntegrationProvider      @unique
+  enabled             Boolean                  @default(false)
+  baseUrl             String                   @map("base_url") @db.Text
+  credentialReference String?                  @map("credential_reference") @db.Text
+  syncDirection       IntegrationSyncDirection @map("sync_direction")
+  lastHealthStatus    IntegrationHealthStatus  @default(UNKNOWN) @map("last_health_status")
+  updatedAt           DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("integration_adapter_settings")
+}
+
+model ApiConsoleCollection {
+  id            String              @id @default(cuid())
+  applicationId String              @map("application_id")
+  application   Application         @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  workspaceName String              @map("workspace_name") @db.VarChar(255)
+  name          String              @db.VarChar(255)
+  description   String?             @db.Text
+  ownerId       String              @map("owner_id") @db.VarChar(255)
+  status        ApiCollectionStatus
+  variables     Json                @default("[]")
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  requests      ApiConsoleRequest[]
+
+  @@index([applicationId, ownerId, status])
+  @@map("api_console_collections")
+}
+
+model ApiConsoleRequest {
+  id                   String                     @id @default(cuid())
+  collectionId         String                     @map("collection_id")
+  collection           ApiConsoleCollection       @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  applicationId        String                     @map("application_id")
+  application          Application                @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  apiId                String                     @map("api_id") @db.VarChar(255)
+  semanticVersion      String                     @map("semantic_version") @db.VarChar(64)
+  sharingStatus        ApiSharingStatus           @map("sharing_status")
+  sourceType           ApiRequestSourceType       @map("source_type")
+  referenceId          String?                    @map("reference_id")
+  sourceRequestId      String?                    @map("source_request_id")
+  sourceRequest        ApiConsoleRequest?         @relation("ApiRequestSource", fields: [sourceRequestId], references: [id], onDelete: SetNull)
+  derivedRequests      ApiConsoleRequest[]        @relation("ApiRequestSource")
+  shareRequestId       String?                    @map("share_request_id")
+  latestReturnReason   String?                    @map("latest_return_reason") @db.Text
+  approvedAt           DateTime?                  @map("approved_at") @db.Timestamptz(6)
+  approvedBy           String?                    @map("approved_by") @db.VarChar(255)
+  name                 String                     @db.VarChar(255)
+  description          String?                    @db.Text
+  method               String                     @db.VarChar(16)
+  urlTemplate          String                     @map("url_template") @db.Text
+  queryParameters      Json                       @default("[]") @map("query_parameters")
+  headers              Json                       @default("[]")
+  cookies              Json                       @default("[]")
+  bodyType             String                     @map("body_type") @db.VarChar(64)
+  bodyTemplate         String                     @map("body_template") @db.Text
+  authentication       Json                       @default("{}")
+  tls                  Json                       @default("{}")
+  executionMode        String                     @map("execution_mode") @db.VarChar(64)
+  classification       Json                       @default("{}")
+  environmentId        String                     @map("environment_id")
+  environment          ApiEnvironmentProfile      @relation(fields: [environmentId], references: [id], onDelete: Restrict)
+  assertions           Json                       @default("[]")
+  scripts              Json                       @default("{}")
+  documentation        Json                       @default("{}")
+  version              Int                        @default(1)
+  status               ApiCollectionStatus
+  originalImportedCurl String?                    @map("original_imported_curl") @db.Text
+  importedCurlId       String?                    @map("imported_curl_id")
+  createdBy            String                     @map("created_by") @db.VarChar(255)
+  createdAt            DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedBy            String?                    @map("updated_by") @db.VarChar(255)
+  updatedAt            DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  executions           ApiRequestExecution[]
+  importedCurlRecords  ImportedCurlRecord[]
+  manualExamples       ApiManualResponseExample[]
+  documentationResults ApiDocumentationResult[]
+  shareRequests        ApiShareRequest[]
+  referencesAsSource   ApiConsoleReference[]      @relation("ApiReferenceSourceRequest")
+  referencesAsRequest  ApiConsoleReference[]      @relation("ApiReferenceRequest")
+
+  @@index([applicationId, status])
+  @@index([collectionId])
+  @@index([apiId, semanticVersion])
+  @@map("api_console_requests")
+}
+
+model ApiEnvironmentProfile {
+  id                  String                @id
+  name                String                @db.VarChar(255)
+  kind                ApiEnvironmentKind
+  baseUrl             String                @map("base_url") @db.Text
+  variables           Json                  @default("[]")
+  defaultHeaders      Json                  @default("[]") @map("default_headers")
+  secretReferences    Json                  @default("{}") @map("secret_references")
+  productionProtected Boolean               @default(false) @map("production_protected")
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  requests            ApiConsoleRequest[]
+  executions          ApiRequestExecution[]
+
+  @@map("api_environment_profiles")
+}
+
+model ApiExecutionRunner {
+  id          String                @id
+  name        String                @db.VarChar(255)
+  networkZone ApiNetworkZone        @map("network_zone")
+  enabled     Boolean               @default(true)
+  executions  ApiRequestExecution[]
+
+  @@map("api_execution_runners")
+}
+
+model ApiRequestExecution {
+  id                    String                  @id @default(cuid())
+  requestId             String                  @map("request_id")
+  request               ApiConsoleRequest       @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  collectionId          String                  @map("collection_id")
+  environmentId         String                  @map("environment_id")
+  environment           ApiEnvironmentProfile   @relation(fields: [environmentId], references: [id], onDelete: Restrict)
+  runnerId              String                  @map("runner_id")
+  runner                ApiExecutionRunner      @relation(fields: [runnerId], references: [id], onDelete: Restrict)
+  executedBy            String                  @map("executed_by") @db.VarChar(255)
+  startedAt             DateTime                @map("started_at") @db.Timestamptz(6)
+  completedAt           DateTime?               @map("completed_at") @db.Timestamptz(6)
+  durationMs            Int?                    @map("duration_ms")
+  status                ApiExecutionStatus
+  statusCode            Int?                    @map("status_code")
+  responseSize          Int?                    @map("response_size")
+  responseContentType   String?                 @map("response_content_type") @db.VarChar(255)
+  requestSnapshot       Json                    @map("request_snapshot")
+  response              Json?
+  tlsVerification       Boolean                 @map("tls_verification")
+  transportResult       ApiTransportResult      @map("transport_result")
+  businessResult        ApiBusinessResult       @map("business_result")
+  assertionResults      Json                    @default("[]") @map("assertion_results")
+  scriptResults         Json?                   @map("script_results")
+  correlationId         String                  @map("correlation_id") @db.VarChar(255)
+  errorCategory         String?                 @map("error_category") @db.VarChar(255)
+  sanitizedError        String?                 @map("sanitized_error") @db.Text
+  environmentName       String                  @map("environment_name") @db.VarChar(255)
+  evidenceType          ApiResponseEvidenceType @map("evidence_type")
+  businessJustification String?                 @map("business_justification") @db.Text
+
+  @@index([requestId, startedAt])
+  @@index([correlationId])
+  @@map("api_request_executions")
+}
+
+model ImportedCurlRecord {
+  id                    String             @id @default(cuid())
+  requestId             String?            @map("request_id")
+  request               ApiConsoleRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  originalTextReference String             @map("original_text_reference") @db.Text
+  sanitizedPreview      String             @map("sanitized_preview") @db.Text
+  detectedDialect       String             @map("detected_dialect") @db.VarChar(64)
+  parserVersion         String             @map("parser_version") @db.VarChar(64)
+  importedBy            String             @map("imported_by") @db.VarChar(255)
+  importedAt            DateTime           @map("imported_at") @db.Timestamptz(6)
+
+  @@index([requestId])
+  @@map("imported_curl_records")
+}
+
+model ApiManualResponseExample {
+  id                   String                @id @default(cuid())
+  requestId            String                @map("request_id")
+  request              ApiConsoleRequest     @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  statusCode           Int                   @map("status_code")
+  headers              Json                  @default("[]")
+  body                 String                @db.Text
+  claimedEnvironmentId String                @map("claimed_environment_id")
+  source               String                @db.VarChar(255)
+  reason               String                @db.Text
+  enteredBy            String                @map("entered_by") @db.VarChar(255)
+  enteredAt            DateTime              @map("entered_at") @db.Timestamptz(6)
+  reviewedBy           String?               @map("reviewed_by") @db.VarChar(255)
+  reviewStatus         ApiManualReviewStatus @map("review_status")
+  evidenceAttachmentId String?               @map("evidence_attachment_id")
+
+  @@index([requestId])
+  @@map("api_manual_response_examples")
+}
+
+model ApiDocumentationResult {
+  id                 String            @id @default(cuid())
+  requestId          String            @map("request_id")
+  request            ApiConsoleRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  generatedAt        DateTime          @map("generated_at") @db.Timestamptz(6)
+  generatedBy        String            @map("generated_by") @db.VarChar(255)
+  approved           Boolean           @default(false)
+  markdown           String            @db.Text
+  warnings           String[]          @default([])
+  wordDocumentBase64 String?           @map("word_document_base64") @db.Text
+  wordFileName       String?           @map("word_file_name") @db.VarChar(500)
+  wordMimeType       String?           @map("word_mime_type") @db.VarChar(255)
+
+  @@index([requestId, generatedAt])
+  @@map("api_documentation_results")
+}
+
+model ApiShareRequest {
+  id                    String             @id @default(cuid())
+  requestId             String             @map("request_id")
+  request               ApiConsoleRequest  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  apiId                 String             @map("api_id") @db.VarChar(255)
+  apiTitle              String             @map("api_title") @db.VarChar(500)
+  applicationId         String             @map("application_id")
+  application           Application        @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  version               String             @db.VarChar(64)
+  submittedBy           String             @map("submitted_by") @db.VarChar(255)
+  submittedByName       String?            @map("submitted_by_name") @db.VarChar(255)
+  status                ApiSharingStatus
+  currentRevisionNumber Int                @default(0) @map("current_revision_number")
+  purpose               String?            @db.Text
+  introduction          String?            @db.Text
+  description           String?            @db.Text
+  returnReason          String?            @map("return_reason") @db.Text
+  reviewedBy            String?            @map("reviewed_by") @db.VarChar(255)
+  reviewedAt            DateTime?          @map("reviewed_at") @db.Timestamptz(6)
+  rowVersion            String             @map("row_version") @db.VarChar(255)
+  createdAt             DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  revisions             ApiShareRevision[]
+
+  @@index([applicationId, status])
+  @@index([apiId, version])
+  @@map("api_share_requests")
+}
+
+model ApiShareRevision {
+  id                     String                @id @default(cuid())
+  shareRequestId         String                @map("share_request_id")
+  shareRequest           ApiShareRequest       @relation(fields: [shareRequestId], references: [id], onDelete: Cascade)
+  revisionNumber         Int                   @map("revision_number")
+  purpose                String                @db.Text
+  introduction           String                @db.Text
+  description            String                @db.Text
+  snapshot               Json
+  submittedBy            String                @map("submitted_by") @db.VarChar(255)
+  submittedAt            DateTime              @map("submitted_at") @db.Timestamptz(6)
+  status                 ApiSharingStatus
+  reviewedBy             String?               @map("reviewed_by") @db.VarChar(255)
+  reviewedAt             DateTime?             @map("reviewed_at") @db.Timestamptz(6)
+  reviewAction           ApiShareReviewAction? @map("review_action")
+  returnReason           String?               @map("return_reason") @db.Text
+  documentationReference String?               @map("documentation_reference") @db.Text
+  rowVersion             String                @map("row_version") @db.VarChar(255)
+
+  @@unique([shareRequestId, revisionNumber])
+  @@map("api_share_revisions")
+}
+
+model ApiVersionConsumer {
+  id            String            @id @default(cuid())
+  apiId         String            @map("api_id") @db.VarChar(255)
+  version       String            @db.VarChar(64)
+  consumerType  ApiConsumerType   @map("consumer_type")
+  userId        String?           @map("user_id") @db.VarChar(255)
+  roleKey       UserRole?         @map("role_key")
+  applicationId String            @map("application_id")
+  application   Application       @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  status        ApiConsumerStatus
+  createdBy     String            @map("created_by") @db.VarChar(255)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedBy     String?           @map("updated_by") @db.VarChar(255)
+  updatedAt     DateTime?         @map("updated_at") @db.Timestamptz(6)
+
+  @@index([apiId, version, status])
+  @@index([applicationId])
+  @@map("api_version_consumers")
+}
+
+model ApiConsoleReference {
+  id              String             @id @default(cuid())
+  apiId           String             @map("api_id") @db.VarChar(255)
+  version         String             @db.VarChar(64)
+  sourceRequestId String             @map("source_request_id")
+  sourceRequest   ApiConsoleRequest  @relation("ApiReferenceSourceRequest", fields: [sourceRequestId], references: [id], onDelete: Cascade)
+  requestId       String?            @map("request_id")
+  request         ApiConsoleRequest? @relation("ApiReferenceRequest", fields: [requestId], references: [id], onDelete: SetNull)
+  collectionId    String             @map("collection_id")
+  applicationId   String             @map("application_id")
+  application     Application        @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  createdBy       String             @map("created_by") @db.VarChar(255)
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  status          ApiReferenceStatus
+  removedAt       DateTime?          @map("removed_at") @db.Timestamptz(6)
+
+  @@index([apiId, version, status])
+  @@index([applicationId])
+  @@map("api_console_references")
+}
+
+model ApiUsageEvent {
+  id              String            @id @default(cuid())
+  eventType       ApiUsageEventType @map("event_type")
+  userId          String            @map("user_id") @db.VarChar(255)
+  userDisplayName String            @map("user_display_name") @db.VarChar(255)
+  activeRole      UserRole          @map("active_role")
+  applicationId   String            @map("application_id")
+  application     Application       @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  apiId           String            @map("api_id") @db.VarChar(255)
+  apiTitle        String            @map("api_title") @db.VarChar(500)
+  version         String            @db.VarChar(64)
+  referenceId     String?           @map("reference_id")
+  eventAt         DateTime          @map("event_at") @db.Timestamptz(6)
+  environmentId   String?           @map("environment_id")
+  correlationId   String?           @map("correlation_id") @db.VarChar(255)
+
+  @@index([applicationId, eventAt])
+  @@index([apiId, version])
+  @@index([userId])
+  @@map("api_usage_events")
+}
+
+model ApiReadReceipt {
+  id      String   @id @default(cuid())
+  userId  String   @map("user_id") @db.VarChar(255)
+  apiId   String   @map("api_id") @db.VarChar(255)
+  version String   @db.VarChar(64)
+  readAt  DateTime @default(now()) @map("read_at") @db.Timestamptz(6)
+
+  @@unique([userId, apiId, version])
+  @@map("api_read_receipts")
+}
+
+model ApiConsoleDirectoryUser {
+  id          String   @id
+  fullName    String?  @map("full_name") @db.VarChar(255)
+  email       String?  @db.VarChar(320)
+  phoneNumber String?  @map("phone_number") @db.VarChar(32)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("api_console_directory_users")
+}
+
+model ApiConsoleDirectoryRoleAssignment {
+  id             String      @id @default(cuid())
+  userId         String      @map("user_id") @db.VarChar(255)
+  applicationId  String      @map("application_id")
+  role           UserRole
+  scope          AccessScope
+  applicationIds String[]    @default([]) @map("application_ids")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, role])
+  @@map("api_console_directory_role_assignments")
+}
+
+model ApiConsoleGlobalVariable {
+  id           String   @id @default(cuid())
+  key          String   @db.VarChar(255)
+  currentValue String   @map("current_value") @db.Text
+  initialValue String?  @map("initial_value") @db.Text
+  sensitive    Boolean  @default(false)
+  description  String?  @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([key])
+  @@map("api_console_global_variables")
+}
+
+model ApiConsoleNotification {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id") @db.VarChar(255)
+  title     String   @db.VarChar(500)
+  message   String   @db.Text
+  type      String   @db.VarChar(64)
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, isRead, createdAt])
+  @@map("api_console_notifications")
+}
+
+model ApiConsoleAuditLog {
+  id        String   @id @default(cuid())
+  action    String   @db.VarChar(255)
+  userId    String?  @map("user_id") @db.VarChar(255)
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([action, createdAt])
+  @@index([userId, createdAt])
+  @@map("api_console_audit_logs")
+}
+
+model ScheduledReport {
+  id               String                 @id @default(cuid())
+  applicationId    String?                @map("application_id")
+  application      Application?           @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  ownerId          String                 @map("owner_id")
+  owner            User                   @relation("ScheduledReportOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  reportKey        String                 @map("report_key") @db.VarChar(120)
+  name             String                 @db.VarChar(255)
+  cronExpression   String                 @map("cron_expression") @db.VarChar(120)
+  timezone         String                 @default("Asia/Tehran") @db.VarChar(80)
+  formats          ReportDeliveryFormat[] @default([])
+  recipientUserIds String[]               @default([]) @map("recipient_user_ids")
+  filters          Json                   @default("{}")
+  status           ScheduledReportStatus  @default(ACTIVE)
+  lastRunAt        DateTime?              @map("last_run_at") @db.Timestamptz(6)
+  nextRunAt        DateTime?              @map("next_run_at") @db.Timestamptz(6)
+  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, nextRunAt])
+  @@index([applicationId])
+  @@map("scheduled_reports")
+}
+
+model ReportAlert {
+  id               String                @id @default(cuid())
+  applicationId    String?               @map("application_id")
+  application      Application?          @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  ownerId          String                @map("owner_id")
+  owner            User                  @relation("ReportAlertOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  reportKey        String                @map("report_key") @db.VarChar(120)
+  name             String                @db.VarChar(255)
+  condition        Json
+  channels         NotificationChannel[] @default([])
+  recipientUserIds String[]              @default([]) @map("recipient_user_ids")
+  status           ReportAlertStatus     @default(ACTIVE)
+  lastEvaluatedAt  DateTime?             @map("last_evaluated_at") @db.Timestamptz(6)
+  lastTriggeredAt  DateTime?             @map("last_triggered_at") @db.Timestamptz(6)
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, lastEvaluatedAt])
+  @@index([applicationId])
+  @@map("report_alerts")
 }

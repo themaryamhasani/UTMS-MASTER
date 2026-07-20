@@ -4,9 +4,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-utms}
-      POSTGRES_USER: ${POSTGRES_USER:-utms}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-utms}
+      POSTGRES_DB: ${POSTGRES_DB:-UTMS}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -39,7 +39,7 @@ services:
       API_CONSOLE_PORT: 4174
       API_CONSOLE_CORS_ORIGIN: ${API_CONSOLE_CORS_ORIGIN:-http://localhost:5173}
       API_CONSOLE_DATA_DIR: /app/runtime/api-console
-      DATABASE_URL: postgresql://${POSTGRES_USER:-utms}:${POSTGRES_PASSWORD:-utms}@postgres:5432/${POSTGRES_DB:-utms}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-1234}@postgres:5432/${POSTGRES_DB:-UTMS}?schema=public
       REDIS_URL: redis://redis:6379
     ports:
       - "${API_CONSOLE_PORT:-4174}:4174"
@@ -93,7 +93,7 @@ services:
       dockerfile: infrastructure/docker/worker/Dockerfile
     environment:
       NODE_ENV: ${NODE_ENV:-development}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-utms}:${POSTGRES_PASSWORD:-utms}@postgres:5432/${POSTGRES_DB:-utms}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-1234}@postgres:5432/${POSTGRES_DB:-UTMS}?schema=public
       REDIS_URL: redis://redis:6379
     depends_on:
       postgres:

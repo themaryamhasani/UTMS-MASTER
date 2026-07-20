@@ -8,11 +8,10 @@ import { Badge } from '../components/ui/Badge';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import { Input, Textarea } from '../components/ui/Input';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
-import { applicationApi } from '../services/api';
+import { applicationApi, userApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
-import type { Application, CartableFilterParams } from '../types';
+import type { Application, CartableFilterParams, User as UserType, UserRoleAssignment } from '../types';
 import { ROLE_LABELS } from '../types';
-import { mockUserRoleAssignments, mockUsers } from '../services/seedData';
 
 const CDE_BASE_URL = 'https://cde.edus.ir/';
 const CDE_ROOT_RULES = {
@@ -44,6 +43,8 @@ const emptyAppForm = {
 export const ApplicationsPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const [applications, setApplications] = useState<Application[]>([]);
+  const [users, setUsers] = useState<UserType[]>([]);
+  const [roleAssignments, setRoleAssignments] = useState<UserRoleAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<CartableFilterParams>({ page: 1, limit: 10, search: '' });
 
@@ -63,19 +64,28 @@ export const ApplicationsPage: React.FC = () => {
 
   const loadData = async () => {
     setLoading(true);
-    try { const d = await applicationApi.getAll(); setApplications(d); }
+    try {
+      const [apps, allUsers, assignments] = await Promise.all([
+        applicationApi.getAll(),
+        userApi.getAll(),
+        userApi.getRoleAssignments(),
+      ]);
+      setApplications(apps);
+      setUsers(allUsers);
+      setRoleAssignments(assignments);
+    }
     catch { toast.error('خطا.'); }
     finally { setLoading(false); }
   };
 
   const getAppUsers = (appId: string) => {
-    const assignments = mockUserRoleAssignments.filter(a => {
+    const assignments = roleAssignments.filter(a => {
       const assignmentApplicationIds = a.applicationIds?.length ? a.applicationIds : [a.applicationId];
       return a.isActive && (a.scope === 'APP' || assignmentApplicationIds.includes(appId));
     });
     const userIds = [...new Set(assignments.map(a => a.userId))];
     return userIds.map(uid => {
-      const user = mockUsers.find(u => u.id === uid);
+      const user = users.find(u => u.id === uid);
       const roles = assignments.filter(a => a.userId === uid).map(a => a.role);
       return { user, roles };
     }).filter(u => u.user);

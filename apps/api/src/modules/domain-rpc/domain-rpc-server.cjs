@@ -1,5 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const { canHandleApplicationRpc, handleApplicationRpc } = require('./postgres-application-service.cjs');
+const { canHandleUserRpc, handleUserRpc } = require('./postgres-user-service.cjs');
+const { canHandleWorkflowPolicyRpc, handleWorkflowPolicyRpc } = require('./postgres-workflow-policy-service.cjs');
 
 const REPOSITORY_ROOT = path.resolve(__dirname, '../../../../..');
 const GENERATED_DIR = path.join(REPOSITORY_ROOT, 'runtime', 'domain-rpc');
@@ -347,6 +350,17 @@ async function handleDomainRpc(req, parsedUrl, body) {
   const serviceName = String(body.service || '');
   const methodName = String(body.method || '');
   const args = Array.isArray(body.args) ? body.args : [];
+
+  if (canHandleApplicationRpc(serviceName, methodName)) {
+    return { data: await handleApplicationRpc(methodName, args) };
+  }
+  if (canHandleUserRpc(serviceName, methodName)) {
+    return { data: await handleUserRpc(methodName, args) };
+  }
+  if (canHandleWorkflowPolicyRpc(serviceName, methodName)) {
+    return { data: await handleWorkflowPolicyRpc(methodName, args) };
+  }
+
   const { services, persistCurrentDataState } = loadServices();
   const service = services[serviceName];
 

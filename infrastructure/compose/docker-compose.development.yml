@@ -11,7 +11,7 @@ services:
       API_CONSOLE_PORT: 4174
       API_CONSOLE_CORS_ORIGIN: http://localhost:5173
       API_CONSOLE_DATA_DIR: /app/runtime/api-console
-      DATABASE_URL: postgresql://utms:utms@postgres:5432/utms?schema=public
+      DATABASE_URL: postgresql://postgres:1234@postgres:5432/UTMS?schema=public
       REDIS_URL: redis://redis:6379
     command: npm run dev:api
     ports:
@@ -43,7 +43,7 @@ services:
       dockerfile: infrastructure/docker/worker/Dockerfile
     environment:
       NODE_ENV: development
-      DATABASE_URL: postgresql://utms:utms@postgres:5432/utms?schema=public
+      DATABASE_URL: postgresql://postgres:1234@postgres:5432/UTMS?schema=public
       REDIS_URL: redis://redis:6379
     depends_on:
       - postgres

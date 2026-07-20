@@ -7,6 +7,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./database": {
+      "types": "./src/database/prisma-client.ts",
+      "default": "./src/database/prisma-client.ts"
     }
   },
   "scripts": {
