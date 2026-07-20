@@ -79,9 +79,9 @@ async function seedDemoIdentityAndApplications() {
   const applications = [
     {
       id: 'app-1',
-      name: 'Online Banking',
+      name: 'سامانه بانکداری آنلاین',
       code: 'ONLINE_BANKING',
-      description: 'Internet banking system for customer-facing quality workflows.',
+      description: 'سیستم بانکداری اینترنتی برای مشتریان',
       cdeFrontUrl: 'https://cde.edus.ir/front/directory/medu-community%3EApp',
       cdeDataServiceUrl: 'https://cde.edus.ir/dservice/directory/medu-community%3EApp',
       cdeGatewayUrl: 'https://cde.edus.ir/back/medu-ai/medu-community%3E?return=/workspace/medu-ai',
@@ -89,9 +89,9 @@ async function seedDemoIdentityAndApplications() {
     },
     {
       id: 'app-2',
-      name: 'Human Resources Management',
+      name: 'سامانه مدیریت منابع انسانی',
       code: 'HRM',
-      description: 'Employee and human resources management system.',
+      description: 'سیستم مدیریت کارکنان و منابع انسانی',
       cdeFrontUrl: 'https://cde.edus.ir/front/directory/hrm%3EApp',
       cdeDataServiceUrl: 'https://cde.edus.ir/dservice/directory/hrm%3EApp',
       cdeGatewayUrl: 'https://cde.edus.ir/back/hrm/hrm%3E?return=/workspace/hrm',
@@ -99,9 +99,9 @@ async function seedDemoIdentityAndApplications() {
     },
     {
       id: 'app-3',
-      name: 'Employee Portal',
+      name: 'پورتال کارمندان',
       code: 'EMPLOYEE_PORTAL',
-      description: 'Internal employee services portal.',
+      description: 'پورتال خدمات کارمندان',
       cdeFrontUrl: 'https://cde.edus.ir/front/directory/employee-portal%3EApp',
       cdeDataServiceUrl: 'https://cde.edus.ir/dservice/directory/employee-portal%3EApp',
       cdeGatewayUrl: 'https://cde.edus.ir/back/employee-portal/employee-portal%3E?return=/workspace/employee-portal',

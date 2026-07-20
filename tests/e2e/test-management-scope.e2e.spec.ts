@@ -123,7 +123,7 @@ test.describe('multi-role working context', () => {
 
     await page.goto('/login');
     await page.getByLabel('شماره تلفن').fill('09121234567');
-    await page.getByLabel('رمز عبور').fill('test-password');
+    await page.getByLabel('رمز عبور').fill('123456');
     await page.getByRole('button', { name: 'ورود به سیستم' }).click();
 
     const developerContext = page.getByRole('button', { name: /توسعه‌دهنده/ });

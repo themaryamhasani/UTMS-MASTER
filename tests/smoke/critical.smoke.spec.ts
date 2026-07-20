@@ -20,7 +20,7 @@ test('UTMS-AUTH-FUNC-002 @smoke @functional logs in and selects an active contex
   }));
   await page.goto('/');
   await page.getByLabel('شماره تلفن *').fill('09121234567');
-  await page.getByLabel('رمز عبور *').fill('test-password');
+  await page.getByLabel('رمز عبور *').fill('123456');
   await page.getByRole('button', { name: 'ورود به سیستم' }).click();
   await expect(page.getByRole('heading', { name: 'انتخاب محیط کاری' })).toBeVisible();
   // The seeded login fixture can expose more than one application. Select
