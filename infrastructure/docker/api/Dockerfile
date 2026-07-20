@@ -10,7 +10,11 @@ COPY packages/config/package.json packages/config/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/test-support/package.json packages/test-support/package.json
-RUN npm ci --ignore-scripts && mkdir -p runtime/api-console && chown -R node:node /app
+RUN npm ci --ignore-scripts
+COPY prisma.config.ts ./
+COPY database/prisma database/prisma
+COPY scripts/database scripts/database
+RUN npm run db:generate && mkdir -p runtime/api-console && chown -R node:node /app
 COPY --chown=node:node apps/api apps/api
 COPY --chown=node:node packages packages
 USER node

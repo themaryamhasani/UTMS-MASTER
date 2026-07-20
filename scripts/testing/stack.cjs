@@ -3,9 +3,18 @@ const { spawnSync } = require('node:child_process');
 const compose = ['compose', '-p', 'utms-test', '-f', 'infrastructure/compose/docker-compose.test.yml'];
 const action = process.argv[2];
 
-function docker(args) {
+function docker(args, options = {}) {
   const result = spawnSync('docker', [...compose, ...args], { stdio: 'inherit', shell: false });
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  if (result.status !== 0) {
+    if (options.logsOnFailure) {
+      spawnSync('docker', [...compose, 'ps'], { stdio: 'inherit', shell: false });
+      spawnSync('docker', [...compose, 'logs', '--no-color', '--tail', '200', 'postgres-test', 'redis-test', 'api-test', 'web-test'], {
+        stdio: 'inherit',
+        shell: false,
+      });
+    }
+    process.exit(result.status ?? 1);
+  }
 }
 
 async function waitFor(url, label) {
@@ -28,7 +37,7 @@ async function waitFor(url, label) {
 }
 
 async function main() {
-  if (action === 'up') return docker(['up', '-d', '--build', 'postgres-test', 'redis-test', 'api-test', 'web-test']);
+  if (action === 'up') return docker(['up', '-d', '--build', 'postgres-test', 'redis-test', 'api-test', 'web-test'], { logsOnFailure: true });
   if (action === 'down') return docker(['down', '--remove-orphans']);
   if (action === 'clean') return docker(['down', '-v', '--remove-orphans']);
   if (action === 'wait') {
