@@ -1,5 +1,7 @@
 # گزارش هماهنگی فرانت و بک UTMS
 
+> این گزارش snapshot اتصال فرانت و domain RPC در تاریخ درج‌شده است. مرجع وضعیت اجرایی و مرز persistence فعلی [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md) است.
+
 تاریخ بررسی: 2026-07-18
 وضعیت به‌روزرسانی: اتصال backend domain RPC برقرار است و تنظیمات UI دیگر وضعیت دامنه را به‌عنوان `Mock API (MVP)` نمایش نمی‌دهد.
 
@@ -18,12 +20,12 @@
 | احراز هویت و نقش‌ها | server-side در domain RPC برای منطق فعلی | ruleهای موجود در سرویس دامنه اکنون روی backend اجرا می‌شوند؛ hardening کامل auth/token همچنان مرحله production بعدی است. |
 | persistence دامنه | backend runtime persistence | state دامنه در backend با `runtime/domain-rpc/utms-state.json` یا `UTMS_DOMAIN_STATE_FILE` ذخیره می‌شود. |
 
-## شواهد اصلی
+## شواهد بررسی اولیه پیش از اصلاح
 
 1. فایل `apps/web/src/services/api.ts` با توضیح `Local in-memory service implementation for frontend development` شروع می‌شود و تقریباً تمام APIهای دامنه UTMS را به‌صورت local state پیاده می‌کند.
-2. فایل `apps/web/src/services/apiConsoleApi.ts` تنها کلاینت HTTP واقعی فرانت است؛ مقدار پایه آن از `VITE_API_CONSOLE_BASE_URL` یا `/api/api-console` خوانده می‌شود و با `fetch` به بک‌اند درخواست می‌فرستد.
+2. در وضعیت اولیه، `apps/web/src/services/apiConsoleApi.ts` تنها کلاینت HTTP واقعی فرانت بود؛ پس از اصلاح، `apps/web/src/services/domainRpcClient.ts` نیز domain callها را با `fetch` به بک‌اند می‌فرستد.
 3. بک‌اند فعلی در `apps/api/src/main.cjs` فقط `createServer` ماژول API Console را listen می‌کند و در `apps/api/src/main.ts` نیز فقط `apiConsoleModule` در health/application description دیده می‌شود.
-4. ماژول API Console در `apps/api/src/modules/api-console/api-console.module.ts` فقط routeهای `/api/api-console` و `/api/reports` را اعلام کرده است.
+4. در وضعیت اولیه، ماژول API Console فقط routeهای `/api/api-console` و `/api/reports` را اعلام می‌کرد؛ route `/api/domain` در اصلاح بعدی به declaration اضافه شد.
 5. `apps/web/vite.config.ts` فقط مسیرهای `/api/*` را به `VITE_DEV_API_PROXY_TARGET`، پیش‌فرض `http://localhost:4174`، proxy می‌کند. این برای API Console درست است، اما چون بیشتر سرویس‌های فرانت HTTP نیستند، باعث اتصال سایر ماژول‌ها به بک نمی‌شود.
 6. `docs/api/REPORTS_API.md` صراحتاً می‌گوید report APIهای فعلی frontend/mock read model هستند و production باید backend read model/query endpoint جایگزین کند.
 7. `tests/data/api-route-inventory.json` routeهای بک‌اند قابل تست را فقط برای API Console و health فهرست کرده است.

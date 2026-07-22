@@ -1,5 +1,7 @@
 # Phase 5 Backend Contracts
 
+> Historical contract proposal and phase record. Resource-style endpoints remain target contracts; the current executable bridge is documented in [Domain RPC API](../api/DOMAIN_RPC_API.md).
+
 This document records the production contracts implied by Phase 5 and extended by Phases 6 and 7. The current implementation is mock-backed, but the frontend/API shape now follows these boundaries.
 
 ## RetestTask Commands

@@ -1,5 +1,7 @@
 # UTMS Reports Implementation Tracker
 
+> Historical frontend delivery tracker. Reports now execute through domain RPC in backend mode, but still use transitional state rather than PostgreSQL read models. See [Reports API](../api/REPORTS_API.md).
+
 This tracker is synced with the current frontend/mock implementation after phases 14-17.
 
 ## Current Status

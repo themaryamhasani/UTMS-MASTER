@@ -1,5 +1,7 @@
 # UTMS System QA Checklist Audit
 
+Source-verified: 2026-07-22
+
 Audit status is aligned with the frontend after phases 14-17.
 
 ## Summary
@@ -14,9 +16,9 @@ Audit status is aligned with the frontend after phases 14-17.
 | Test Case traceability | Implemented | Requirement and Flow are required; Test Request selector is not shown. |
 | Test Run and Bug editing | Implemented | Runs and linked bugs can be edited before VersionHistory lock; attachments are supported in updated flow. |
 | Developer Board | Implemented | Card workflow, drag/drop, "باگ نیست", and "بدون نیاز به اقدام". |
-| VersionHistory publish flow | Implemented in mock | Single Primary Test Request, policy-driven decision owner, QA quality modal, risk checklist, lock behavior. |
-| Playwright execution | Implemented in mock | File cartable, runner options, report artifacts, preview/download, named result lists. |
-| Reports | Implemented in frontend/mock | 20 reports, Traceability, version change history, Test Requests read model, JSON/Excel/PDF mock export, Schedule/Alert mock UI. |
+| VersionHistory publish flow | Implemented in transitional domain service | Single Primary Test Request, policy-driven decision owner, QA quality modal, risk checklist and lock behavior; RPC-backed but not yet Prisma-backed. |
+| Playwright execution | Simulated in transitional domain service | File cartable, runner options, report artifacts, preview/download and named result lists; no product runner execution loop. |
+| Reports | Implemented through reports RPC | 20 reports, Traceability, version change history, Test Requests read model, JSON/Excel/PDF mock export and Schedule/Alert mock UI; no PostgreSQL report repository. |
 | Tables | Implemented in shared component | Quick filter, Column Chooser, Excel-compatible export, page size controls. |
 | Confirmation UX | Implemented | `confirm()`, `alert()` and `beforeunload` are absent from `src`. |
 
@@ -24,7 +26,7 @@ Audit status is aligned with the frontend after phases 14-17.
 
 | ID | Requirement | Evidence |
 |---|---|---|
-| QA-01 | Role-specific cartables | `src/stores/authStore.ts`, `src/components/layout/Sidebar.tsx` |
+| QA-01 | Role-specific cartables | `apps/web/src/stores/authStore.ts`, `apps/web/src/components/layout/Sidebar.tsx` |
 | QA-02 | QA Specialist automated-test permission | `automatedTestsEnabled`, Playwright cartable gating |
 | QA-03 | CDE roots in Application Back-office | `apps/web/src/pages/ApplicationsPage.tsx`, `apps/web/src/services/seedData.ts` |
 | QA-04 | Version/Build input sanitation | `apps/web/src/utils/inputRules.ts`, `apps/web/src/utils/semver.ts` |
@@ -46,4 +48,4 @@ Audit status is aligned with the frontend after phases 14-17.
 ## Verification Notes
 
 - `npm run build` completed successfully after phases 14-17.
-- Mock APIs persist in memory; production validation and persistence must be repeated in backend contracts.
+- Most domain APIs persist through transitional API-process/file state; production validation and PostgreSQL transaction guarantees still need backend-owned repositories. Users, applications and workflow policies already use PostgreSQL adapters.

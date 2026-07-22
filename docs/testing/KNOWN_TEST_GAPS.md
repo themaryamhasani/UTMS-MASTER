@@ -1,12 +1,16 @@
 # Known Test Gaps
 
+Source-verified: 2026-07-22
+
 These are explicit limitations of the current product implementation. They are not silently skipped and are not counted as passing coverage.
 
 | Gap ID | Evidence | Impact | Planned resolution |
 | --- | --- | --- | --- |
-| GAP-DB-001 | `apps/web/src/services/api.ts` uses module-memory/browser persistence for most UTMS domains; the API server currently implements Online API Console routes. | No claim of PostgreSQL integration or relational integrity for dashboard, requests, requirements, bugs, releases, or reports. | Complete the domain API adapters and Prisma repositories, then add isolated database integration suites. |
+| GAP-DB-001 | The Prisma schema covers the product, but only users, applications and workflow policies have dedicated PostgreSQL RPC adapters. Other domains use transitional API-process/file state or browser persistence. | No PostgreSQL transaction or relational-integrity claim for requests, requirements, tests, bugs, releases, reports or API Console runtime data. | Implement the remaining Prisma repositories and isolated database integration suites. |
 | GAP-REDIS-001 | Worker and Redis are foundations in this checkout and are not called by the tested web domains. | Queue, retry, and distributed-lock behavior is unavailable. | Integrate worker jobs and add dependency-failure/recovery suites. |
-| GAP-API-001 | API route inventory covers implemented Online API Console routes; reports routes outside that module are not implemented in the HTTP server. | No backend contract claim for unimplemented reports or general UTMS REST endpoints. | Implement and document the domain API surface before adding route assertions. |
+| GAP-API-001 | Domain services and reports are callable through generic `POST /api/domain/rpc`; the resource-style REST endpoints in workflow documents are not implemented. | The internal RPC bridge is not a stable, versioned public API contract. | Replace or version RPC with backend-owned APIs and add route/authorization contract suites. |
+| GAP-IMAGE-001 | `infrastructure/docker/api/Dockerfile` does not copy `apps/web/src`, while the transitional domain-RPC dispatcher bundles services from that path at runtime. | Non-PostgreSQL RPC services are not self-contained in the API image and eligible browser calls may fall back locally. | Build backend-owned service artifacts into the API image or replace the transitional bundle with dedicated modules, then add an image-level domain-services assertion. |
+| GAP-HARNESS-001 | On 2026-07-22, `npm run test:structural` failed during module loading because the root Playwright/CommonJS context imported `apps/web/src/services/domainRpcClient.ts`, whose `import.meta.env` was parsed outside an ES module. | No structural assertions execute in the current harness, even though earlier evidence exists. | Make the structural import path ESM-safe or inject domain-RPC configuration without `import.meta`, then rerun and republish the matrix. |
 | GAP-DOCX-001 | Documentation finalization endpoint returns a product artifact only for supported request states. | DOCX binary conformance is not asserted until a stable fixture is available. | Add a fixture-backed ZIP/DOCX validator to the API integration suite. |
 | GAP-ENGINE-001 | Firefox and WebKit binaries may not be installed on developer machines. | Compatibility rows remain `PENDING-ENV` until `npx playwright install firefox webkit` succeeds. | Install pinned browsers in CI and publish all three project results. |
 | GAP-PERF-001 | Playwright samples are local request/page measurements, not high-volume load testing. | No unsupported throughput/SLA claim. | Run a dedicated load tool against an isolated environment for capacity evidence. |
@@ -15,4 +19,3 @@ These are explicit limitations of the current product implementation. They are n
 | GAP-FEATURE-001 | Several PRD areas (attachments, comments, notifications, audit UI, full release workflow) are frontend simulations or partial pages. | Only visible behavior that exists is tested; missing behavior is not fabricated. | Close product implementation gaps and add requirement-based journeys. |
 
 Every `fixme`, skip, or pending compatibility result must reference one of these IDs in the test or report. No broad retry or unconditional skip is used to hide a failure.
-

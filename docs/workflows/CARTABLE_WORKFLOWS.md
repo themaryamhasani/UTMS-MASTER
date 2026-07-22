@@ -1,9 +1,11 @@
 # UTMS - Cartable Workflows
 
+Source-verified: 2026-07-22
+
 ## Overview
 This document describes all workflow actions and state transitions for each Cartable in the UTMS system.
 
-The executable implementation for these workflows is currently the frontend mock service at `apps/web/src/services/api.ts`; the server does not yet expose production Test Request, Requirement, Test Case, Test Run, Bug, Run Issue, Playwright or Release domain APIs.
+The executable implementation is defined in `apps/web/src/services/api.ts` and exposed to the browser through `POST /api/domain/rpc` in backend mode. These services run inside the API process but still use transitional file state rather than their available Prisma models. The resource-style REST endpoints in this document remain target public contracts.
 
 Application-scope invariants apply to every transition: independent roots require an explicit Application in APP/multi-system Contexts; Test Case derives it from Requirement, Test Run from Test Request, Bug/Run Issue from Test Run, and cross-system links are rejected.
 
@@ -29,7 +31,7 @@ Application-scope invariants apply to every transition: independent roots requir
 
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/TestRequestsPage.tsx`
-- **Mock service**: `apps/web/src/services/api.ts` - `testRequestApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `testRequestApi` (RPC-backed in backend mode)
 - **Types**: `apps/web/src/types/index.ts` - `TestRequest`, `TestRequestStatus`
 
 ---
@@ -55,7 +57,7 @@ Application-scope invariants apply to every transition: independent roots requir
 
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/RequirementsPage.tsx`
-- **Mock service**: `apps/web/src/services/api.ts` - `requirementApi`, `flowApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `requirementApi`, `flowApi` (RPC-backed in backend mode)
 
 ---
 
@@ -80,7 +82,7 @@ Application-scope invariants apply to every transition: independent roots requir
 
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/TestCasesPage.tsx`
-- **Mock service**: `apps/web/src/services/api.ts` - `testCaseApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `testCaseApi` (RPC-backed in backend mode)
 
 ---
 
@@ -123,7 +125,7 @@ Application-scope invariants apply to every transition: independent roots requir
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/TestRunsBugsPage.tsx`
 - **Route**: `/test-runs-bugs`; `/test-runs` is a compatibility redirect
-- **Mock service**: `apps/web/src/services/api.ts` - `testRunApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `testRunApi` (RPC-backed in backend mode)
 
 ---
 
@@ -154,7 +156,7 @@ Application-scope invariants apply to every transition: independent roots requir
 
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/BugsPage.tsx`
-- **Mock service**: `apps/web/src/services/api.ts` - `bugApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `bugApi` (RPC-backed in backend mode)
 
 ---
 
@@ -179,7 +181,7 @@ Application-scope invariants apply to every transition: independent roots requir
 
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/RunIssuesPage.tsx`
-- **Mock service**: `apps/web/src/services/api.ts` - `runIssueApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `runIssueApi` (RPC-backed in backend mode)
 
 ---
 
@@ -210,7 +212,7 @@ Application-scope invariants apply to every transition: independent roots requir
 
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/ChecklistsPage.tsx`
-- **Mock service**: `apps/web/src/services/api.ts` - `checklistApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `checklistApi` (RPC-backed in backend mode)
 
 ---
 
@@ -243,7 +245,7 @@ Application-scope invariants apply to every transition: independent roots requir
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/PlaywrightPage.tsx`
 - **Frontend**: `apps/web/src/pages/PlaywrightFilesPage.tsx`
-- **Mock service**: `apps/web/src/services/api.ts` - `playwrightApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `playwrightApi` (RPC-backed in backend mode)
 
 ---
 
@@ -282,7 +284,7 @@ Captured when QA sets quality status:
 
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/ReleasesPage.tsx`
-- **Mock service**: `apps/web/src/services/api.ts` - `releasePublishApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `releasePublishApi` (RPC-backed in backend mode)
 
 ---
 
@@ -304,7 +306,7 @@ Captured when QA sets quality status:
 
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/AuditPage.tsx`
-- **Mock service**: `apps/web/src/services/api.ts` - `auditLogApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `auditLogApi` (RPC-backed in backend mode)
 
 ---
 
@@ -321,7 +323,7 @@ Captured when QA sets quality status:
 
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/DeveloperBoardPage.tsx`
-- **Mock service**: `apps/web/src/services/api.ts` - `bugApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `bugApi` (RPC-backed in backend mode)
 
 ---
 
@@ -338,7 +340,7 @@ Captured when QA sets quality status:
 
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/PlaywrightFilesPage.tsx`
-- **Mock service**: `apps/web/src/services/api.ts` - `playwrightApi`
+- **Domain service**: `apps/web/src/services/api.ts` - `playwrightApi` (RPC-backed in backend mode)
 
 ---
 
@@ -355,4 +357,4 @@ Captured when QA sets quality status:
 
 ### Workflow Files
 - **Frontend**: `apps/web/src/pages/ReportsPage.tsx`
-- **Mock service**: `apps/web/src/services/reportsApi.ts`
+- **Domain service**: `apps/web/src/services/reportsApi.ts` - `reportsApi` (RPC-backed in backend mode)

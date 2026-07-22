@@ -1,5 +1,7 @@
 # Phase 6/7 Execution and Delivery Notes
 
+> Historical delivery record for the transitional implementation. The worker and product Playwright runner remain foundations; see [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md).
+
 This document records the mock implementation boundary for Phase 6 Playwright execution and Phase 7 notification delivery.
 
 ## Phase 6: Playwright Queue/Runner

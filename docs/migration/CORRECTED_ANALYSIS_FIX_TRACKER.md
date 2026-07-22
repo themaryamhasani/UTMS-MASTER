@@ -1,5 +1,7 @@
 # UTMS Corrected Analysis Fix Tracker
 
+> Historical delivery tracker. It records decisions and fixes from its implementation phase; use [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md) for present runtime status.
+
 ## Core Correction
 
 The corrected analysis establishes that publish decisions are handled by `VersionHistory`, not by an independent Release flow.

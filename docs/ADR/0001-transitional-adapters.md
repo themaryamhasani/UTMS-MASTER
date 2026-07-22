@@ -1,5 +1,7 @@
 # ADR 0001 - Transitional Adapters During Monorepo Migration
 
+Status reviewed: 2026-07-22 — accepted and still active. The domain-RPC service bundle and API Console CommonJS server remain transitional adapters; dedicated PostgreSQL adapters now exist for users, applications and workflow policies.
+
 ## Status
 
 Accepted

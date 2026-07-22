@@ -1,61 +1,69 @@
 # Dependency Inventory
 
-## Root Tooling
+Source-verified against `package.json`, workspace manifests and `package-lock.json`: 2026-07-22
 
-- `typescript` - repository-wide type checking.
-- `@types/node` - Node.js typings for API, worker, runner, and scripts.
+## Root Runtime Dependencies
 
-## Web App Dependencies
+- `@prisma/client` `7.8.0` and `@prisma/adapter-pg` `7.8.0` provide the generated client and PostgreSQL driver adapter.
+- `pg` `8.22.0` provides PostgreSQL connectivity for Prisma and database verification.
 
-Production dependencies live in `apps/web/package.json`:
+These dependencies are installed at the workspace root and are resolved by API/shared database modules even though `apps/api/package.json` does not repeat them.
 
-- React and React DOM.
-- React Router.
-- TanStack Query.
-- Zustand.
-- Lucide React.
+## Root Development Tooling
+
+- TypeScript `5.9.3` and Node types `22.19.17`.
+- Prisma CLI `7.8.0`.
+- Playwright Test (declared `^1.55.0`; lockfile installation may select a newer compatible `1.x`).
+- `@axe-core/playwright` for automated accessibility checks.
+- `c8` for the configured structural coverage set.
+
+Node.js 22 is used by Dockerfiles and CI.
+
+## Web Application
+
+Production dependencies in `apps/web/package.json`:
+
+- React and React DOM `19.2.6`.
+- React Router DOM `^7.18.0`.
+- TanStack React Query `^5.101.2`.
+- Zustand `^5.0.14`.
+- Lucide React `^1.21.0`.
 - `date-fns` and `date-fns-jalali`.
-- `uuid`.
-- `clsx` and `tailwind-merge`.
+- `uuid`, `clsx`, `tailwind-merge` and the Vazirmatn font package.
 
-Web-only development dependencies:
+Web development dependencies include Vite, the React and Tailwind Vite plugins, Tailwind CSS 4, `vite-plugin-singlefile`, esbuild and React/Node typings.
 
-- Vite.
-- React Vite plugin.
-- Tailwind CSS Vite plugin.
-- Tailwind CSS.
-- Vite single-file plugin.
-- React and Node typings.
+## API Application
 
-## API App Dependencies
+The API package is CommonJS and uses:
 
-`apps/api` currently uses Node.js built-ins only. The API Console server remains a transitional CommonJS adapter.
+- Node built-ins for the HTTP server, filesystem store, cryptography, networking, ZIP/DOCX generation and process control.
+- Root Prisma/PostgreSQL dependencies for user, application and workflow-policy adapters.
+- Root esbuild resolution through the web workspace dependency to create the transitional domain-service runtime bundle.
 
-## Worker And Runner Dependencies
+The last dependency is an implementation bridge, not the target backend module architecture.
 
-`apps/worker` and `apps/playwright-runner` currently use TypeScript and Node.js built-ins only.
+## Worker And Product Runner
 
-## Shared Package Dependencies
+`apps/worker` and `apps/playwright-runner` currently use TypeScript and Node built-ins only. Their source exports runtime descriptors; neither workspace contains an active processing/execution loop yet.
 
-`packages/contracts`, `packages/shared`, `packages/config`, and `packages/test-support` currently have no production dependencies.
+## Shared Packages
 
-## Duplicate Libraries
+- `@utms/contracts`, `@utms/config` and `@utms/test-support` have no production package dependencies.
+- `@utms/shared` exports framework-independent helpers and a Prisma client module that resolves the root Prisma/PostgreSQL dependencies.
 
-No duplicate dependency versions were introduced by the migration. Existing web dependencies remain scoped to `apps/web`.
+## External Runtime Images
 
-## Deprecated Libraries
+- PostgreSQL `16-alpine`.
+- Redis `7-alpine`.
+- Node `22-alpine` for application images.
+- Playwright `v1.55.0-noble` in the test stack.
+- k6 `0.54.0` for the performance harness.
 
-No deprecated libraries were identified from the package manifests during this restructuring pass.
+## Maintenance Notes
 
-## Security Concerns
-
-- API Console runtime persistence is still file-backed under `runtime/api-console`; this is isolated from source but must be replaced with database-backed repositories before production use.
-- Secret values are not added to environment examples.
-
-## Removed Dependencies
-
-No dependency was removed. Dependencies were relocated from the root app manifest into `apps/web/package.json`.
-
-## Newly Introduced Dependencies
-
-No new production dependency was introduced. `@types/node` is declared at the root for workspace type checking.
+- `package.json` version ranges and `package-lock.json` are authoritative; avoid copying installed versions into operational commands.
+- Run `npm audit` and review Docker base images as part of release security work; this document does not claim a zero-vulnerability audit.
+- Keep Prisma CLI and client on compatible versions.
+- Avoid adding production dependencies to the root unless they are genuinely shared by runtime workspaces.
+- The API Console file store and local secret vault are architectural concerns, not missing npm dependencies; production replacements require persistence and secret-management adapters.

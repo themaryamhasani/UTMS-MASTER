@@ -1,5 +1,7 @@
 # گزارش تکمیل فازهای ۱۴ تا ۱۷ فرانت
 
+> Historical phase-completion report. Paths written as `src/...` describe the pre-monorepo checkout. Use [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md) for current source locations and runtime boundaries.
+
 تاریخ به‌روزرسانی: 2026-07-12
 
 دامنه: تکمیل فرانت و mock مطابق PRD، با جداسازی مواردی که ذاتا بک‌اند، Worker، Storage یا Integration واقعی نیاز دارند.

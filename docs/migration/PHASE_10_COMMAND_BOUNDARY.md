@@ -1,5 +1,7 @@
 # Phase 10 Command Boundary and Idempotency Notes
 
+> Historical delivery record. The current command implementation is available over domain RPC but is not yet backed by the Prisma command/idempotency tables; see [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md).
+
 This document records the frontend/mock implementation boundary for command metadata, idempotency, and correlation tracing.
 
 ## Implemented Mock Behavior

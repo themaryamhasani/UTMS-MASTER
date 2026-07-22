@@ -1,5 +1,7 @@
 # Phase 9 VersionHistory Snapshot and Delivery Notes
 
+> Historical delivery record for VersionHistory behavior. The current service is RPC-backed but still uses transitional file state rather than its Prisma repository; see [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md).
+
 This document records the frontend/mock implementation boundary for VersionHistory decision delivery.
 
 ## Snapshot Alignment

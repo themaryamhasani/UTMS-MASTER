@@ -1,5 +1,7 @@
 # Performance Execution Guide
 
+Source-verified against root scripts and performance orchestration: 2026-07-22
+
 ## Local Isolated Stack
 
 ```bash

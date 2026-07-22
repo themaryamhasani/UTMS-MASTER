@@ -1,5 +1,7 @@
 # Performance Test Strategy
 
+Source-verified against the k6 harness: 2026-07-22
+
 UTMS performance testing uses k6 for protocol-level load generation and keeps Playwright as the existing functional/e2e evidence layer. The harness targets implemented local surfaces only: `/api/health`, `/api/domain/*`, and `/api/api-console/*`.
 
 ## Architecture
@@ -17,4 +19,4 @@ The harness refuses production-like targets, requires `PERF_ENVIRONMENT`, and re
 
 ## Scope Boundary
 
-PostgreSQL, Redis, worker, and queue performance are not claimed for business flows that do not use those components. API Console persistence is file-backed. Domain RPC reports execute server-side domain/read-model code, not a relational reporting backend.
+PostgreSQL, Redis, worker and queue performance are not claimed for business flows that do not exercise those components. API Console persistence is file-backed. Domain RPC reports execute server-side transitional domain/read-model code, not a relational reporting backend; the existence of PostgreSQL adapters for users, applications and workflow policies does not extend that claim to all domains.

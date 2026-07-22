@@ -1,5 +1,7 @@
 # UTMS System QA Fix Plan
 
+> Historical frontend/mock fix record. Use [System QA Test Plan](../testing/SYSTEM_QA_TEST_PLAN.md) and [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md) for current scope.
+
 This document reflects the current frontend/mock implementation after phases 14-17.
 
 ## Fixes Applied

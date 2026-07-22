@@ -1,11 +1,13 @@
 # UTMS - Cartable Requirements
 
+Source-verified: 2026-07-22
+
 ## Overview
 This document details the requirements for each Cartable in the UTMS system.
 
 ### Current implementation boundary
 
-- Unless a section explicitly points to Online API Console, the listed Backend APIs are target contracts. In this checkout the cartables below use `apps/web/src/services/api.ts` with browser memory/IndexedDB/localStorage; the executable server does not expose these domain routes yet.
+- Unless a section explicitly points to Online API Console, the resource-style Backend APIs below are target public contracts. The executable web app calls the same service interfaces through `POST /api/domain/rpc` in backend mode. Users, applications and workflow policies use PostgreSQL adapters; the remaining cartable services execute through the transitional server-side service bundle and file state.
 - Visibility is evaluated against the active Context: `scope = APP OR applicationId IN scopeApplicationIds`. A single `activeContext.applicationId` is not the complete Scope for APP or multi-system Contexts.
 - Independent create flows require an explicit real Application in APP/multi-system Contexts. Child entities derive Application from their validated parent and may not create cross-system links.
 - `SYSTEM_ADMIN` may select all active Applications according to the current UI policy.
@@ -403,7 +405,7 @@ All users (system-wide)
 
 ## Current Implementation Addendum
 
-The current frontend/mock route inventory includes these additional cartables and admin views:
+The current route inventory includes these additional cartables and admin views:
 
 ### Developer Board
 

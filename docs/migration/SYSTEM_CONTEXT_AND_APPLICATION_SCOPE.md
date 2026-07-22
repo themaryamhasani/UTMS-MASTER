@@ -2,6 +2,8 @@
 
 تاریخ: ۱۴۰۵/۰۴/۲۵
 
+بازبینی با source: 2026-07-22
+
 ## خلاصه تغییر
 
 - Assignmentهای فعال یک کاربر که نقش یکسان دارند به یک Context کاری تبدیل می‌شوند؛ بنابراین یک نقش برای هر سامانه به‌صورت تکراری نمایش داده نمی‌شود.
@@ -68,9 +70,9 @@
 | API Collection | انتخاب صریح کاربر | سامانه باید داخل Context فعال باشد |
 | API Request | Collection | انتقال Request به Collection سامانه دیگر و تغییر مستقیم سامانه رد می‌شود |
 
-## قیود سرویس mock مدیریت تست
+## قیود سرویس دامنه مدیریت تست
 
-در `apps/web/src/services/api.ts` که دامنه‌های اصلی تست را به‌صورت in-memory همراه IndexedDB/localStorage شبیه‌سازی می‌کند:
+در `apps/web/src/services/api.ts` که قرارداد و منطق سرویس‌های اصلی تست را پیاده‌سازی می‌کند، browser در حالت `mock` از IndexedDB/localStorage استفاده می‌کند و حالت پیش‌فرض `backend` همان سرویس‌ها را با `/api/domain/rpc` در process بک‌اند و state فایل اجرا می‌کند:
 
 - `assertActorApplicationScope` وجود سامانه فعال و عضویت Actor در Scope آن را کنترل می‌کند.
 - ساخت یا ویرایش Test Request، Requirement، Test Case، Test Run، Bug، Run Issue و Playwright داده cross-system را رد می‌کند.
@@ -83,7 +85,7 @@
 
 این خطاهای دامنه‌ای برای تشخیص نقض Scope استفاده می‌شوند: `APPLICATION_REQUIRED`، `APPLICATION_NOT_FOUND`، `APPLICATION_OUT_OF_SCOPE`، `SELECTED_REQUIREMENT_OUT_OF_SCOPE`، `TEST_REQUEST_OUT_OF_SCOPE`، `TEST_RUN_APPLICATION_MISMATCH`، `BUG_APPLICATION_MISMATCH`، `RUN_ISSUE_APPLICATION_MISMATCH` و `PLAYWRIGHT_APPLICATION_MISMATCH`.
 
-نکته امنیتی: `assertActorApplicationScope` در mock همه Assignmentهای فعال Actor را بررسی می‌کند، نه صرفاً Context انتخاب‌شده Session. این رفتار برای یکپارچگی داده محلی مفید است، اما enforcement دقیق Context فعال یا مرز امنیتی production نیست.
+نکته امنیتی: `assertActorApplicationScope` همه Assignmentهای فعال Actor را بررسی می‌کند، نه صرفاً Context انتخاب‌شده Session. همچنین domain RPC اطلاعات Context را از header توسعه‌ای می‌گیرد. این رفتار برای یکپارچگی دامنه مفید است، اما enforcement دقیق Session و مرز امنیتی production نیست.
 
 ## قیود backend اجرایی Online API Console
 
@@ -111,14 +113,14 @@
 
 ## محدودیت backend تولیدی
 
-این checkout برای Test Request، Requirement، Test Case، Test Run، Bug، Run Issue و مدیریت Session ماژول backend پایدار ندارد؛ این دامنه‌ها فعلاً در سرویس فرانت و IndexedDB/localStorage هستند. Prisma نیز model و migration اجرایی این دامنه را ندارد. بنابراین قیود `apps/web/src/services/api.ts` جایگزین backend PostgreSQL تولیدی نیستند.
+این checkout دارای Prisma schema و migration برای دامنه‌های اصلی و PostgreSQL adapter اجرایی برای User، Application و WorkflowPolicy است. Test Request، Requirement، Test Case، Test Run، Bug، Run Issue، VersionHistory و Reports از HTTP واقعی domain RPC عبور می‌کنند، اما dispatcher برای آنها هنوز implementation سرویس فرانت را bundle و state را در `runtime/domain-rpc/utms-state.json` نگهداری می‌کند. بنابراین وجود modelهای Prisma به معنی استفاده runtime از PostgreSQL در این دامنه‌ها نیست.
 
-برای تکمیل backend تولیدی باید این قراردادها ساخته شوند:
+برای تکمیل backend تولیدی باید این مرزها ساخته یا جایگزین شوند:
 
 1. `GET /api/auth/contexts` برای دریافت Assignmentهای فعال همراه نام واقعی سامانه‌ها.
 2. `POST /api/auth/context/switch` با ورودی Context ID امضاشده یا شناسه Assignment؛ سرور باید مالکیت و فعال‌بودن آن را بررسی و token/session را rotate کند.
-3. endpointهای دامنه تست با FKهای سامانه و کنترل Scope سمت سرور.
+3. backend-owned repository و endpointهای دامنه تست با FKهای سامانه و کنترل Scope سمت سرور، به جای bundle کردن service فرانت.
 4. استخراج `applicationId` موجودیت‌های فرزند از Parent و رد ارتباط cross-system با پاسخ ۴۲۲ یا ۴۰۳.
-5. migration برای تجمیع Assignmentهای تکراری `user + role` و نگهداری چند سامانه در جدول واسط.
+5. تکمیل migration/constraintهای لازم برای تجمیع Assignmentهای تکراری `user + role` و نگهداری چند سامانه در جدول واسط.
 
-تا زمان ایجاد این ماژول‌ها، Context فرانت برای UX و سرویس mock برای رفتار محلی معتبر است، اما مرجع امنیت production محسوب نمی‌شود. همچنین `x-utms-context` در Online API Console یک adapter توسعه‌ای است و باید در production با session/JWT امضاشده جایگزین شود.
+تا زمان ایجاد این ماژول‌ها، Context فرانت و کنترل‌های سرویس دامنه رفتار اجرایی checkout را تعریف می‌کنند، اما مرجع امنیت production محسوب نمی‌شوند. `x-utms-context` در domain RPC و Online API Console یک adapter توسعه‌ای است و باید در production با session/JWT امضاشده و Scope مشتق‌شده در سرور جایگزین شود.

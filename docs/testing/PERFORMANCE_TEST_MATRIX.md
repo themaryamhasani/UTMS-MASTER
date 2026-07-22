@@ -1,5 +1,7 @@
 # Performance Test Matrix
 
+Evidence matrix reviewed: 2026-07-22. Observed values remain results from the dated run documented in `PERFORMANCE_RESULTS.md`, not a new benchmark.
+
 | ID | Service | Endpoint | Business operation | Profile | Executor | Traffic model | Default VUs/rate | Duration | Dataset | Threshold | Observed p50/p90/p95/p99 | Throughput | Error rate | Result | Bottleneck | Related test |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | UTMS-PERF-SMOKE-001 | API | `/api/health` + mixed safe workflow | Health/readiness/script validation | smoke | constant-vus | closed user | 2 VUs | 12s | reset store | health p95 < 300ms | 2.35/212.95/215.59/625.41 ms | 3.77 req/s | 0% | PASS | none observed | UTMS-API-INT-001 |

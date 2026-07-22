@@ -1,5 +1,7 @@
 # Database
 
+Source-verified: 2026-07-22
+
 Database ownership lives under `database/`.
 
 What belongs here:
@@ -31,6 +33,8 @@ Root commands:
 - `npm run db:seed` inserts baseline workflow, runner, integration and API Console infrastructure rows.
 - `npm run db:verify` validates the Prisma schema and confirms the core UTMS tables exist.
 
+`db:migrate` runs `prisma migrate deploy`; it does not create a development migration interactively. Set `DATABASE_URL` to override the local default.
+
 ## Schema Coverage
 
 The initial schema covers the UTMS production domains:
@@ -44,3 +48,9 @@ The initial schema covers the UTMS production domains:
 - Audit logs, comments, notifications, notification outbox, command traces and idempotency records.
 - Online API Console collections, request definitions, executions, sharing, consumers, references, usage and documentation evidence.
 - Scheduled reports, report alerts and domain-event outbox records.
+
+## Runtime Adoption
+
+Schema coverage is not the same as repository coverage. The API currently routes `userApi`, `applicationApi` and `workflowPolicyApi` to PostgreSQL adapters. Other domain-RPC services use transitional server file persistence (or browser persistence in mock mode) even though corresponding Prisma models exist. See [Current Implementation](../docs/architecture/CURRENT_IMPLEMENTATION.md#persistence-boundary).
+
+The committed seed populates workflow policies, applications, identity/role data, integration and runner settings, VersionHistory/testing baselines and API Console relational tables. The Online API Console runtime itself remains on its dedicated file store in this checkout.

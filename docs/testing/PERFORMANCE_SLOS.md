@@ -1,5 +1,7 @@
 # Performance SLOs
 
+Provisional thresholds reviewed: 2026-07-22
+
 No formal UTMS production SLOs were found in the repository. The k6 thresholds are provisional and configurable.
 
 | Objective | Default |

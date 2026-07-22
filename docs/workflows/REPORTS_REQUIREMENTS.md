@@ -1,6 +1,8 @@
 # UTMS Reports Requirements
 
-The current frontend implements 20 report cards across Management, Operational, Performance and System categories.
+Source-verified: 2026-07-22
+
+The current frontend implements 20 report cards across Management, Operational, Performance and System categories. Report calculations execute through `reportsApi` over domain RPC in backend mode, using the transitional domain state rather than PostgreSQL report read models.
 
 ## Implemented Reports
 

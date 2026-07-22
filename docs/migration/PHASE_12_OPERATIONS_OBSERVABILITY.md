@@ -1,5 +1,7 @@
 # Phase 12 Operations Observability Notes
 
+> Historical delivery record. Admin operations remain a UI/transitional-service capability, not a production worker/observability integration; see [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md).
+
 This document records the frontend/mock implementation boundary for Admin operational observability.
 
 ## Implemented Mock Behavior

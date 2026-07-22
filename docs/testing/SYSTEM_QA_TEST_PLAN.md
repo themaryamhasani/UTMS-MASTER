@@ -1,6 +1,8 @@
 # UTMS System QA Test Plan
 
-This manual test plan matches the current frontend/mock implementation after phases 14-17.
+Source-verified: 2026-07-22
+
+This manual test plan covers the current UI and domain-service behavior. In backend mode, service calls use domain RPC; only users, applications and workflow policies are currently PostgreSQL-backed.
 
 ## 1. Authentication And Access
 
@@ -100,7 +102,7 @@ This manual test plan matches the current frontend/mock implementation after pha
 
 ## Backend Follow-Up
 
-1. Mock APIs are in-memory and do not verify database transaction guarantees.
+1. Most domain APIs use transitional API-process/file state and do not verify PostgreSQL transaction guarantees; identity, applications and workflow policies are exceptions.
 2. PDF/Scheduled/Alert are frontend/mock; production execution is backend work.
 3. Playwright and CDE real integrations require backend/worker implementation.
 4. `npm run verify` does not include Playwright E2E/System/Accessibility/Compatibility suites; run the commands above separately.

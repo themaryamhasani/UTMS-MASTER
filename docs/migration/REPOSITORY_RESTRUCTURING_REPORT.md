@@ -1,5 +1,7 @@
 # Repository Restructuring Report
 
+> Historical completion report for the monorepo migration. Validation results and remaining-work statements describe that delivery point, not the current checkout. Use [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md) for current runtime and database status.
+
 ## Original Structural Problems
 
 - Frontend source, backend server code, generated output, runtime logs, and archive artifacts were mixed at the root.
@@ -106,7 +108,7 @@ Final verification result:
 - `npm run backend:self-check` passed with 23 checks and 0 failures.
 - `npm audit --audit-level=high` reported 0 vulnerabilities.
 - Integration, E2E, system, security, smoke, accessibility, compatibility, performance, reliability, regression, UAT and structural Playwright suites now contain executable specs. They are invoked by their dedicated `test:*` commands; `npm run verify` does not run these browser/API Playwright projects.
-- Database commands are wired placeholders until Prisma and `DATABASE_URL` are introduced.
+- At the time of this restructuring run, database commands were placeholders. Prisma, `DATABASE_URL`, the full schema, migration, seeds and partial PostgreSQL runtime adapters were added later.
 
 ## Remaining Structural Limitations
 

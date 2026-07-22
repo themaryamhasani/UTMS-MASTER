@@ -1,5 +1,7 @@
 # Performance Capacity Report
 
+Evidence status reviewed: 2026-07-22
+
 No maximum sustainable throughput is reported yet.
 
 The breakpoint/capacity profile exists at `performance/scenarios/breakpoint/breakpoint.js`, but it is intentionally guarded by:

@@ -1,5 +1,7 @@
 # Frontend Completion Tracker
 
+> Historical phase tracker. “Complete” refers to its frontend/mock scope, not production PostgreSQL, worker or external-integration completeness. See [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md).
+
 This tracker reflects the state after frontend phases 14-17.
 
 ## Completed Items

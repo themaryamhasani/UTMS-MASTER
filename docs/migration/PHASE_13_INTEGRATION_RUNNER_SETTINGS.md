@@ -1,5 +1,7 @@
 # Phase 13 Integration and Runner Settings Notes
 
+> Historical delivery record. Settings are exposed over domain RPC, while the worker, external adapters and product Playwright runner are not operational integrations; see [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md).
+
 This document records the frontend/mock implementation boundary for modular integration and runner configuration.
 
 ## Implemented Mock Behavior

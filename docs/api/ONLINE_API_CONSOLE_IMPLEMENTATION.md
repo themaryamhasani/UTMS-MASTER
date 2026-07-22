@@ -1,6 +1,6 @@
 # Online API Console Implementation
 
-Last updated: 2026-07-13
+Source-verified: 2026-07-22
 
 این سند وضعیت واقعی source فعلی Online API Console را توضیح می‌دهد. technical wordها عمدا ترجمه نشده‌اند تا با code، API contract و UI labelها قابل تطبیق بمانند.
 
@@ -206,7 +206,7 @@ Import preview این اطلاعات را برمی‌گرداند:
 
 ## Normalized Request Model
 
-Normalized model در `src/types/apiConsole.ts` تعریف شده و backend نیز همین shape را تولید یا مصرف می‌کند:
+Normalized model در `apps/web/src/types/apiConsole.ts` تعریف شده و backend نیز همین shape را تولید یا مصرف می‌کند:
 
 ```ts
 type NormalizedApiRequest = {
@@ -578,7 +578,7 @@ Store sections:
 - `runners`
 - `auditLog`
 
-برای production همین structure باید به tableهای واقعی map شود:
+Prisma schema اکنون tableهای متناظر API Console را تعریف می‌کند، اما runtime این module هنوز به آنها route نشده است. برای production همین structure باید از طریق repositoryهای واقعی به tableهای Prisma map شود، از جمله:
 
 - `ApiCollection`
 - `ApiRequestDefinition`
@@ -695,7 +695,7 @@ read api-usage report
 
 ## Assumptions
 
-- repo فعلی DB رسمی ندارد؛ بنابراین file-backed adapter برای اجرای واقعی feature در همین project استفاده شده است.
+- repo دارای Prisma schema، migration و PostgreSQL است، اما Online API Console هنوز repository PostgreSQL ندارد و از file-backed adapter استفاده می‌کند.
 - auth فعلی frontend بر اساس active context داخلی است؛ backend برای development همان context را از header می‌خواند.
 - Postman-compatible script engine کامل پیاده‌سازی نشده است؛ به جای آن safe DSL برای pre-request و post-response test وجود دارد.
 - DOCX generator برای حفظ template فعلی بدون dependency جدید پیاده‌سازی شده است.

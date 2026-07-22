@@ -1,5 +1,9 @@
 # UTMS - Implementation Assumptions (Updated)
 
+Source-verified: 2026-07-22
+
+The word “mock” in the phase-by-phase notes below refers to the transitional service implementation in `apps/web/src/services`. In normal backend mode that implementation is invoked through domain RPC and persisted by the API process; it is still not a complete PostgreSQL/worker/external-integration implementation. Users, applications and workflow policies are the current PostgreSQL-backed exceptions.
+
 ## Item 1: QA Delete/Edit
 - "Delete" is soft-delete (deactivation) not physical deletion
 - Edit for Requirements opens the existing detail/edit modal
@@ -8,7 +12,7 @@
 
 ## Item 2: User Management
 - National code (کد ملی) is 10 digits
-- "استعلام" simulates a database lookup; in production this queries PostgreSQL
+- "استعلام" uses the current user service; in backend mode identity and role-assignment lookup is PostgreSQL-backed
 - When user is found, name and phone are auto-filled and can be edited
 - When user is NOT found, fields are empty for manual entry
 - Access scope: APP = access to all systems, SYSTEMS = one or more selected systems only
@@ -40,23 +44,23 @@
 - Admin cannot modify checklist results (that's the reviewer's job)
 - Admin view provides oversight/monitoring capability
 
-## Item 6: Phase 4 Mock Workflow Hardening
-- Role-aware visibility is enforced in the mock API, not only in UI components
+## Item 6: Phase 4 Transitional Workflow Hardening
+- Role-aware visibility is enforced in the domain service, not only in UI components
 - Test Case readiness is computed from required fields, ready Requirement, linked Flow, and Active toggle
 - Incomplete or inactive Test Cases cannot be executed
 - Bug creation requires a failed Test Run
 - Bug assignees must be active Developers in the same Application scope
-- Retest/Regression handoff is implemented in the mock API as an idempotent RetestTask plus outbox-backed mock notifications
+- Retest/Regression handoff is implemented in the transitional domain service as an idempotent RetestTask plus outbox-backed simulated notifications
 
 ## Item 7: Phase 5 RetestTask and Backend Contracts
 - RetestTask is separate from TestRun; creating the task does not create a Run
 - QA starts the RetestTask to create the Pending Retest/Regression Run
 - Starting the same RetestTask again reuses the existing Run
-- Mock notifications use an outbox delivery model; default workflow channels are in-app and email, and SMS is supported by the shared contract
+- Transitional notifications use an outbox delivery model; default workflow channels are in-app and email, and SMS is supported by the shared contract
 - Production APIs should require Idempotency-Key and Correlation-ID for sensitive commands
 
 ## Item 8: Phase 6 Playwright Queue/Runner
-- The mock Playwright API models production as a queue-backed runner boundary
+- The transitional Playwright service models production as a queue-backed runner boundary
 - Starting a run creates a queued `PENDING` job before dispatching to `RUNNING`
 - Runner metadata includes command, selected Playwright options, working directory, timeout, runner id, dispatch time, heartbeat, and artifact paths
 - Logs, reporter-specific reports, and traces are stored as mock attachment records with object-storage-style paths
@@ -64,7 +68,7 @@
 - The current implementation does not execute shell commands or expose secrets in the browser
 
 ## Item 9: Phase 7 Notification Outbox
-- Notifications are still mock-backed, but they now create delivery items per channel
+- Notifications are still simulated, but they create delivery items per channel
 - Aggregate notification delivery status is derived from outbox delivery items
 - `getOutbox`, `processOutbox`, and `retryFailed` expose the delivery lifecycle for tests and future admin tooling
 - Real email/SMS providers are outside the mock implementation and remain backend work
@@ -73,7 +77,7 @@
 - VersionHistory authority is capability-based, not hard-coded to one role
 - The default Application policy keeps QA Lead as quality reviewer and Tech Lead as final decision owner
 - A QA-owned policy is available for Applications where QA Lead owns both quality review and final publish/version decision
-- System Admin can switch the mock workflow policy per Application from Settings
+- System Admin can switch the workflow policy per Application from Settings; this operation is PostgreSQL-backed in backend mode
 - Switching to the QA-owned policy refreshes active contexts and grants QA Lead the final `versionHistory:decide` capability for that Application
 - Backend implementation should persist policies and enforce the same `versionHistory:*` capabilities server-side
 
@@ -85,15 +89,15 @@
 - Production backend should commit snapshot, lock, audit, and outbox records in one transaction
 
 ## Item 12: Phase 10 Command Boundary
-- Sensitive mock commands accept optional `CommandMetadata`
+- Sensitive transitional commands accept optional `CommandMetadata`
 - `CommandMetadata` carries idempotency key, correlation id, requested time, and source
-- Mock idempotency replay is keyed by command name and idempotency key
+- Transitional idempotency replay is keyed by command name and idempotency key
 - Replayed commands return the previous result without duplicating audit or notification side effects
 - Audit logs, notifications, and outbox items can share the same correlation id
 - Production backend should persist command records durably and enforce the same contract transactionally
 
 ## Item 13: Phase 11 Admin Unlock
-- VersionHistory final decision locks linked Test Runs and Bugs in the mock layer
+- VersionHistory final decision locks linked Test Runs and Bugs in the transitional domain layer
 - Locked Bugs cannot continue operational workflow transitions until unlocked
 - System Admin unlock requires a reason and writes audit plus command trace records
 - Unlock does not delete the original VersionHistory snapshot or lock history
@@ -104,11 +108,11 @@
 - Correlation ID is treated as the join key across command, audit, notification, and outbox views
 
 ## Item 15: Phase 13 Integration and Runner Settings
-- Playwright runner settings are mock-configurable from Settings
+- Playwright runner settings are configurable from Settings, but remain transitional file state until a dedicated repository is connected
 - CDE and FAVA adapters are feature-flagged and store credential references only
 - Playwright discovery/start respect the Playwright feature flag and auto-discovery setting
 - Application CDE roots are validated to start with `https://cde.edus.ir/` and to match the configured Front, Back NodeJS/DataService, or Gateway URL pattern
 - Playwright files created or edited inside UTMS are treated as managed files and remain selectable for execution even if auto-discovery is disabled
-- Reporter selection is simulated end-to-end in the mock layer: command option, report artifact extension/MIME, in-modal preview, and downloadable file content are kept consistent
+- Reporter selection is simulated end-to-end in the transitional domain layer: command option, report artifact extension/MIME, in-modal preview and downloadable file content are kept consistent
 - Playwright report content includes named Passed, Skipped, Cancelled, and Failed details; failed details include file location and code frame
 - Real external calls, worker execution, and secret resolution remain backend responsibilities

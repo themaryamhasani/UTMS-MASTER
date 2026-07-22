@@ -1,5 +1,7 @@
 # Repository Restructure Plan
 
+> Historical plan from the pre-monorepo layout. The moves described here are complete; paths under `src/` and `server/` are intentionally preserved as before-state evidence. Use [Current Implementation](architecture/CURRENT_IMPLEMENTATION.md) for the current checkout.
+
 ## Current Folder Inventory
 
 | Path | Current responsibility | Target responsibility |

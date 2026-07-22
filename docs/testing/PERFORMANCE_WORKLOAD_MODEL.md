@@ -1,5 +1,7 @@
 # Performance Workload Model
 
+Source-verified against `performance/config/workloads.js`: 2026-07-22
+
 No production traffic data exists in this checkout, so this is a provisional model.
 
 | Workflow | Share | Rationale |

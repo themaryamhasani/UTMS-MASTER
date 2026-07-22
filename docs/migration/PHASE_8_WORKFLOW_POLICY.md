@@ -1,5 +1,7 @@
 # Phase 8 Workflow Policy Notes
 
+> Historical delivery record. Workflow-policy reads and assignment updates are now PostgreSQL-backed in backend mode; see [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md).
+
 This document records the frontend/mock boundary for modular VersionHistory authority.
 
 ## Implemented Mock Behavior

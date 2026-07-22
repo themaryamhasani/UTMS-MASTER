@@ -1,5 +1,7 @@
 # UTMS Reports API Documentation
 
+Source-verified: 2026-07-22
+
 Current report APIs are implemented in `apps/web/src/services/reportsApi.ts` and consumed by `apps/web/src/pages/ReportsPage.tsx`.
 
 The report read models now execute through the backend domain RPC route when the web app runs in backend mode:
@@ -12,7 +14,7 @@ The read-model calculations still reuse the current UTMS domain state and should
 
 ## API List
 
-| # | UI key | Mock API | Returns |
+| # | UI key | Service method | Returns |
 |---|---|---|---|
 | 1 | `overview` | `reportsApi.getSystemOverview(applicationId?)` | Request, test case, run, bug, VersionHistory, Playwright, attachment and audit summary plus open request list. |
 | 2 | `quality-health` | `reportsApi.getQualityHealth(applicationId?)` | Pass/fail/blocked rates, critical bugs, reopen rate, requirement coverage and Playwright pass rate. |

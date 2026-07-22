@@ -1,5 +1,7 @@
 # UTMS Test Case Catalog
 
+Source-verified against committed specifications: 2026-07-22
+
 The catalog is intentionally concise and points to executable Playwright specifications. Test IDs are stable and searchable in the source tree.
 
 ## Authentication, context, and RBAC
@@ -49,4 +51,3 @@ The catalog is intentionally concise and points to executable Playwright specifi
 - `UTMS-COMP-THEME-003`: system preference, explicit persistence and narrow-layout behavior across available compatibility projects.
 - `UTMS-PERF-CTM-001`: ten samples with median/p90/p95/max/failure-rate JSON summary.
 - `UTMS-REL-COMB-001`: five reset/health repetitions for bounded reliability evidence.
-

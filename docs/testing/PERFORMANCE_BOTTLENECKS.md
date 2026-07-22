@@ -1,5 +1,7 @@
 # Performance Bottlenecks
 
+Architecture review updated: 2026-07-22
+
 ## Confirmed From Architecture
 
 | Area | Evidence | Risk |

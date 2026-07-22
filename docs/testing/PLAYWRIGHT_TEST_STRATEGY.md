@@ -1,15 +1,17 @@
 # UTMS Playwright Test Strategy
 
+Source-verified: 2026-07-22
+
 ## Scope and source of truth
 
-This strategy tests the behavior that exists in this checkout. `apps/web` is a React/Vite application whose business domains are currently backed by browser-persistent and module-memory services. The Online API Console is the concrete HTTP backend at `apps/api/src/modules/api-console/infrastructure/http/api-console-server.cjs`, with file-backed persistence and `x-utms-context` authorization. PostgreSQL, Redis, the worker, and `apps/playwright-runner` are not silently treated as integrations for features that do not call them.
+This strategy tests behavior that exists in this checkout. `apps/web` is a React/Vite application whose service interfaces call the domain-RPC backend by default. Users, applications and workflow policies have Prisma/PostgreSQL adapters. Most other domains execute in the API process through a transitional bundle and file state; browser mock mode uses IndexedDB/localStorage. Online API Console is a concrete HTTP module with file-backed persistence and development `x-utms-context` authorization. Redis, the worker and `apps/playwright-runner` are not treated as integrations for features that do not call them.
 
 ## Architecture
 
 | Layer | Location | Runner | Isolation |
 | --- | --- | --- | --- |
 | Structural decision tests | `tests/structural` | Playwright Test + direct module imports | No network; deterministic seed |
-| API integration and security | `apps/api/test` | `APIRequestContext` | `NODE_ENV=test`, reset endpoint, file store |
+| API integration and security | `apps/api/test` | `APIRequestContext` | `NODE_ENV=test`, reset endpoint, isolated file/DB services |
 | Browser smoke/E2E/system | `tests/{smoke,e2e,system}` | Chromium project | Dedicated API/web processes |
 | Accessibility | `tests/accessibility` | Chromium + `@axe-core/playwright` | RTL, Persian locale |
 | Compatibility | `tests/compatibility` | Chromium, Firefox, WebKit | Same critical scenario per engine |
@@ -31,6 +33,8 @@ The repository's product-level `apps/playwright-runner` remains a product capabi
 Every executable test has a stable `UTMS-...` ID and annotations for requirement, feature, level, type, ISO 29119-4 technique, role, scope, data, expected result, and risk. The technique-to-test mapping is maintained in `docs/testing/TEST_COVERAGE_MATRIX.md` and the catalog in `docs/testing/TEST_CASE_CATALOG.md`.
 
 Structural evidence is kept separate from black-box evidence. E2E tests demonstrate user-visible behavior; they do not claim statement, branch, or MCDC coverage without direct module tests and `c8` output.
+
+Current harness note: on 2026-07-22 the structural project failed before discovery because a direct import reached `domainRpcClient.ts` and parsed `import.meta.env` from the root CommonJS context. This is tracked as `GAP-HARNESS-001`; earlier structural results are historical evidence until the project is rerun successfully.
 
 ## Browser matrix
 
@@ -61,4 +65,3 @@ npm run test:stack:down
 ```
 
 For a local non-Docker run, Playwright starts the test API and Vite automatically. Set `UTMS_CHROME_EXECUTABLE_PATH` when using a system Chromium installation.
-

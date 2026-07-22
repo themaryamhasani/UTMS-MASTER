@@ -1,5 +1,7 @@
 # Phase 11 Admin Unlock and Post-Decision Lock Notes
 
+> Historical delivery record. The current behavior runs through the transitional domain service over RPC; see [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md).
+
 This document records the frontend/mock implementation boundary for post-decision locks and audited unlock.
 
 ## Implemented Mock Behavior

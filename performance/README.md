@@ -1,5 +1,7 @@
 # UTMS k6 Performance Harness
 
+Source-verified: 2026-07-22
+
 This directory contains the k6-based performance engineering harness for the UTMS monorepo.
 
 ## Pinned Tooling
@@ -23,7 +25,7 @@ npm run perf:recovery
 npm run perf:stack:down
 ```
 
-`npm run perf:all:safe` runs only safe bounded profiles. It excludes destructive stress, extended soak, and breakpoint capacity tests.
+`npm run perf:all:safe` runs smoke, baseline, load, spike, soak, scalability and recovery with their bounded defaults. It excludes stress and breakpoint capacity tests, which require an explicit destructive-test flag.
 
 ## Heavy Profiles
 
@@ -46,4 +48,6 @@ Each run writes under `artifacts/performance/<run-id>/`:
 
 ## Real Coverage Boundary
 
-The measured HTTP backend in this checkout is the Online API Console plus the domain-RPC bridge. PostgreSQL and Redis are included in compose because the stack provisions them, but current measured business operations do not claim database, Redis, worker, or distributed queue performance unless a future transaction actually uses those dependencies.
+The measured HTTP backend in this checkout is the Online API Console plus the domain-RPC bridge. User, application and workflow-policy RPC methods have PostgreSQL adapters, but the current k6 journeys do not establish relational capacity for all domain models. Redis, the worker and distributed queues are not exercised.
+
+See [Performance execution guide](../docs/testing/PERFORMANCE_EXECUTION_GUIDE.md), [strategy](../docs/testing/PERFORMANCE_TEST_STRATEGY.md) and the dated [results](../docs/testing/PERFORMANCE_RESULTS.md).

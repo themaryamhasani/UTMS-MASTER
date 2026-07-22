@@ -1,6 +1,8 @@
 # UTMS Reports Test Plan
 
-This plan matches `src/pages/ReportsPage.tsx` and `src/services/reportsApi.ts`.
+Source-verified: 2026-07-22
+
+This plan matches `apps/web/src/pages/ReportsPage.tsx` and `apps/web/src/services/reportsApi.ts`. In backend mode the read models execute through `reportsApi` on domain RPC, using transitional domain state rather than PostgreSQL report repositories.
 
 ## Report Access Tests
 
@@ -19,7 +21,7 @@ This plan matches `src/pages/ReportsPage.tsx` and `src/services/reportsApi.ts`.
 
 | # | Report | Expected |
 |---|---|---|
-| 1 | System Overview | Counts match mock data for requests, test cases, runs, bugs, VersionHistory, Playwright, attachments and audit. |
+| 1 | System Overview | Counts match the seeded/transitional domain state for requests, test cases, runs, bugs, VersionHistory, Playwright, attachments and audit. |
 | 2 | Quality Health | Pass/fail/blocked/reopen/coverage/playwright rates are calculated. |
 | 3 | Test Requests | Dedicated request report shows status, priority, requester, assignee, version/build, age and linked quality evidence. |
 | 4 | Requirements | Requirements without Flow/Test Case are highlighted. |
@@ -46,6 +48,6 @@ This plan matches `src/pages/ReportsPage.tsx` and `src/services/reportsApi.ts`.
 
 ## Known Backend Follow-Up
 
-1. Data comes from in-memory mock; production should use backend read models.
+1. Data comes from transitional domain state through backend RPC (or browser state in mock mode); production should use PostgreSQL read models.
 2. PDF, Scheduled Report and Alert are frontend/mock only; production execution is backend work.
 3. Direct deep-link navigation to every entity row remains a backend/router integration follow-up.

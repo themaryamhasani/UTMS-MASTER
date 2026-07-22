@@ -1,5 +1,7 @@
 # UTMS Cartable Gap Analysis
 
+> Historical frontend/mock gap snapshot. Use [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md) and the current workflow documents for executable runtime boundaries.
+
 This document is synced with the current frontend/mock source. The frontend is considered final for the mock phase; production persistence, workers, storage, and external adapters remain backend responsibilities.
 
 ## Route and Cartable Inventory

@@ -1,6 +1,8 @@
 # UTMS Test Coverage Matrix
 
-Status is based on the executable suites in this checkout. `PASS` means the test was run successfully in the current validation pass; browser-engine rows requiring an uninstalled browser remain `PENDING-ENV`.
+Evidence snapshot last maintained: 2026-07-22. `PASS` rows record the repository's committed validation evidence; rerun the named suites for release evidence on a new environment. Structural rows are marked `BLOCKED-HARNESS` because the current project fails during module loading before assertions execute.
+
+Status is based on the executable suites in this checkout. Browser-engine rows requiring an unavailable browser remain `PENDING-ENV`.
 
 | Test ID | Requirement/source | Source file | Level/type | ISO 29119-4 technique | Role/scope | Project/browser | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -22,16 +24,16 @@ Status is based on the executable suites in this checkout. `PASS` means the test
 | UTMS-SSRF-SEC-004 | Destination policy | `api-console-server.cjs` | security | Error Guessing | DEVELOPER/SYSTEMS | APIRequestContext | PASS |
 | UTMS-API-BVA-005 | 2 MiB request-body boundary | `api-console-server.cjs` | negative/boundary | Boundary Value Analysis | DEVELOPER/SYSTEMS | APIRequestContext | PASS |
 | UTMS-RESET-SEC-006 | Reset unavailable outside test | `api-console-server.cjs` | security | Branch Condition Testing | anonymous/N/A | APIRequestContext | PASS |
-| UTMS-REQ-BVA-001 | Text length boundary | `apps/web/src/utils/inputRules.ts` | structural/boundary | Boundary Value Analysis | DEVELOPER/SYSTEMS | structural | PASS |
-| UTMS-REQ-SYN-002 | SemVer grammar | `apps/web/src/utils/semver.ts` | structural/data | Syntax Testing | DEVELOPER/SYSTEMS | structural | PASS |
-| UTMS-REQ-EP-003 | Title partitions | `apps/web/src/utils/inputRules.ts` | structural/negative | Equivalence Partitioning | DEVELOPER/SYSTEMS | structural | PASS |
-| UTMS-API-SYN-005 | cURL dialect grammar | `api-console-server.cjs` | structural/data | Syntax Testing | QA_SPECIALIST/SYSTEMS | structural | PASS |
-| UTMS-API-META-006 | Header-order invariant | cURL parser | regression | Metamorphic Testing | QA_SPECIALIST/SYSTEMS | structural | PASS |
-| UTMS-RBAC-MCDC-007 | Automated-test decision conditions | `apps/web/src/stores/authStore.ts` | structural/security | MCDC | QA_SPECIALIST/SYSTEMS | structural | PASS |
-| UTMS-RBAC-DT-008 / UTMS-API-BCC-009 | Role/action policies | `authStore.ts`, API policy | structural/security | Decision + Branch Condition Combination | all roles | structural | PASS |
-| UTMS-REL-BRANCH-010 | Workflow policy branches | `workflowPolicyStore.ts` | structural/UAT | Branch Testing | QA_LEAD/TECH_LEAD | structural | PASS |
-| UTMS-SCOPE-DATA-011 | APP vs SYSTEMS query scope | `authStore.ts` | structural/data | Data Flow Testing | QA_LEAD | structural | PASS |
-| UTMS-RUN-SCOPE-015/016 | Execution cascade and cross-Application rejection | `testManagementScope.ts` | structural/data-negative | Data Flow + Decision Testing | QA_LEAD,QA_SPECIALIST/SYSTEMS | structural | PASS |
+| UTMS-REQ-BVA-001 | Text length boundary | `apps/web/src/utils/inputRules.ts` | structural/boundary | Boundary Value Analysis | DEVELOPER/SYSTEMS | structural | BLOCKED-HARNESS |
+| UTMS-REQ-SYN-002 | SemVer grammar | `apps/web/src/utils/semver.ts` | structural/data | Syntax Testing | DEVELOPER/SYSTEMS | structural | BLOCKED-HARNESS |
+| UTMS-REQ-EP-003 | Title partitions | `apps/web/src/utils/inputRules.ts` | structural/negative | Equivalence Partitioning | DEVELOPER/SYSTEMS | structural | BLOCKED-HARNESS |
+| UTMS-API-SYN-005 | cURL dialect grammar | `api-console-server.cjs` | structural/data | Syntax Testing | QA_SPECIALIST/SYSTEMS | structural | BLOCKED-HARNESS |
+| UTMS-API-META-006 | Header-order invariant | cURL parser | regression | Metamorphic Testing | QA_SPECIALIST/SYSTEMS | structural | BLOCKED-HARNESS |
+| UTMS-RBAC-MCDC-007 | Automated-test decision conditions | `apps/web/src/stores/authStore.ts` | structural/security | MCDC | QA_SPECIALIST/SYSTEMS | structural | BLOCKED-HARNESS |
+| UTMS-RBAC-DT-008 / UTMS-API-BCC-009 | Role/action policies | `authStore.ts`, API policy | structural/security | Decision + Branch Condition Combination | all roles | structural | BLOCKED-HARNESS |
+| UTMS-REL-BRANCH-010 | Workflow policy branches | `workflowPolicyStore.ts` | structural/UAT | Branch Testing | QA_LEAD/TECH_LEAD | structural | BLOCKED-HARNESS |
+| UTMS-SCOPE-DATA-011 | APP vs SYSTEMS query scope | `authStore.ts` | structural/data | Data Flow Testing | QA_LEAD | structural | BLOCKED-HARNESS |
+| UTMS-RUN-SCOPE-015/016 | Execution cascade and cross-Application rejection | `testManagementScope.ts` | structural/data-negative | Data Flow + Decision Testing | QA_LEAD,QA_SPECIALIST/SYSTEMS | structural | BLOCKED-HARNESS |
 | UTMS-A11Y-CAUSE-001/002 | WCAG 2.2 AA critical surfaces | `LoginPage.tsx`, `App.tsx` | accessibility | Cause-Effect Graphing | anonymous/QA_LEAD | Chromium | EXECUTED |
 | UTMS-A11Y-THEME-001/002 | Persistent theme and authenticated night surfaces | `ThemeProvider.tsx`, `ThemeToggle.tsx`, `index.css` | accessibility/E2E | State Transition + Interface Testing | anonymous,DEVELOPER | Chromium | PASS |
 | UTMS-A11Y-THEME-003 | Night theme across all 21 cartable routes | application route matrix | accessibility/E2E | Route Matrix Testing | SYSTEM_ADMIN/APP | Chromium | PASS |
@@ -47,7 +49,13 @@ The complete API route inventory is machine-readable at `tests/data/api-route-in
 
 ## Current validation evidence
 
-Validated on 2026-07-16:
+Validated on 2026-07-22:
+
+- Format, lint, architecture, typecheck, contract structure and full workspace build passed.
+- API Console self-check passed 23/23.
+- `npm.cmd run test:structural` failed before test discovery with `Cannot use 'import.meta' outside a module`; see `GAP-HARNESS-001`. No structural status is counted as passing in this validation.
+
+Earlier evidence retained from 2026-07-16:
 
 - `npm.cmd run build:web`: passed.
 - `UTMS-RUN-SCOPE-015/016`: 2 structural tests passed.
@@ -55,4 +63,3 @@ Validated on 2026-07-16:
 - `UTMS-API-SCOPE-003`: passed against a fresh isolated API process on port 4274. A prior attempt on the default port reached a stale already-running server, so the isolated run is the evidence used here.
 - Theme accessibility suites: 3 tests passed, including the 21-route night-mode matrix.
 - `npm.cmd run test:compatibility`: 8 Chromium desktop/mobile tests passed; Firefox and WebKit binaries were unavailable and remain `GAP-ENGINE-001` / `PENDING-ENV`.
-

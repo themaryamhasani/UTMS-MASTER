@@ -1,5 +1,7 @@
 # UTMS - Cartable Test Plan
 
+Source-verified against the current route and service inventory: 2026-07-22. Resource-style API paths in this plan are target contracts unless an executable test or API reference explicitly identifies them; current cartable calls use domain RPC.
+
 ## Overview
 This document outlines the test scenarios for the UTMS Cartable system.
 
@@ -325,16 +327,12 @@ This document outlines the test scenarios for the UTMS Cartable system.
 
 ## Test Coverage Summary
 
-### By Feature
-- Authentication: 100%
-- Role-based access: 100%
-- Workflow transitions: 100%
-- UI components: 100%
-- Filters/Search: 100%
-- Error handling: 100%
+This document is a scenario plan and does not claim 100% executable coverage. The evidence status for authentication, RBAC, workflows, UI, filters and error handling is maintained in `TEST_COVERAGE_MATRIX.md` and `TEST_CASE_CATALOG.md`.
 
 ### Known Limitations
-1. No automated E2E tests
-2. No unit tests
-3. Mock API only
-4. No performance benchmarks
+1. Automated E2E, system and structural suites cover selected critical journeys, not every scenario in this plan.
+2. Web, worker and product-runner workspaces still have no dedicated unit-test suites.
+3. Cartables execute through domain RPC by default, but most remain on transitional file state rather than Prisma repositories.
+4. Playwright browser timing and the k6 harness provide bounded evidence; they are not a production capacity certification.
+5. See `KNOWN_TEST_GAPS.md` for database, Redis/worker, public API, browser-engine, accessibility and feature limitations.
+6. The structural project is currently blocked during ESM/CommonJS module loading (`GAP-HARNESS-001`).
