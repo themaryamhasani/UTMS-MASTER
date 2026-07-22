@@ -45,6 +45,7 @@ export interface ApiEnvironmentProfile {
     defaultHeaders: ApiRequestHeader[];
     secretReferences: Record<string, string>;
     productionProtected: boolean;
+    authenticationDocumentationProfileId?: string | undefined;
     createdAt: string;
     updatedAt: string;
 }
@@ -161,6 +162,7 @@ export interface ApiCollection {
     ownerId: string;
     status: 'ACTIVE' | 'ARCHIVED';
     variables: ApiVariable[];
+    authenticationDocumentationProfileId?: string | undefined;
     createdAt: string;
     updatedAt: string;
 }
@@ -183,9 +185,75 @@ export interface ApiRequestScripts {
     preRequestEnabled: boolean;
     postResponseEnabled: boolean;
 }
+export type ApiDocumentationParameterLocation = 'HEADER' | 'QUERY' | 'PATH' | 'BODY' | 'RESPONSE';
+export interface ApiDocumentationAllowedValue {
+    id: string;
+    value: string;
+    description: string;
+    enabled: boolean;
+    displayOrder: number;
+}
+export interface ApiDocumentationParameter {
+    id: string;
+    name: string;
+    location: ApiDocumentationParameterLocation;
+    dataType: string;
+    required: boolean | null;
+    description: string;
+    exampleValue?: string | undefined;
+    parentPath?: string | undefined;
+    displayOrder: number;
+    enabled?: boolean | undefined;
+    deprecated?: boolean | undefined;
+    source?: 'AUTO' | 'MANUAL' | 'PROFILE' | string | undefined;
+    allowedValues?: ApiDocumentationAllowedValue[] | undefined;
+    allowedValuesCustomized?: boolean | undefined;
+}
+export interface ApiDocumentationResponseCode {
+    code: number;
+    message: string;
+    description: string;
+    enabled: boolean;
+    displayOrder: number;
+}
+export interface ApiAuthenticationDocumentation {
+    profileId?: string | undefined;
+    enabled: boolean;
+    title: string;
+    introduction: string;
+    baseUrl: string;
+    endpoint: string;
+    method: string;
+    contentType: string;
+    headerParameters?: ApiDocumentationParameter[] | undefined;
+    inputParameters: ApiDocumentationParameter[];
+    outputParameters: ApiDocumentationParameter[];
+    curlExample?: string | undefined;
+    responseExample?: string | undefined;
+}
+export interface ApiAuthenticationDocumentationProfile extends ApiAuthenticationDocumentation {
+    id: string;
+}
 export interface ApiDocumentationMetadata {
     title: string;
     description: string;
+    serviceIntroduction?: string | undefined;
+    baseUrl?: string | undefined;
+    operationPath?: string | undefined;
+    endpoint?: string | undefined;
+    method?: string | undefined;
+    headerParameters?: ApiDocumentationParameter[] | undefined;
+    inputParameters?: ApiDocumentationParameter[] | undefined;
+    outputParameters?: ApiDocumentationParameter[] | undefined;
+    authenticationProfileId?: string | undefined;
+    authenticationDocumentation?: ApiAuthenticationDocumentation | undefined;
+    responseCodes?: ApiDocumentationResponseCode[] | undefined;
+    organizationName?: string | undefined;
+    departmentName?: string | undefined;
+    documentRevision?: string | undefined;
+    documentDate?: string | undefined;
+    curlExample?: string | undefined;
+    responseExample?: string | undefined;
     providerApplication?: string | undefined;
     consumerApplications?: string[] | undefined;
     version?: string | undefined;
@@ -501,4 +569,3 @@ export interface ApiConsolePermissionPolicy {
     canDelete: UserRole[];
     canGenerateDocumentation: UserRole[];
 }
-

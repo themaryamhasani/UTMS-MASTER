@@ -56,6 +56,11 @@ import type {
   ApiHttpMethod,
   ApiKeyValueParameter,
   ApiManualResponseExample,
+  ApiAuthenticationDocumentation,
+  ApiDocumentationAllowedValue,
+  ApiDocumentationMetadata,
+  ApiDocumentationParameter,
+  ApiDocumentationResponseCode,
   ApiRepositoryItem,
   ApiRequestAssertion,
   ApiRequestCookie,
@@ -79,6 +84,7 @@ type EditorTab =
   | 'scripts'
   | 'settings'
   | 'assertions'
+  | 'documentation'
   | 'curl'
   | 'history';
 
@@ -119,6 +125,7 @@ const TAB_LABELS: Array<{ id: EditorTab; label: string }> = [
   { id: 'scripts', label: 'Scripts' },
   { id: 'settings', label: 'تنظیمات' },
   { id: 'assertions', label: 'Assertions' },
+  { id: 'documentation', label: 'مستندات' },
   { id: 'curl', label: 'cURL' },
   { id: 'history', label: 'History اجرا' },
 ];
@@ -1114,6 +1121,7 @@ export const OnlineApiConsolePage: React.FC = () => {
   const [docsModalOpen, setDocsModalOpen] = useState(false);
   const [documentation, setDocumentation] = useState('');
   const [documentationWarnings, setDocumentationWarnings] = useState<string[]>([]);
+  const [documentationRefreshing, setDocumentationRefreshing] = useState(false);
   const [manualModalOpen, setManualModalOpen] = useState(false);
   const [manualResponses, setManualResponses] = useState<ApiManualResponseExample[]>([]);
   const [manualForm, setManualForm] = useState({ statusCode: 200, headersText: 'content-type: application/json', body: '{\n  "ok": true\n}', source: '', reason: '' });
@@ -1772,21 +1780,50 @@ export const OnlineApiConsolePage: React.FC = () => {
     }
   };
 
+  const handleRefreshDocumentation = async () => {
+    if (!activeContext || !selectedRequest || !canEdit) return;
+    setDocumentationRefreshing(true);
+    try {
+      let current = selectedRequest;
+      if (hasUnsavedChanges) {
+        const saved = await apiConsoleApi.updateRequest(selectedRequest.id, selectedRequest, activeContext);
+        if (saved) current = saved;
+      }
+      const refreshed = await apiConsoleApi.refreshDocumentationMetadata(current.id, activeContext);
+      setSelectedRequest(cloneRequest(refreshed));
+      setSavedRequest(cloneRequest(refreshed));
+      toast.success('فیلدهای مستندات از Request و آخرین Response به‌روزرسانی شدند.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'به‌روزرسانی اطلاعات مستندات ناموفق بود.');
+    } finally {
+      setDocumentationRefreshing(false);
+    }
+  };
+
   const handleGenerateDocs = async (final = false) => {
     if (!activeContext || !selectedRequest || !canDocument) return;
     try {
+      let requestForDocument = selectedRequest;
+      if (hasUnsavedChanges && canEdit) {
+        const saved = await apiConsoleApi.updateRequest(selectedRequest.id, selectedRequest, activeContext);
+        if (saved) {
+          requestForDocument = saved;
+          setSelectedRequest(cloneRequest(saved));
+          setSavedRequest(cloneRequest(saved));
+        }
+      }
       const result = final
-        ? await apiConsoleApi.generateDocumentationFinal(selectedRequest.id, activeContext)
-        : await apiConsoleApi.generateDocumentationPreview(selectedRequest.id, activeContext);
+        ? await apiConsoleApi.generateDocumentationFinal(requestForDocument.id, activeContext)
+        : await apiConsoleApi.generateDocumentationPreview(requestForDocument.id, activeContext);
       if (final) {
         if (result.wordDocumentBase64) {
           downloadBase64File(
             result.wordDocumentBase64,
-            result.wordFileName || `${safeFileName(selectedRequest.name)}.docx`,
+            result.wordFileName || `${safeFileName(requestForDocument.name)}.docx`,
             result.wordMimeType || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
           );
         } else {
-          downloadWordDocument(result.markdown, result.requestId ? selectedRequest.name : 'api-document');
+          downloadWordDocument(result.markdown, result.requestId ? requestForDocument.name : 'api-document');
         }
         toast.success('سند نهایی Word بر اساس template تولید شد.');
         return;
@@ -2684,6 +2721,16 @@ export const OnlineApiConsolePage: React.FC = () => {
                         rows={selectedRequest.assertions}
                         onChange={(rows) => updateDraft(request => ({ ...request, assertions: rows }))}
                         onAdd={() => updateDraft(request => ({ ...request, assertions: [...request.assertions, makeAssertion()] }))}
+                      />
+                    )}
+
+                    {activeTab === 'documentation' && (
+                      <DocumentationMetadataEditor
+                        metadata={selectedRequest.documentation}
+                        onChange={(documentationMetadata) => updateDraft(request => ({ ...request, documentation: documentationMetadata }))}
+                        onRefresh={handleRefreshDocumentation}
+                        refreshing={documentationRefreshing}
+                        disabled={!canEdit}
                       />
                     )}
 
@@ -4719,6 +4766,323 @@ const ImportCurlModal = ({
     </div>
   </Modal>
 );
+
+function makeDocumentationParameter(location: ApiDocumentationParameter['location']): ApiDocumentationParameter {
+  return {
+    id: `ui-doc-param-${crypto.randomUUID()}`,
+    name: '',
+    location,
+    dataType: 'string',
+    required: null,
+    description: '',
+    displayOrder: 0,
+    enabled: true,
+    source: 'MANUAL',
+  };
+}
+
+function emptyAuthenticationDocumentation(): ApiAuthenticationDocumentation {
+  return {
+    enabled: false,
+    title: 'سرویس احراز هویت',
+    introduction: '',
+    baseUrl: '',
+    endpoint: '',
+    method: 'POST',
+    contentType: 'application/json',
+    headerParameters: [],
+    inputParameters: [],
+    outputParameters: [],
+    curlExample: '',
+    responseExample: '',
+  };
+}
+
+const DocumentationAllowedValuesEditor = ({ rows, onChange, disabled }: {
+  rows: ApiDocumentationAllowedValue[];
+  onChange: (rows: ApiDocumentationAllowedValue[]) => void;
+  disabled: boolean;
+}) => {
+  const patchRow = (index: number, patch: Partial<ApiDocumentationAllowedValue>) => {
+    onChange(rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
+  };
+  return (
+    <div className="space-y-2 rounded-lg border border-blue-100 bg-white p-2 xl:col-span-12">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-gray-700">مقادیر مجاز این فیلد</span>
+        <Button size="sm" variant="secondary" disabled={disabled} onClick={() => onChange([
+          ...rows,
+          { id: `ui-doc-allowed-${crypto.randomUUID()}`, value: '', description: '', enabled: true, displayOrder: rows.length },
+        ])}>افزودن مقدار مجاز</Button>
+      </div>
+      {rows.length === 0 && <p className="text-xs text-gray-400">برای فیلدهای کددار مانند deposit_status، کد و توضیح را اینجا ثبت کنید.</p>}
+      {rows.map((row, index) => (
+        <div key={row.id} className="grid grid-cols-1 gap-2 md:grid-cols-12">
+          <label className="flex items-center gap-2 text-xs text-gray-600 md:col-span-1">
+            <input type="checkbox" checked={row.enabled} disabled={disabled} onChange={(event) => patchRow(index, { enabled: event.target.checked })} /> فعال
+          </label>
+          <Input aria-label={`کد مقدار مجاز ${index + 1}`} value={row.value} disabled={disabled} dir="ltr" className="text-left font-mono md:col-span-2" placeholder="0" onChange={(event) => patchRow(index, { value: event.target.value })} />
+          <Input aria-label={`توضیح مقدار مجاز ${index + 1}`} value={row.description} disabled={disabled} className="md:col-span-7" placeholder="توضیحات" onChange={(event) => patchRow(index, { description: event.target.value })} />
+          <Input aria-label={`ترتیب مقدار مجاز ${index + 1}`} type="number" value={row.displayOrder} disabled={disabled} dir="ltr" className="text-left md:col-span-1" onChange={(event) => patchRow(index, { displayOrder: Number(event.target.value) })} />
+          <Button size="sm" variant="danger" disabled={disabled} className="md:col-span-1" onClick={() => onChange(rows.filter((_, rowIndex) => rowIndex !== index))}>حذف</Button>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const DocumentationParameterEditor = ({
+  title,
+  rows,
+  kind,
+  onChange,
+  disabled,
+}: {
+  title: string;
+  rows: ApiDocumentationParameter[];
+  kind: 'HEADER' | 'INPUT' | 'OUTPUT';
+  onChange: (rows: ApiDocumentationParameter[]) => void;
+  disabled: boolean;
+}) => {
+  const patchRow = (index: number, patch: Partial<ApiDocumentationParameter>) => {
+    onChange(rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
+  };
+  const defaultLocation = kind === 'HEADER' ? 'HEADER' : kind === 'OUTPUT' ? 'RESPONSE' : 'BODY';
+  return (
+    <div className="space-y-3 rounded-lg border border-gray-200 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="font-semibold text-gray-900">{title}</h4>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<Plus className="h-4 w-4" />}
+          disabled={disabled}
+          onClick={() => onChange([...rows, { ...makeDocumentationParameter(defaultLocation), displayOrder: rows.length }])}
+        >
+          افزودن فیلد
+        </Button>
+      </div>
+      <div className="space-y-2">
+        {rows.length === 0 && <p className="text-sm text-gray-500">فیلدی ثبت نشده است.</p>}
+        {rows.map((row, index) => (
+          <div key={row.id} className={`grid grid-cols-1 gap-2 rounded-lg border p-2 ${row.deprecated ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'} xl:grid-cols-12`}>
+            <label className="flex items-center gap-2 text-xs text-gray-600 xl:col-span-1">
+              <input type="checkbox" checked={row.enabled !== false} disabled={disabled} onChange={(event) => patchRow(index, { enabled: event.target.checked })} />
+              فعال
+            </label>
+            <Input
+              aria-label={`${title} نام ${index + 1}`}
+              value={row.name}
+              disabled={disabled}
+              className="text-left font-mono xl:col-span-2"
+              dir="ltr"
+              placeholder="نام یا field.path"
+              onChange={(event) => patchRow(index, { name: event.target.value, deprecated: false })}
+            />
+            {kind === 'INPUT' && (
+              <Select
+                aria-label={`${title} محل ${index + 1}`}
+                value={row.location}
+                disabled={disabled}
+                className="xl:col-span-1"
+                onChange={(event) => patchRow(index, { location: event.target.value as ApiDocumentationParameter['location'] })}
+                options={[
+                  { value: 'QUERY', label: 'Query' },
+                  { value: 'PATH', label: 'Path' },
+                  { value: 'BODY', label: 'Body' },
+                ]}
+              />
+            )}
+            <Input
+              aria-label={`${title} نوع ${index + 1}`}
+              value={row.dataType}
+              disabled={disabled}
+              className="text-left font-mono xl:col-span-2"
+              dir="ltr"
+              placeholder="string"
+              onChange={(event) => patchRow(index, { dataType: event.target.value })}
+            />
+            {kind === 'HEADER' && (
+              <Input
+                aria-label={`${title} نمونه ${index + 1}`}
+                value={row.exampleValue || ''}
+                disabled={disabled}
+                className="text-left font-mono xl:col-span-2"
+                dir="ltr"
+                placeholder="مقدار نمونه ماسک‌شده"
+                onChange={(event) => patchRow(index, { exampleValue: event.target.value })}
+              />
+            )}
+            {kind === 'INPUT' && (
+              <Select
+                aria-label={`${title} الزامی ${index + 1}`}
+                value={row.required === true ? 'true' : row.required === false ? 'false' : 'unknown'}
+                disabled={disabled}
+                className="xl:col-span-1"
+                onChange={(event) => patchRow(index, { required: event.target.value === 'true' ? true : event.target.value === 'false' ? false : null })}
+                options={[
+                  { value: 'unknown', label: 'نامشخص' },
+                  { value: 'true', label: 'بله' },
+                  { value: 'false', label: 'خیر' },
+                ]}
+              />
+            )}
+            <Input
+              aria-label={`${title} توضیحات ${index + 1}`}
+              value={row.description}
+              disabled={disabled}
+              className={kind === 'OUTPUT' ? 'xl:col-span-5' : kind === 'HEADER' ? 'xl:col-span-4' : 'xl:col-span-4'}
+              placeholder="—"
+              onChange={(event) => patchRow(index, { description: event.target.value })}
+            />
+            <Input
+              aria-label={`${title} ترتیب ${index + 1}`}
+              type="number"
+              value={row.displayOrder}
+              disabled={disabled}
+              className="text-left xl:col-span-1"
+              dir="ltr"
+              onChange={(event) => patchRow(index, { displayOrder: Number(event.target.value) })}
+            />
+            <Button
+              size="sm"
+              variant="danger"
+              disabled={disabled}
+              className="xl:col-span-1"
+              onClick={() => onChange(rows.filter((_, rowIndex) => rowIndex !== index))}
+            >
+              حذف
+            </Button>
+            {kind === 'OUTPUT' && (
+              <DocumentationAllowedValuesEditor
+                rows={row.allowedValues || []}
+                disabled={disabled}
+                onChange={(allowedValues) => patchRow(index, { allowedValues, allowedValuesCustomized: true })}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const DocumentationResponseCodeEditor = ({ rows, onChange, disabled }: {
+  rows: ApiDocumentationResponseCode[];
+  onChange: (rows: ApiDocumentationResponseCode[]) => void;
+  disabled: boolean;
+}) => {
+  const patchRow = (index: number, patch: Partial<ApiDocumentationResponseCode>) => {
+    onChange(rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
+  };
+  return (
+    <div className="space-y-3 rounded-lg border border-gray-200 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="font-semibold text-gray-900">مرجع کدهای پاسخ و خطا</h4>
+        <Button size="sm" variant="secondary" icon={<Plus className="h-4 w-4" />} disabled={disabled} onClick={() => onChange([
+          ...rows,
+          { code: 0, message: '', description: '', enabled: true, displayOrder: rows.length },
+        ])}>افزودن کد</Button>
+      </div>
+      <div className="max-h-[520px] space-y-2 overflow-y-auto">
+        {rows.map((row, index) => (
+          <div key={`${row.code}-${index}`} className="grid grid-cols-1 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2 lg:grid-cols-12">
+            <label className="flex items-center gap-2 text-xs text-gray-600 lg:col-span-1">
+              <input type="checkbox" checked={row.enabled} disabled={disabled} onChange={(event) => patchRow(index, { enabled: event.target.checked })} /> فعال
+            </label>
+            <Input type="number" aria-label={`کد پاسخ ${index + 1}`} value={row.code} disabled={disabled} dir="ltr" className="text-left lg:col-span-1" onChange={(event) => patchRow(index, { code: Number(event.target.value) })} />
+            <Input aria-label={`پیام پاسخ ${index + 1}`} value={row.message} disabled={disabled} dir="ltr" className="text-left font-mono lg:col-span-3" onChange={(event) => patchRow(index, { message: event.target.value })} />
+            <Input aria-label={`توضیح پاسخ ${index + 1}`} value={row.description} disabled={disabled} className="lg:col-span-5" onChange={(event) => patchRow(index, { description: event.target.value })} />
+            <Input type="number" aria-label={`ترتیب پاسخ ${index + 1}`} value={row.displayOrder} disabled={disabled} dir="ltr" className="text-left lg:col-span-1" onChange={(event) => patchRow(index, { displayOrder: Number(event.target.value) })} />
+            <Button size="sm" variant="danger" disabled={disabled} className="lg:col-span-1" onClick={() => onChange(rows.filter((_, rowIndex) => rowIndex !== index))}>حذف</Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const DocumentationMetadataEditor = ({ metadata, onChange, onRefresh, refreshing, disabled }: {
+  metadata: ApiDocumentationMetadata;
+  onChange: (metadata: ApiDocumentationMetadata) => void;
+  onRefresh: () => void;
+  refreshing: boolean;
+  disabled: boolean;
+}) => {
+  const authentication = metadata.authenticationDocumentation || emptyAuthenticationDocumentation();
+  const patchMetadata = (patch: Partial<ApiDocumentationMetadata>) => onChange({ ...metadata, ...patch });
+  const patchAuthentication = (patch: Partial<ApiAuthenticationDocumentation>) => patchMetadata({
+    authenticationDocumentation: { ...authentication, ...patch },
+  });
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
+        <p className="text-sm text-blue-800">Refresh فیلدهای جدید را اضافه می‌کند، توضیحات و وضعیت الزامی ویرایش‌شده را نگه می‌دارد و فیلدهای حذف‌شده را غیرفعال علامت می‌زند.</p>
+        <Button variant="secondary" icon={<RefreshCw className="h-4 w-4" />} onClick={onRefresh} loading={refreshing} disabled={disabled}>Refresh از Request/Response</Button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 rounded-lg border border-gray-200 p-3 md:grid-cols-2 xl:grid-cols-4">
+        <Input label="عنوان سند" value={metadata.title || ''} disabled={disabled} onChange={(event) => patchMetadata({ title: event.target.value })} />
+        <Input label="ویرایش سند" value={metadata.documentRevision || metadata.version || ''} disabled={disabled} dir="ltr" className="text-left" onChange={(event) => patchMetadata({ documentRevision: event.target.value, version: event.target.value })} />
+        <Input label="سازمان" value={metadata.organizationName || ''} disabled={disabled} onChange={(event) => patchMetadata({ organizationName: event.target.value })} />
+        <Input label="واحد سازمانی" value={metadata.departmentName || ''} disabled={disabled} onChange={(event) => patchMetadata({ departmentName: event.target.value })} />
+        <Input label="تاریخ سند" type="date" value={metadata.documentDate || ''} disabled={disabled} dir="ltr" className="text-left" onChange={(event) => patchMetadata({ documentDate: event.target.value })} />
+        <Input label="Base URL" value={metadata.baseUrl || ''} disabled={disabled} dir="ltr" className="text-left font-mono md:col-span-1 xl:col-span-3" onChange={(event) => patchMetadata({ baseUrl: event.target.value.replace(/\s+/g, '') })} />
+        <Textarea label="مقدمه سرویس" value={metadata.serviceIntroduction || metadata.description || ''} disabled={disabled} className="min-h-28 md:col-span-2 xl:col-span-4" onChange={(event) => patchMetadata({ serviceIntroduction: event.target.value })} />
+      </div>
+
+      <DocumentationParameterEditor title="پارامترهای Header" rows={metadata.headerParameters || []} kind="HEADER" disabled={disabled} onChange={(rows) => patchMetadata({ headerParameters: rows })} />
+      <DocumentationParameterEditor title="پارامترهای ورودی" rows={metadata.inputParameters || []} kind="INPUT" disabled={disabled} onChange={(rows) => patchMetadata({ inputParameters: rows })} />
+      <DocumentationParameterEditor title="پارامترهای خروجی" rows={metadata.outputParameters || []} kind="OUTPUT" disabled={disabled} onChange={(rows) => patchMetadata({ outputParameters: rows })} />
+
+      <div className="space-y-4 rounded-lg border border-gray-200 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h4 className="font-semibold text-gray-900">مستندات احراز هویت</h4>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={authentication.enabled} disabled={disabled} onChange={(event) => patchAuthentication({ enabled: event.target.checked })} />
+            نمایش بخش احراز هویت
+          </label>
+        </div>
+        <Select
+          label="پروفایل قابل استفاده مجدد"
+          value={metadata.authenticationProfileId || authentication.profileId || ''}
+          disabled={disabled}
+          onChange={(event) => patchMetadata({
+            authenticationProfileId: event.target.value || undefined,
+            authenticationDocumentation: event.target.value ? undefined : { ...authentication, profileId: undefined },
+          })}
+          options={[
+            { value: '', label: 'بدون پروفایل' },
+            { value: 'ministry-esb', label: 'Ministry ESB' },
+          ]}
+        />
+        <p className="text-xs text-gray-500">پس از انتخاب پروفایل، Refresh را بزنید تا مقادیر مرکزی پروفایل اعمال شود.</p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Input label="عنوان احراز هویت" value={authentication.title} disabled={disabled} onChange={(event) => patchAuthentication({ title: event.target.value })} />
+          <Input label="Base URL احراز هویت" value={authentication.baseUrl} disabled={disabled} dir="ltr" className="text-left font-mono" onChange={(event) => patchAuthentication({ baseUrl: event.target.value.replace(/\s+/g, '') })} />
+          <Input label="Endpoint احراز هویت" value={authentication.endpoint} disabled={disabled} dir="ltr" className="text-left font-mono" onChange={(event) => patchAuthentication({ endpoint: event.target.value.replace(/\s+/g, '') })} />
+          <Input label="Method" value={authentication.method} disabled={disabled} dir="ltr" className="text-left font-mono" onChange={(event) => patchAuthentication({ method: event.target.value.toUpperCase() })} />
+          <Input label="Content-Type" value={authentication.contentType} disabled={disabled} dir="ltr" className="text-left font-mono" onChange={(event) => patchAuthentication({ contentType: event.target.value })} />
+          <Textarea label="مقدمه احراز هویت" value={authentication.introduction} disabled={disabled} className="min-h-24 md:col-span-2 xl:col-span-3" onChange={(event) => patchAuthentication({ introduction: event.target.value })} />
+        </div>
+        <DocumentationParameterEditor title="Headerهای احراز هویت" rows={authentication.headerParameters || []} kind="HEADER" disabled={disabled} onChange={(rows) => patchAuthentication({ headerParameters: rows })} />
+        <DocumentationParameterEditor title="ورودی‌های احراز هویت" rows={authentication.inputParameters} kind="INPUT" disabled={disabled} onChange={(rows) => patchAuthentication({ inputParameters: rows })} />
+        <DocumentationParameterEditor title="خروجی‌های احراز هویت" rows={authentication.outputParameters} kind="OUTPUT" disabled={disabled} onChange={(rows) => patchAuthentication({ outputParameters: rows })} />
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <Textarea label="نمونه cURL احراز هویت (مقادیر حساس ماسک شوند)" value={authentication.curlExample || ''} disabled={disabled} dir="ltr" className="min-h-48 text-left font-mono" onChange={(event) => patchAuthentication({ curlExample: event.target.value })} />
+          <Textarea label="نمونه پاسخ احراز هویت" value={authentication.responseExample || ''} disabled={disabled} dir="ltr" className="min-h-48 text-left font-mono" onChange={(event) => patchAuthentication({ responseExample: event.target.value })} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Textarea label="نمونه cURL سرویس (اختیاری)" value={metadata.curlExample || ''} disabled={disabled} dir="ltr" className="min-h-56 text-left font-mono" onChange={(event) => patchMetadata({ curlExample: event.target.value })} />
+        <Textarea label="نمونه پاسخ موفق (اختیاری)" value={metadata.responseExample || ''} disabled={disabled} dir="ltr" className="min-h-56 text-left font-mono" onChange={(event) => patchMetadata({ responseExample: event.target.value })} />
+      </div>
+
+      <DocumentationResponseCodeEditor rows={metadata.responseCodes || []} disabled={disabled} onChange={(responseCodes) => patchMetadata({ responseCodes })} />
+    </div>
+  );
+};
 
 const DocumentationModal = ({
   open,

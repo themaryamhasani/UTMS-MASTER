@@ -90,6 +90,87 @@ const PROTECTED_HOSTS = new Set(['localhost', 'ip6-localhost', 'ip6-loopback']);
 const METADATA_HOSTS = new Set(['metadata.google.internal']);
 const METADATA_IPS = new Set(['169.254.169.254']);
 
+const DEFAULT_DOCUMENT_ORGANIZATION = 'وزارت آموزش و پرورش';
+const DEFAULT_DOCUMENT_DEPARTMENT = 'مرکز توسعه آموزش مجازی، فناوری و امنیت اطلاعات';
+const DEFAULT_RESPONSE_CODE_CATALOG = [
+  [200, 'OK', 'درخواست با موفقیت پردازش شد.'],
+  [202, 'Accepted', 'درخواست پذیرفته شده و پردازش آن در حال انجام است.'],
+  [302, 'Found', 'منبع به صورت موقت در نشانی دیگری در دسترس است.'],
+  [311, 'Redirect', 'برای ادامه پردازش، تغییر مسیر اعلام‌شده توسط سرویس باید بررسی شود.'],
+  [330, 'Request Failed', 'درخواست در لایه سرویس‌دهنده قابل تکمیل نبوده است.'],
+  [400, 'Bad Request', 'ساختار یا مقادیر درخواست نامعتبر است.'],
+  [401, 'Unauthorized', 'اطلاعات احراز هویت ارسال نشده یا معتبر نیست.'],
+  [402, 'Payment Required', 'انجام عملیات به مجوز یا شرط مالی وابسته است.'],
+  [403, 'Forbidden', 'کاربر احراز هویت شده مجوز دسترسی به این عملیات را ندارد.'],
+  [404, 'Not Found', 'منبع یا مسیر درخواست‌شده یافت نشد.'],
+  [405, 'Method Not Allowed', 'متد HTTP برای این مسیر پشتیبانی نمی‌شود.'],
+  [406, 'Not Acceptable', 'سرویس قادر به تولید پاسخ با قالب درخواستی نیست.'],
+  [408, 'Request Timeout', 'مهلت دریافت یا پردازش درخواست پایان یافته است.'],
+  [409, 'Conflict', 'درخواست با وضعیت فعلی منبع تعارض دارد.'],
+  [410, 'Gone', 'منبع درخواست‌شده دیگر در دسترس نیست.'],
+  [415, 'Unsupported Media Type', 'نوع محتوای بدنه درخواست پشتیبانی نمی‌شود.'],
+  [422, 'Unprocessable Entity', 'ساختار درخواست معتبر است اما اعتبارسنجی داده‌ها ناموفق بود.'],
+  [429, 'Too Many Requests', 'تعداد درخواست‌ها از محدودیت مجاز عبور کرده است.'],
+  [451, 'Unavailable For Legal Reasons', 'دسترسی به منبع به دلایل قانونی محدود شده است.'],
+  [499, 'Client Closed Request', 'ارتباط پیش از تکمیل پاسخ از سمت کارخواه بسته شده است.'],
+  [500, 'Internal Server Error', 'خطای پیش‌بینی‌نشده در سرویس رخ داده است.'],
+  [502, 'Bad Gateway', 'پاسخ نامعتبر از سرویس بالادستی دریافت شده است.'],
+  [503, 'Service Unavailable', 'سرویس به صورت موقت در دسترس نیست.'],
+  [504, 'Gateway Timeout', 'مهلت دریافت پاسخ از سرویس بالادستی پایان یافته است.'],
+  [521, 'Web Server Is Down', 'سرور مقصد در دسترس یا آماده پاسخ‌گویی نیست.'],
+  [599, 'Network Connect Timeout Error', 'برقراری ارتباط شبکه با سرویس مقصد با وقفه مواجه شد.'],
+  [600, 'Business Error', 'خطای کسب‌وکاری اعلام‌شده توسط سرویس رخ داده است.'],
+  [999, 'Unknown Error', 'خطای طبقه‌بندی‌نشده رخ داده و نیازمند بررسی فنی است.'],
+].map(([code, message, description], displayOrder) => ({ code, message, description, enabled: true, displayOrder }));
+
+const DEFAULT_DEPOSIT_STATUS_ALLOWED_VALUES = [
+  ['0', 'عادی (بدون تغییر)'],
+  ['1', 'عضویت/پرتفه جدید'],
+  ['2', 'عادی (افزایش سپرده)'],
+  ['3', 'انتقالی از ...'],
+  ['4', 'برقراری سپرده‌گذاری'],
+  ['5', 'عادی (کاهش سپرده)'],
+  ['6', 'توقف سپرده‌گذاری'],
+  ['7', 'بازنشسته در منطقه'],
+  ['8', 'از کارافتاده در منطقه'],
+  ['9', 'فوت در منطقه'],
+  ['10', 'بازخرید در منطقه'],
+  ['11', 'انصراف در منطقه'],
+];
+const DEFAULT_DOCUMENTATION_ALLOWED_VALUE_CATALOGS = {
+  depositstatus: DEFAULT_DEPOSIT_STATUS_ALLOWED_VALUES,
+  depositestatus: DEFAULT_DEPOSIT_STATUS_ALLOWED_VALUES,
+};
+
+const AUTHENTICATION_DOCUMENTATION_PROFILES = [
+  {
+    id: 'ministry-esb',
+    enabled: true,
+    title: 'احراز هویت ESB وزارت آموزش و پرورش',
+    introduction: 'برای فراخوانی سرویس‌های ESB ابتدا توکن دسترسی از سرویس احراز هویت دریافت و سپس در سرایند token ارسال می‌شود.',
+    baseUrl: 'https://esb.medu.ir',
+    endpoint: 'https://esb.medu.ir/user/login/GetToken',
+    method: 'POST',
+    contentType: 'multipart/form-data',
+    headerParameters: [
+      { id: 'auth-header-content-type', name: 'Content-Type', location: 'HEADER', dataType: 'multipart/form-data', required: true, description: 'نوع محتوای درخواست احراز هویت', exampleValue: 'multipart/form-data', displayOrder: 0, enabled: true, source: 'PROFILE' },
+    ],
+    inputParameters: [
+      { id: 'auth-input-username', name: 'username', location: 'BODY', dataType: 'string', required: true, description: 'نام کاربری سرویس', exampleValue: '****', displayOrder: 0, enabled: true, source: 'PROFILE' },
+      { id: 'auth-input-password', name: 'password', location: 'BODY', dataType: 'string', required: true, description: 'رمز عبور سرویس', exampleValue: '****', displayOrder: 1, enabled: true, source: 'PROFILE' },
+    ],
+    outputParameters: [
+      { id: 'auth-output-status', name: 'Status', location: 'RESPONSE', dataType: 'boolean', required: null, description: 'وضعیت اجرای درخواست', displayOrder: 0, enabled: true, source: 'PROFILE' },
+      { id: 'auth-output-message', name: 'Message', location: 'RESPONSE', dataType: 'string', required: null, description: 'پیام سرویس', displayOrder: 1, enabled: true, source: 'PROFILE' },
+      { id: 'auth-output-token', name: 'Token', location: 'RESPONSE', dataType: 'string', required: null, description: 'توکن دسترسی', exampleValue: '****', displayOrder: 2, enabled: true, source: 'PROFILE' },
+      { id: 'auth-output-expiration', name: 'ExpirationDate', location: 'RESPONSE', dataType: 'string', required: null, description: 'تاریخ انقضای توکن', displayOrder: 3, enabled: true, source: 'PROFILE' },
+      { id: 'auth-output-ip', name: 'ClientIPAddress', location: 'RESPONSE', dataType: 'string', required: null, description: 'نشانی IP کارخواه', displayOrder: 4, enabled: true, source: 'PROFILE' },
+    ],
+    curlExample: "curl --request POST \\\n  --url https://esb.medu.ir/user/login/GetToken \\\n  --header 'Content-Type: multipart/form-data' \\\n  --form 'username=****' \\\n  --form 'password=****'",
+    responseExample: '{\n  "Status": true,\n  "Message": "موفق",\n  "Token": "****",\n  "ExpirationDate": "—",\n  "ClientIPAddress": "***.***.***.***"\n}',
+  },
+];
+
 const LIMITS = {
   requestBodyBytes: Number(process.env.API_CONSOLE_MAX_REQUEST_BODY || 2 * 1024 * 1024),
   responseBytes: Number(process.env.API_CONSOLE_MAX_RESPONSE_BODY || 1024 * 1024),
@@ -1040,6 +1121,7 @@ function definitionFromNormalized(normalized, data) {
     documentation: {
       title: data.name,
       description: data.description || '',
+      authenticationProfileId: data.authenticationDocumentationProfileId,
       providerApplication: data.applicationId,
       version: semanticVersion,
       owner: data.userName || data.userId,
@@ -1055,6 +1137,7 @@ function definitionFromNormalized(normalized, data) {
     updatedBy: data.userId,
     updatedAt: now,
   };
+  request.documentation = refreshDocumentationMetadata(request);
   return protectRequestSecrets(request);
 }
 
@@ -1113,7 +1196,441 @@ function requestHeadersWithBodyContentType(request) {
 }
 
 function documentedRequestHeaders(request) {
-  return requestHeadersWithBodyContentType(request).filter(header => !header.sensitive);
+  return requestHeadersWithBodyContentType(request).filter(header => {
+    const name = String(header.name || '').trim().toLowerCase();
+    if (!name || name === 'content-length') return false;
+    if (BROWSER_HEADERS.has(name) || TRANSPORT_HEADERS.has(name)) return name === 'content-type';
+    return header.enabled !== false;
+  });
+}
+
+function cleanDocumentationUrl(value) {
+  return String(value || '').trim().replace(/\s+/g, '');
+}
+
+function documentationUrlParts(value) {
+  const endpoint = cleanDocumentationUrl(value);
+  try {
+    const parsed = new URL(endpoint);
+    return { endpoint, baseUrl: `${parsed.protocol}//${parsed.host}`, operationPath: parsed.pathname || '/' };
+  } catch {
+    return { endpoint, baseUrl: '', operationPath: endpoint || '/' };
+  }
+}
+
+function inferDocumentationDataType(value) {
+  if (value === null || value === undefined) return 'unknown';
+  if (Array.isArray(value)) return 'array';
+  if (typeof value === 'string') return 'string';
+  if (typeof value === 'number') return Number.isInteger(value) ? 'Integer' : 'Number';
+  if (typeof value === 'boolean') return 'boolean';
+  if (typeof value === 'object') return 'object';
+  return 'unknown';
+}
+
+function normalizedDocumentationFieldKey(location, name) {
+  const pathValue = String(name || '').trim();
+  return `${location}:${location === 'HEADER' ? pathValue.toLowerCase() : pathValue}`;
+}
+
+function isSensitiveDocumentationSampleName(name) {
+  const normalized = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return isSensitiveName(name) ||
+    normalized.includes('nationalcode') || normalized.includes('employeecode') || normalized.includes('personnelcode') ||
+    normalized.includes('payableprice') || normalized.includes('sumprice') || normalized.includes('amount');
+}
+
+function maskPersonallyIdentifiableValue(name, value) {
+  const normalized = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const text = String(value ?? '');
+  if (!text) return '';
+  if (text.includes('*')) return text;
+  if (isSecretReference(text) || text.includes('{{')) return '****';
+  if (normalized.includes('nationalcode')) {
+    return text.length > 7 ? `${text.slice(0, 4)}***${text.slice(-3)}` : '****';
+  }
+  if (normalized.includes('employeecode') || normalized.includes('personnelcode')) {
+    return text.length > 4 ? `${text.slice(0, 2)}****${text.slice(-2)}` : '****';
+  }
+  if (normalized.includes('payableprice') || normalized.includes('sumprice') || normalized.includes('amount')) {
+    return text.length > 6 ? `${text.slice(0, Math.max(1, text.length - 5))}**${text.slice(-3)}` : '****';
+  }
+  if (isSensitiveName(name)) return maskValue(text);
+  return value;
+}
+
+function maskDocumentationSecret(value) {
+  const text = String(value || '');
+  if (!text || isSecretReference(text) || text.includes('{{')) return '****';
+  if (text.includes('*')) return text;
+  const bearer = text.match(/^Bearer\s+(.+)$/i);
+  if (bearer) return `Bearer ${maskDocumentationSecret(bearer[1])}`;
+  if (text.length <= 18) return '******';
+  return `${text.slice(0, 8)}...****...${text.slice(-6)}`;
+}
+
+function documentationExampleValue(name, value) {
+  if (value === null || value === undefined || typeof value === 'object') return undefined;
+  const masked = maskPersonallyIdentifiableValue(name, value);
+  return typeof masked === 'string' ? sanitizeText(masked) : String(masked);
+}
+
+function defaultAllowedValuesForDocumentationField(name) {
+  const fieldName = String(name || '').split('.').at(-1)?.replace(/\[\]$/g, '') || '';
+  const normalized = fieldName.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return (DEFAULT_DOCUMENTATION_ALLOWED_VALUE_CATALOGS[normalized] || []).map(([value, description], displayOrder) => ({
+    id: `doc-allowed-${normalized}-${value}`,
+    value,
+    description,
+    enabled: true,
+    displayOrder,
+  }));
+}
+
+function makeDocumentationParameter({ name, location, value, dataType, required = null, description = '', displayOrder = 0, id, source = 'AUTO', allowedValues }) {
+  return {
+    id: id || `doc-${String(location || '').toLowerCase()}-${String(name || '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || displayOrder}`,
+    name: String(name || ''),
+    location,
+    dataType: dataType || inferDocumentationDataType(value),
+    required: required === true ? true : required === false ? false : null,
+    description: String(description || ''),
+    ...(documentationExampleValue(name, value) === undefined ? {} : { exampleValue: documentationExampleValue(name, value) }),
+    parentPath: String(name || '').includes('.') ? String(name).replace(/\.[^.]+$/, '') : undefined,
+    displayOrder,
+    enabled: true,
+    deprecated: false,
+    source,
+    allowedValues: location === 'RESPONSE' ? (allowedValues || defaultAllowedValuesForDocumentationField(name)) : (allowedValues || []),
+    allowedValuesCustomized: false,
+  };
+}
+
+function inferStructuredDocumentationParameters(value, location) {
+  const rows = [];
+  const visitChildren = (container, prefix) => {
+    if (!container || typeof container !== 'object') return;
+    const entries = Array.isArray(container) ? Object.entries(container[0] && typeof container[0] === 'object' ? container[0] : {}) : Object.entries(container);
+    for (const [key, childValue] of entries) {
+      const pathValue = prefix ? `${prefix}.${key}` : key;
+      const documentedPath = Array.isArray(childValue) ? `${pathValue}[]` : pathValue;
+      rows.push(makeDocumentationParameter({ name: documentedPath, location, value: childValue, displayOrder: rows.length }));
+      if (Array.isArray(childValue)) {
+        const sample = childValue.find(item => item !== null && item !== undefined);
+        if (sample && typeof sample === 'object') visitChildren(sample, documentedPath);
+      } else if (childValue && typeof childValue === 'object') {
+        visitChildren(childValue, pathValue);
+      }
+    }
+  };
+  if (Array.isArray(value)) {
+    const sample = value.find(item => item !== null && item !== undefined);
+    if (sample && typeof sample === 'object') visitChildren(sample, '[]');
+  } else {
+    visitChildren(value, '');
+  }
+  return rows;
+}
+
+function inferRequestDocumentationParameters(request) {
+  const rows = [];
+  (request.queryParameters || []).filter(item => item.enabled && item.name).forEach(item => {
+    rows.push(makeDocumentationParameter({
+      name: item.name,
+      location: 'QUERY',
+      value: item.value,
+      dataType: 'string',
+      description: item.description || '',
+      displayOrder: rows.length,
+    }));
+  });
+
+  const seenPathNames = new Set();
+  const pathMatches = String(request.urlTemplate || '').matchAll(/\{\{?([^{}]+)\}\}?|:([A-Za-z_][A-Za-z0-9_]*)/g);
+  for (const match of pathMatches) {
+    const name = match[1] || match[2];
+    if (!name || seenPathNames.has(name)) continue;
+    seenPathNames.add(name);
+    rows.push(makeDocumentationParameter({ name, location: 'PATH', dataType: 'string', displayOrder: rows.length }));
+  }
+
+  if (request.bodyType === 'json' && request.bodyTemplate) {
+    const parsed = parseJsonSafely(request.bodyTemplate);
+    if (parsed.ok) {
+      inferStructuredDocumentationParameters(parsed.value, 'BODY').forEach(row => rows.push({ ...row, displayOrder: rows.length }));
+    }
+  } else if (['form-urlencoded', 'multipart'].includes(request.bodyType) && request.bodyTemplate) {
+    try {
+      const pairs = request.bodyType === 'form-urlencoded'
+        ? Array.from(new URLSearchParams(request.bodyTemplate).entries())
+        : String(request.bodyTemplate).split(/\r?\n|&/).map(line => {
+            const separator = line.indexOf('=');
+            return separator >= 0 ? [line.slice(0, separator).trim(), line.slice(separator + 1).trim()] : ['', ''];
+          });
+      pairs.filter(([name]) => name).forEach(([name, value]) => rows.push(makeDocumentationParameter({
+        name,
+        location: 'BODY',
+        value,
+        dataType: 'string',
+        displayOrder: rows.length,
+      })));
+    } catch {
+      // Raw body remains available as the request example when form parsing is unsafe.
+    }
+  }
+  return rows;
+}
+
+function meaningfulHeaderDescription(header) {
+  const description = String(header?.description || '').trim();
+  const generatedDescriptions = new Set([
+    'Application or business header.',
+    'Managed by the selected HTTP transport and recalculated at execution time.',
+    'Browser-only compatibility header imported from a copied browser request.',
+    'Authentication header. Values are masked and excluded from generated documentation.',
+    'Environment or application routing header.',
+  ]);
+  return generatedDescriptions.has(description) ? '' : description;
+}
+
+function inferHeaderDocumentationParameters(request) {
+  return documentedRequestHeaders(request).map((header, index) => makeDocumentationParameter({
+    id: header.id ? `doc-${header.id}` : undefined,
+    name: header.name,
+    location: 'HEADER',
+    value: header.sensitive || isSensitiveName(header.name)
+      ? maskDocumentationSecret(header.valueTemplate)
+      : header.valueTemplate,
+    dataType: String(header.name || '').toLowerCase() === 'content-type' ? (header.valueTemplate || 'string') : 'string',
+    description: meaningfulHeaderDescription(header),
+    displayOrder: index,
+  }));
+}
+
+function normalizeDocumentationParameter(raw, fallbackLocation, index) {
+  const location = ['HEADER', 'QUERY', 'PATH', 'BODY', 'RESPONSE'].includes(raw?.location) ? raw.location : fallbackLocation;
+  const name = String(raw?.name || '').trim();
+  const sensitive = location === 'HEADER' ? isSensitiveName(name) : isSensitiveDocumentationSampleName(name);
+  let exampleValue = raw?.exampleValue === undefined ? undefined : String(raw.exampleValue);
+  if (sensitive && exampleValue) exampleValue = String(maskPersonallyIdentifiableValue(name, exampleValue));
+  if (isSecretReference(exampleValue)) exampleValue = '****';
+  const allowedValues = Array.isArray(raw?.allowedValues)
+    ? raw.allowedValues.map((item, allowedIndex) => ({
+        id: String(item?.id || makeId('doc-allowed-value')),
+        value: sanitizeText(String(item?.value ?? '')),
+        description: sanitizeText(String(item?.description || '')),
+        enabled: item?.enabled !== false,
+        displayOrder: Number.isFinite(Number(item?.displayOrder)) ? Number(item.displayOrder) : allowedIndex,
+      })).sort((left, right) => left.displayOrder - right.displayOrder)
+    : [];
+  const inferredParentPath = name.includes('.') ? name.replace(/\.[^.]+$/, '') : undefined;
+  return {
+    id: String(raw?.id || makeId('doc-param')),
+    name,
+    location,
+    dataType: String(raw?.dataType || 'unknown'),
+    required: raw?.required === true ? true : raw?.required === false ? false : null,
+    description: sanitizeText(String(raw?.description || '')),
+    ...(exampleValue === undefined ? {} : { exampleValue: sanitizeText(exampleValue) }),
+    parentPath: raw?.parentPath ? String(raw.parentPath) : inferredParentPath,
+    displayOrder: Number.isFinite(Number(raw?.displayOrder)) ? Number(raw.displayOrder) : index,
+    enabled: raw?.enabled !== false,
+    deprecated: !!raw?.deprecated,
+    source: raw?.source || 'MANUAL',
+    allowedValues,
+    allowedValuesCustomized: !!raw?.allowedValuesCustomized,
+  };
+}
+
+function mergeDocumentationParameters(existing, discovered, fallbackLocation) {
+  const existingRows = Array.isArray(existing)
+    ? existing.map((row, index) => normalizeDocumentationParameter(row, fallbackLocation, index)).filter(row => row.name)
+    : [];
+  const byKey = new Map(existingRows.map(row => [normalizedDocumentationFieldKey(row.location, row.name), row]));
+  const discoveredKeys = new Set();
+  const merged = discovered.map((row, index) => {
+    const normalized = normalizeDocumentationParameter(row, fallbackLocation, index);
+    const key = normalizedDocumentationFieldKey(normalized.location, normalized.name);
+    discoveredKeys.add(key);
+    const previous = byKey.get(key);
+    if (!previous) return normalized;
+    return {
+      ...normalized,
+      id: previous.id,
+      dataType: previous.dataType || normalized.dataType,
+      required: previous.required,
+      description: previous.description,
+      exampleValue: previous.exampleValue ?? normalized.exampleValue,
+      allowedValues: previous.allowedValuesCustomized
+        ? previous.allowedValues
+        : previous.allowedValues?.length ? previous.allowedValues : normalized.allowedValues,
+      allowedValuesCustomized: previous.allowedValuesCustomized,
+      displayOrder: previous.displayOrder,
+      enabled: previous.enabled,
+      deprecated: false,
+      source: previous.source,
+    };
+  });
+  existingRows.filter(row => !discoveredKeys.has(normalizedDocumentationFieldKey(row.location, row.name))).forEach(row => {
+    merged.push(row.source === 'AUTO'
+      ? { ...row, enabled: false, deprecated: true }
+      : row);
+  });
+  return merged.sort((left, right) => left.displayOrder - right.displayOrder || left.name.localeCompare(right.name));
+}
+
+function defaultResponseCodes() {
+  return DEFAULT_RESPONSE_CODE_CATALOG.map(row => ({ ...row }));
+}
+
+function normalizeResponseCodes(rows) {
+  const source = Array.isArray(rows) ? rows : defaultResponseCodes();
+  return source.map((row, index) => ({
+    code: Number.isFinite(Number(row?.code)) ? Number(row.code) : 0,
+    message: sanitizeText(String(row?.message || '')),
+    description: sanitizeText(String(row?.description || '')),
+    enabled: row?.enabled !== false,
+    displayOrder: Number.isFinite(Number(row?.displayOrder)) ? Number(row.displayOrder) : index,
+  })).sort((left, right) => left.displayOrder - right.displayOrder || left.code - right.code);
+}
+
+function authenticationProfile(profileId) {
+  const profile = AUTHENTICATION_DOCUMENTATION_PROFILES.find(item => item.id === profileId);
+  return profile ? safeClone(profile) : null;
+}
+
+function authenticationApplicable(request) {
+  const hasAuthenticationHeader = (request.headers || []).some(header => ['token', 'authorization'].includes(String(header.name || '').toLowerCase()));
+  return request.authentication?.type !== 'none' || hasAuthenticationHeader;
+}
+
+function normalizeAuthenticationDocumentation(raw, request, profileId) {
+  const urlParts = documentationUrlParts(request.urlTemplate);
+  const selectedProfileId = profileId || raw?.profileId || (urlParts.baseUrl === 'https://esb.medu.ir' && authenticationApplicable(request) ? 'ministry-esb' : '');
+  const profile = authenticationProfile(selectedProfileId);
+  const source = { ...(profile || {}), ...(raw || {}) };
+  const enabled = source.enabled === true || (!raw && !!profile && authenticationApplicable(request));
+  return {
+    profileId: selectedProfileId || undefined,
+    enabled,
+    title: sanitizeText(String(source.title || 'سرویس احراز هویت')),
+    introduction: sanitizeText(String(source.introduction || '')),
+    baseUrl: cleanDocumentationUrl(source.baseUrl || ''),
+    endpoint: cleanDocumentationUrl(source.endpoint || ''),
+    method: String(source.method || 'POST').toUpperCase(),
+    contentType: String(source.contentType || 'application/json'),
+    headerParameters: (source.headerParameters || []).map((row, index) => normalizeDocumentationParameter(row, 'HEADER', index)),
+    inputParameters: (source.inputParameters || []).map((row, index) => normalizeDocumentationParameter(row, 'BODY', index)),
+    outputParameters: (source.outputParameters || []).map((row, index) => normalizeDocumentationParameter(row, 'RESPONSE', index)),
+    curlExample: sanitizeDocumentationCurl(source.curlExample || ''),
+    responseExample: sanitizeDocumentationResponseExample(source.responseExample || ''),
+  };
+}
+
+function sanitizeDocumentationJsonValue(value, pathValue = '', parameterRows = []) {
+  if (Array.isArray(value)) return value.map(item => sanitizeDocumentationJsonValue(item, `${pathValue}[]`, parameterRows));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => {
+      const childPath = pathValue ? `${pathValue}.${key}` : key;
+      return [key, sanitizeDocumentationJsonValue(child, childPath, parameterRows)];
+    }));
+  }
+  const fieldName = pathValue.split('.').at(-1)?.replace(/\[\]$/g, '') || pathValue;
+  const metadata = parameterRows.find(row => row.name === pathValue || row.name === fieldName);
+  if (isSecretReference(value) || isSensitiveDocumentationSampleName(fieldName)) {
+    return metadata?.exampleValue || maskPersonallyIdentifiableValue(fieldName, value) || '****';
+  }
+  return value;
+}
+
+function sanitizeDocumentationResponseExample(text, parameterRows = []) {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  const parsed = parseJsonSafely(value);
+  if (parsed.ok) return JSON.stringify(sanitizeDocumentationJsonValue(parsed.value, '', parameterRows), null, 2);
+  return sanitizeText(value).replace(/secret:\/\/api-console\/[0-9a-f-]+/gi, '****');
+}
+
+function sanitizeDocumentationCurl(text) {
+  const withoutContentLength = String(text || '')
+    .split(/\r?\n/)
+    .filter(line => !(/^\s*(?:--header|-H)\s+/i.test(line) && /content-length\s*:/i.test(line)))
+    .join('\n')
+    .replace(/\s+(?:--header|-H)\s+(?:'Content-Length:[^']*'|"Content-Length:[^"]*")/gi, '');
+  return sanitizeText(withoutContentLength)
+    .replace(/secret:\/\/api-console\/[0-9a-f-]+/gi, '****')
+    .replace(/secret%3A%2F%2Fapi-console%2F[0-9a-f-]+/gi, '****')
+    .replace(/((?:--header|-H)\s+['"]?(?:authorization|token|access_token|refresh_token|client-secret|api-key|x-api-key)\s*:\s*)([^'"\\\r\n]+)/gi,
+      (_match, prefix, value) => `${prefix}${maskDocumentationSecret(String(value).trim())}`)
+    .replace(/((?:--form|--data-urlencode)\s+['"]?(?:password|token|access_token|client-secret|api-key)\s*=)[^'"\s]+/gi, '$1****')
+    .replace(/((?:national[_-]?code|employee[_-]?code|personnel[_-]?code|NetPayablePrice|DeductionsSumPrice)\s*["']?\s*:\s*["'])([^"',}\s]+)/gi,
+      (_match, prefix, value) => `${prefix}${maskPersonallyIdentifiableValue(prefix, value)}`);
+}
+
+function latestDocumentationEvidence(request, executions, manualExamples) {
+  const execution = (executions || [])
+    .filter(item => {
+      const statusCode = Number(item.response?.statusCode || item.statusCode || 0);
+      return item.requestId === request.id && item.transportResult === 'SUCCESS' && item.response && statusCode >= 200 && statusCode < 300;
+    })
+    .sort((left, right) => String(right.completedAt || right.startedAt || '').localeCompare(String(left.completedAt || left.startedAt || '')))[0];
+  const manual = (manualExamples || [])
+    .filter(item => item.requestId === request.id && item.reviewStatus !== 'REJECTED' && Number(item.statusCode || 0) >= 200 && Number(item.statusCode || 0) < 300)
+    .sort((left, right) => String(right.enteredAt || '').localeCompare(String(left.enteredAt || '')))[0];
+  const executionAt = new Date(execution?.completedAt || execution?.startedAt || 0).getTime();
+  const manualAt = new Date(manual?.enteredAt || 0).getTime();
+  const useManual = !!manual && (!execution || manualAt >= executionAt);
+  const responseText = useManual ? manual.body : execution?.response?.bodyPreview || manual?.body || '';
+  return { execution, manual, responseText, source: useManual ? 'MANUAL_EXAMPLE' : execution ? 'ACTUAL_EXECUTION' : null };
+}
+
+function refreshDocumentationMetadata(request, executions = [], manualExamples = []) {
+  const existing = request.documentation || {};
+  const urlParts = documentationUrlParts(request.urlTemplate);
+  const evidence = latestDocumentationEvidence(request, executions, manualExamples);
+  const responseParsed = parseJsonSafely(evidence.responseText || '');
+  const discoveredOutputs = responseParsed.ok
+    ? inferStructuredDocumentationParameters(responseParsed.value, 'RESPONSE')
+    : [];
+  const headerParameters = mergeDocumentationParameters(existing.headerParameters, inferHeaderDocumentationParameters(request), 'HEADER');
+  const inputParameters = mergeDocumentationParameters(existing.inputParameters, inferRequestDocumentationParameters(request), 'BODY');
+  const outputParameters = evidence.responseText
+    ? mergeDocumentationParameters(existing.outputParameters, discoveredOutputs, 'RESPONSE')
+    : (existing.outputParameters || []).map((row, index) => normalizeDocumentationParameter(row, 'RESPONSE', index));
+  const serviceIntroduction = String(existing.serviceIntroduction ?? existing.description ?? request.description ?? '');
+  const documentRevision = String(existing.documentRevision || existing.version || request.semanticVersion || '1.0.0');
+  const documentDate = String(existing.documentDate || nowIso().slice(0, 10));
+  const metadata = {
+    ...existing,
+    title: sanitizeText(String(existing.title || request.name || 'Untitled API Request')),
+    description: sanitizeText(String(existing.description ?? request.description ?? '')),
+    serviceIntroduction: sanitizeText(serviceIntroduction),
+    baseUrl: cleanDocumentationUrl(existing.baseUrl || urlParts.baseUrl),
+    operationPath: cleanDocumentationUrl(existing.operationPath || urlParts.operationPath),
+    endpoint: urlParts.endpoint,
+    method: request.method,
+    providerApplication: existing.providerApplication || request.applicationId,
+    version: existing.version || documentRevision,
+    documentRevision,
+    organizationName: sanitizeText(String(existing.organizationName || DEFAULT_DOCUMENT_ORGANIZATION)),
+    departmentName: sanitizeText(String(existing.departmentName || DEFAULT_DOCUMENT_DEPARTMENT)),
+    documentDate,
+    headerParameters,
+    inputParameters,
+    outputParameters,
+    authenticationProfileId: existing.authenticationProfileId || undefined,
+    authenticationDocumentation: normalizeAuthenticationDocumentation(existing.authenticationDocumentation, request, existing.authenticationProfileId),
+    responseCodes: normalizeResponseCodes(existing.responseCodes),
+    curlExample: sanitizeDocumentationCurl(existing.curlExample || ''),
+    responseExample: sanitizeDocumentationResponseExample(existing.responseExample || '', outputParameters),
+  };
+  return metadata;
+}
+
+function requiredStatusLabel(value) {
+  if (value === true) return 'بله';
+  if (value === false) return 'خیر';
+  return 'نامشخص';
 }
 
 function defaultGlobalVariables() {
@@ -1199,7 +1716,7 @@ function stableApiIdOf(request) {
 function ensureRequestApiFields(request) {
   const apiId = stableApiIdOf(request);
   const semanticVersion = semanticVersionOf(request);
-  const documentation = {
+  const legacyDocumentation = {
     ...(request.documentation || {}),
     title: request.documentation?.title || request.name || 'Untitled API Request',
     description: request.documentation?.description || request.description || '',
@@ -1209,14 +1726,16 @@ function ensureRequestApiFields(request) {
       ? request.documentation.changeHistory
       : [{ version: semanticVersion, changedAt: request.createdAt || nowIso(), summary: 'Initial API Console request definition.' }],
   };
-  return {
+  const next = {
     ...request,
     apiId,
     semanticVersion,
     sharingStatus: SHARE_STATUSES.has(request.sharingStatus) ? request.sharingStatus : 'DRAFT',
     sourceType: request.sourceType || 'ORIGINAL',
-    documentation,
+    documentation: legacyDocumentation,
   };
+  next.documentation = refreshDocumentationMetadata(next);
+  return next;
 }
 
 function normalizeStoreShape(raw) {
@@ -2640,139 +3159,269 @@ function buildPostmanCollectionExport(collection, requests) {
   };
 }
 
+function enabledDocumentationRows(rows) {
+  return (rows || []).filter(row => row.enabled !== false && !row.deprecated).sort((left, right) => left.displayOrder - right.displayOrder || left.name.localeCompare(right.name));
+}
+
+function documentationRequestExample(request, inputParameters) {
+  const raw = String(request.bodyTemplate || '');
+  if (!raw) return '';
+  if (request.bodyType === 'json') {
+    const parsed = parseJsonSafely(raw);
+    if (parsed.ok) return JSON.stringify(sanitizeDocumentationJsonValue(parsed.value, '', inputParameters), null, 2);
+  }
+  if (request.bodyType === 'form-urlencoded') {
+    const params = new URLSearchParams(raw);
+    for (const key of Array.from(params.keys())) {
+      const metadata = inputParameters.find(row => row.name === key);
+      if (isSensitiveName(key) || isSecretReference(params.get(key))) params.set(key, metadata?.exampleValue || '****');
+    }
+    return params.toString();
+  }
+  return sanitizeText(raw).replace(/secret:\/\/api-console\/[0-9a-f-]+/gi, '****');
+}
+
+function documentationCurlExample(request, metadata, inputParameters) {
+  if (metadata.curlExample) return sanitizeDocumentationCurl(metadata.curlExample);
+  const safeQueryParameters = (request.queryParameters || []).map(parameter => {
+    const row = inputParameters.find(item => item.location === 'QUERY' && item.name === parameter.name);
+    return {
+      ...parameter,
+      value: parameter.sensitive || isSensitiveName(parameter.name) || isSecretReference(parameter.value)
+        ? (row?.exampleValue || '****')
+        : parameter.value,
+    };
+  });
+  const url = cleanDocumentationUrl(buildUrlWithQuery(request.urlTemplate, safeQueryParameters));
+  const parts = [`curl --request ${request.method}`, `--url ${url}`];
+  enabledDocumentationRows(metadata.headerParameters).forEach(header => {
+    if (String(header.name).toLowerCase() === 'content-length') return;
+    const sourceHeader = documentedRequestHeaders(request).find(item => String(item.name).toLowerCase() === String(header.name).toLowerCase());
+    const sensitive = isSensitiveName(header.name) || sourceHeader?.sensitive;
+    const value = sensitive
+      ? (header.exampleValue || sourceHeader?.maskedValue || '****')
+      : (header.exampleValue || sourceHeader?.valueTemplate || header.dataType || '—');
+    parts.push(`--header ${bashQuote(`${header.name}: ${value}`)}`);
+  });
+  const body = documentationRequestExample(request, inputParameters);
+  if (body) parts.push(`--data ${bashQuote(body)}`);
+  return sanitizeDocumentationCurl(parts.join(' \\\n  '));
+}
+
+function buildDocumentationViewModel(request, executions, manualExamples, generatedAt = nowIso()) {
+  const metadata = refreshDocumentationMetadata(request, executions, manualExamples);
+  const evidence = latestDocumentationEvidence(request, executions, manualExamples);
+  const headers = enabledDocumentationRows(metadata.headerParameters);
+  const inputs = enabledDocumentationRows(metadata.inputParameters);
+  const outputs = enabledDocumentationRows(metadata.outputParameters);
+  const responseExample = metadata.responseExample || sanitizeDocumentationResponseExample(evidence.responseText, outputs);
+  const curlExample = documentationCurlExample(request, metadata, inputs);
+  return {
+    requestId: request.id,
+    generatedAt,
+    title: metadata.title,
+    serviceIntroduction: metadata.serviceIntroduction || 'ثبت نشده است',
+    baseUrl: metadata.baseUrl,
+    endpoint: cleanDocumentationUrl(request.urlTemplate),
+    operationPath: metadata.operationPath,
+    method: request.method,
+    organizationName: metadata.organizationName,
+    departmentName: metadata.departmentName,
+    documentRevision: metadata.documentRevision,
+    documentDate: metadata.documentDate,
+    generationDate: new Date(generatedAt).toLocaleDateString('fa-IR'),
+    headers,
+    inputs,
+    outputs,
+    authentication: metadata.authenticationDocumentation,
+    responseCodes: normalizeResponseCodes(metadata.responseCodes).filter(row => row.enabled),
+    curlExample,
+    responseExample,
+    rawRequestExample: request.bodyType !== 'none' ? documentationRequestExample(request, inputs) : '',
+    requestBodyType: request.bodyType,
+    requestContentType: requestBodyContentType(requestBodyFromDefinition(request)),
+    hasResponseEvidence: !!evidence.responseText,
+  };
+}
+
+function markdownCell(value) {
+  const text = String(value ?? '').trim() || '—';
+  return text.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+}
+
+function markdownTable(headers, rows) {
+  const normalizedRows = rows.length ? rows : [headers.map((_, index) => index === headers.length - 1 ? 'ثبت نشده است' : '—')];
+  return [
+    `| ${headers.map(markdownCell).join(' | ')} |`,
+    `| ${headers.map(() => '---').join(' | ')} |`,
+    ...normalizedRows.map(row => `| ${row.map(markdownCell).join(' | ')} |`),
+  ].join('\n');
+}
+
+function addressRows(view) {
+  return [
+    ['۱', 'URL', view.endpoint || '—'],
+    ['۲', 'Method', view.method || '—'],
+  ];
+}
+
+function headerRows(rows) {
+  return enabledDocumentationRows(rows).map((row, index) => [
+    String(index + 1), row.name, row.exampleValue || row.dataType || '—', row.description || '—',
+  ]);
+}
+
+function inputRows(rows) {
+  return enabledDocumentationRows(rows).map((row, index) => [
+    String(index + 1), row.name, row.dataType || 'unknown', requiredStatusLabel(row.required), row.description || '—',
+  ]);
+}
+
+function outputParameterGroups(rows) {
+  const groups = new Map();
+  enabledDocumentationRows(rows).forEach(row => {
+    const parentPath = row.parentPath || '';
+    if (!groups.has(parentPath)) groups.set(parentPath, []);
+    groups.get(parentPath).push(row);
+  });
+  return Array.from(groups.entries())
+    .map(([parentPath, parameters]) => ({
+      parentPath,
+      titlePath: parentPath.replace(/\[\]/g, ''),
+      parameters,
+      displayOrder: Math.min(...parameters.map(row => row.displayOrder)),
+    }))
+    .sort((left, right) => {
+      if (!left.parentPath) return -1;
+      if (!right.parentPath) return 1;
+      return left.displayOrder - right.displayOrder || left.parentPath.localeCompare(right.parentPath);
+    });
+}
+
+function relativeOutputParameterName(name, parentPath) {
+  if (!parentPath) return name;
+  const prefix = `${parentPath}.`;
+  return String(name).startsWith(prefix) ? String(name).slice(prefix.length) : name;
+}
+
+function outputRows(rows, parentPath = '') {
+  return enabledDocumentationRows(rows).map((row, index) => [
+    String(index + 1), relativeOutputParameterName(row.name, parentPath), row.dataType || 'unknown', row.description || '—',
+  ]);
+}
+
+function allowedValueRows(parameter) {
+  return (parameter.allowedValues || [])
+    .filter(item => item.enabled !== false)
+    .sort((left, right) => left.displayOrder - right.displayOrder)
+    .map(item => [item.value || '—', item.description || '—']);
+}
+
+function outputAllowedValueTitle(parameter) {
+  return String(parameter.name || '').split('.').at(-1)?.replace(/\[\]$/g, '') || parameter.name;
+}
+
+function markdownOutputParameterSections(rows) {
+  const sections = [];
+  const groups = outputParameterGroups(rows);
+  if (!groups.length) {
+    return [
+      '### پارامترهای خروجی', '',
+      markdownTable(['ردیف', 'نام پارامتر', 'نوع', 'توضیحات'], []), '',
+    ];
+  }
+  groups.forEach(group => {
+    sections.push(
+      group.parentPath ? `### پارامترهای خروجی ${group.titlePath}:` : '### پارامترهای خروجی', '',
+      markdownTable(['ردیف', 'نام پارامتر', 'نوع', 'توضیحات'], outputRows(group.parameters, group.parentPath)), ''
+    );
+    group.parameters.forEach(parameter => {
+      const values = allowedValueRows(parameter);
+      if (!values.length) return;
+      sections.push(
+        `#### مقادیر مجاز برای فیلد ${outputAllowedValueTitle(parameter)}:`, '',
+        markdownTable(['کد', 'توضیحات'], values), ''
+      );
+    });
+  });
+  return sections;
+}
+
 function generateDocumentationMarkdown(request, executions, manualExamples, generatedBy) {
-  const latestExecution = executions.find(execution => execution.requestId === request.id && execution.transportResult === 'SUCCESS');
-  const latestManual = manualExamples.find(example => example.requestId === request.id && example.reviewStatus !== 'REJECTED');
-  const curl = exportRequestAsCurl(request, 'bash');
+  const generatedAt = nowIso();
+  const view = buildDocumentationViewModel(request, executions, manualExamples, generatedAt);
   const warnings = [];
-  const requestBody = requestBodyFromDefinition(request);
-  const body = request.bodyTemplate || '';
-  const bodyContentType = requestBodyContentType(requestBody);
+  if (!view.hasResponseEvidence && !request.documentation?.responseExample) warnings.push('نمونه پاسخ موفق ثبت نشده است.');
+  if ((request.cookies || []).some(cookie => cookie.sensitive)) warnings.push('Cookieهای نشست از مستندات حذف شده‌اند.');
   const docs = [
-    `# ${request.documentation.title || request.name}`,
+    '# مستندات بهره برداری',
     '',
-    request.documentation.description || request.description || 'Generated from Online API Console saved request.',
+    `## «${view.title}»`,
     '',
-    '## Transport',
-    '',
-    `- Method: ${request.method}`,
-    `- URL template: ${request.urlTemplate}`,
-    `- TLS verification: ${request.tls.verifyCertificate ? 'enabled' : 'disabled'}`,
-    `- Execution mode: ${request.executionMode}`,
+    `- سازمان: ${view.organizationName}`,
+    `- واحد سازمانی: ${view.departmentName}`,
+    `- ویرایش سند: ${view.documentRevision}`,
+    `- تاریخ سند: ${view.documentDate}`,
+    `- تاریخ تولید: ${view.generationDate}`,
     '',
   ];
 
-  if (request.classification.type !== 'GENERIC_HTTP') {
+  if (view.authentication?.enabled) {
+    const auth = view.authentication;
     docs.push(
-      '## Core Semantics',
-      '',
-      `- Core endpoint: ${request.classification.endpoint}`,
-      `- Semantic operation: ${request.classification.coreOperationType}`,
-      `- Service ID: ${request.classification.serviceId}`,
-      `- Operation path: ${request.classification.operationPath}`,
-      `- Input container: ${request.classification.type === 'CORE_COMMAND' ? 'data' : 'params'}`,
-      ''
+      '# مقدمه سرویس احراز هویت', '',
+      `Base url: ${auth.baseUrl || '—'}`, '',
+      auth.introduction || 'ثبت نشده است', '',
+      '# سرویس احراز هویت', '',
+      '## ورودی ها', '',
+      '### ادرس و متد درخواست', '',
+      markdownTable(['ردیف', 'نام پارامتر', 'توضیحات'], [
+        ['۱', 'URL', auth.endpoint || '—'], ['۲', 'Method', auth.method || '—'],
+      ]), '',
+      '### پارامتر های سرایند', '',
+      markdownTable(['ردیف', 'نام پارامتر', 'نوع یا مقدار نمونه', 'توضیحات'], headerRows(auth.headerParameters)), '',
+      '### پارامتر های ورودی', '',
+      markdownTable(['ردیف', 'نام پارامتر', 'نوع', 'الزامی', 'توضیحات'], inputRows(auth.inputParameters)), '',
+      '## خروجی ها', '',
+      ...markdownOutputParameterSections(auth.outputParameters),
+      '## نمونه فراخوانی سرویس احراز هویت', '', '```bash', auth.curlExample || 'ثبت نشده است', '```', '',
+      '## نمونه تست سرویس احراز هویت', '', '```json', auth.responseExample || 'ثبت نشده است', '```', ''
     );
-  }
-
-  const publicHeaders = documentedRequestHeaders(request);
-  const publicCookies = (request.cookies || []).filter(cookie => cookie.enabled && !cookie.sensitive);
-  if ((request.headers || []).some(header => header.sensitive) || (request.cookies || []).some(cookie => cookie.sensitive)) {
-    warnings.push('Sensitive headers/cookies were excluded from generated documentation.');
   }
 
   docs.push(
-    '## Authentication',
-    '',
-    `- Type: ${request.authentication.type}`,
-    'Sensitive values are represented by secret references and are not included.',
-    '',
-    '## Headers / سرایندها',
-    '',
-    publicHeaders.length ? publicHeaders.map(header => {
-      const name = String(header.name || '').toLowerCase() === 'content-type' ? `${header.name} (Body Content-Type)` : header.name;
-      return `- ${name}: ${header.valueTemplate}`;
-    }).join('\n') : 'No public headers.',
-    '',
-    '## Cookies',
-    '',
-    publicCookies.length ? publicCookies.map(cookie => `- ${cookie.name}: ${cookie.valueReference}`).join('\n') : 'No public cookies.',
-    '',
-    '## Query Parameters',
-    '',
-    (request.queryParameters || []).filter(param => param.enabled).length
-      ? request.queryParameters.filter(param => param.enabled).map(param => `- ${param.name}: ${param.sensitive ? '{{secret}}' : param.value}`).join('\n')
-      : 'No query parameters.',
-    '',
-    '## Body ورودی',
-    '',
-    request.bodyType === 'none' || !body.trim()
-      ? 'Body ورودی ثبت نشده است.'
-      : [
-          `Content-Type: ${bodyContentType || 'text/plain'}`,
-          '',
-          request.bodyType === 'json' ? '```json' : request.bodyType === 'xml' ? '```xml' : '```text',
-          sanitizeText(body),
-          '```',
-        ].join('\n'),
-    '',
-    '## cURL Example',
-    '',
-    '```bash',
-    curl,
-    '```',
-    ''
+    `# مقدمه دسترسی به استعلام جزئیات وب سرویس ${view.title}`, '',
+    `Base url: ${view.baseUrl || '—'}`, '',
+    view.serviceIntroduction, '',
+    `# جزئیات وب سرویس ${view.title}`, '',
+    '## ورودی ها', '',
+    '### ادرس و متد درخواست', '',
+    markdownTable(['ردیف', 'نام پارامتر', 'توضیحات'], addressRows(view)), '',
+    '### پارامتر های سرایند', '',
+    markdownTable(['ردیف', 'نام پارامتر', 'نوع یا مقدار نمونه', 'توضیحات'], headerRows(view.headers)), '',
+    '### پارامتر های ورودی', '',
+    markdownTable(['ردیف', 'نام پارامتر', 'نوع', 'الزامی', 'توضیحات'], inputRows(view.inputs)), ''
   );
-
-  if (latestExecution?.response) {
-    docs.push(
-      '## Successful Response Example',
-      '',
-      `Evidence type: ${latestExecution.evidenceType}`,
-      `Status: ${latestExecution.response.statusCode} ${latestExecution.response.statusText}`,
-      '',
-      '```json',
-      sanitizeText(latestExecution.response.bodyPreview),
-      '```',
-      ''
-    );
-  } else if (latestManual) {
-    docs.push(
-      '## Manual Response Example',
-      '',
-      'Evidence type: MANUAL_EXAMPLE',
-      `Status: ${latestManual.statusCode}`,
-      `Reason: ${latestManual.reason}`,
-      '',
-      '```json',
-      sanitizeText(latestManual.body),
-      '```',
-      ''
-    );
-  } else {
-    warnings.push('No approved response evidence is available.');
+  if (view.rawRequestExample && view.requestBodyType !== 'json') {
+    docs.push('### نمونه بدنه درخواست', '', '```text', view.rawRequestExample, '```', '');
   }
-
   docs.push(
-    '## Assertions',
-    '',
-    (request.assertions || []).length
-      ? request.assertions.map(assertion => `- ${assertion.assertionType}: ${JSON.stringify(assertion.configuration)}`).join('\n')
-      : 'No assertions saved.',
-    '',
-    '## Metadata',
-    '',
-    `- Version: ${request.documentation.version || request.version}`,
-    `- Owner: ${request.documentation.owner || request.createdBy}`,
-    `- Support: ${request.documentation.supportContact || 'N/A'}`,
-    `- Generated by: ${generatedBy}`,
-    `- Generated at: ${nowIso()}`,
+    '## خروجی ها', '',
+    ...markdownOutputParameterSections(view.outputs),
+    `## نمونه فراخوانی دریافت جزئیات وب سرویس ${view.title}`, '',
+    '```bash', view.curlExample || 'ثبت نشده است', '```', '',
+    `## نمونه تست موفق دریافت جزئیات وب سرویس ${view.title}`, '',
+    '```json', view.responseExample || 'ثبت نشده است', '```', '',
+    `# پیوست – مرجع کدهای پاسخ و خطا وب سرویس ${view.title}`, '',
+    `## کدهای پاسخ HTTPS وب سرویس ${view.title}`, '',
+    markdownTable(['Code', 'Message', 'توضیحات'], view.responseCodes.map(row => [String(row.code), row.message, row.description])), '',
+    `تولیدکننده سند: ${generatedBy}`,
+    `زمان تولید: ${generatedAt}`,
     ''
   );
-
   return {
     requestId: request.id,
-    generatedAt: nowIso(),
+    generatedAt,
     generatedBy,
     approved: false,
     markdown: docs.join('\n'),
@@ -2923,17 +3572,21 @@ function writeZip(entries) {
 }
 
 function docxRun(text, options = {}) {
-  const font = options.font || 'B Nazanin';
+  const font = options.font || (options.ltr ? 'Consolas' : 'B Nazanin');
   const size = options.size || 24;
   const bold = options.bold ? '<w:b/><w:bCs/>' : '';
-  return `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="${xmlEscape(font)}"/><w:sz w:val="${size}"/><w:szCs w:val="${size}"/><w:rtl/>${bold}</w:rPr><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r>`;
+  const direction = options.ltr ? '<w:rtl w:val="0"/>' : '<w:rtl/>';
+  return `<w:r><w:rPr><w:rFonts w:ascii="${xmlEscape(font)}" w:hAnsi="${xmlEscape(font)}" w:cs="${xmlEscape(font)}"/><w:sz w:val="${size}"/><w:szCs w:val="${size}"/>${direction}${bold}</w:rPr><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r>`;
 }
 
 function docxParagraph(text, options = {}) {
   const style = options.style ? `<w:pStyle w:val="${xmlEscape(options.style)}"/>` : '';
-  const align = options.align ? `<w:jc w:val="${options.align}"/>` : '<w:jc w:val="right"/>';
+  const align = options.align ? `<w:jc w:val="${options.align}"/>` : `<w:jc w:val="${options.ltr ? 'left' : 'right'}"/>`;
   const spacing = options.after === undefined ? '<w:spacing w:after="120"/>' : `<w:spacing w:after="${options.after}"/>`;
-  return `<w:p><w:pPr><w:bidi/>${style}${spacing}${align}</w:pPr>${docxRun(text, options)}</w:p>`;
+  const direction = options.ltr ? '<w:bidi w:val="0"/>' : '<w:bidi/>';
+  const keepNext = options.keepNext ? '<w:keepNext/>' : '';
+  const pageBreakBefore = options.pageBreakBefore ? '<w:pageBreakBefore/>' : '';
+  return `<w:p><w:pPr>${direction}${style}${spacing}${align}${keepNext}${pageBreakBefore}</w:pPr>${docxRun(text, options)}</w:p>`;
 }
 
 function docxPageBreak() {
@@ -2941,25 +3594,30 @@ function docxPageBreak() {
 }
 
 function docxCodeBlock(value) {
-  const lines = String(value || '-').split(/\r?\n/).slice(0, 160);
+  const lines = String(value || '-').split(/\r?\n/);
   const runs = [];
   lines.forEach((line, index) => {
     if (index) runs.push('<w:br/>');
     runs.push(`<w:t xml:space="preserve">${xmlEscape(line)}</w:t>`);
   });
-  return `<w:p><w:pPr><w:spacing w:after="180"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr>${runs.join('')}</w:r></w:p>`;
+  return `<w:p><w:pPr><w:bidi w:val="0"/><w:spacing w:before="80" w:after="180"/><w:jc w:val="left"/><w:keepLines/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/><w:sz w:val="18"/><w:szCs w:val="18"/><w:rtl w:val="0"/><w:noProof/></w:rPr>${runs.join('')}</w:r></w:p>`;
 }
 
 function docxCell(content, options = {}) {
   const fill = options.header ? '<w:shd w:fill="D9EAF7"/>' : '';
   const text = Array.isArray(content) ? content.join('\n') : String(content ?? '-');
-  return `<w:tc><w:tcPr><w:tcW w:w="${options.width || 2400}" w:type="dxa"/>${fill}<w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tcMar></w:tcPr>${docxParagraph(text, { bold: options.header, size: options.header ? 22 : 20, after: 0 })}</w:tc>`;
+  const ltr = options.ltr ?? (/^(?:https?:\/\/|[A-Za-z0-9_.\[\]{}:/?&=+*'-]+)$/u.test(text) && !/[\u0600-\u06FF]/u.test(text));
+  return `<w:tc><w:tcPr><w:tcW w:w="${options.width || 2400}" w:type="dxa"/>${fill}<w:vAlign w:val="center"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tcMar></w:tcPr>${docxParagraph(text || '—', { bold: options.header, size: options.header ? 21 : 20, after: 0, ltr, align: ltr ? 'left' : 'right', font: ltr ? 'Arial' : 'B Nazanin' })}</w:tc>`;
 }
 
-function docxTable(rows) {
+function docxTable(rows, options = {}) {
   const border = '<w:tblBorders><w:top w:val="single" w:sz="6" w:color="8EAADB"/><w:left w:val="single" w:sz="6" w:color="8EAADB"/><w:bottom w:val="single" w:sz="6" w:color="8EAADB"/><w:right w:val="single" w:sz="6" w:color="8EAADB"/><w:insideH w:val="single" w:sz="4" w:color="D9E2F3"/><w:insideV w:val="single" w:sz="4" w:color="D9E2F3"/></w:tblBorders>';
-  const body = rows.map((row, rowIndex) => `<w:tr>${row.map(cell => docxCell(cell, { header: rowIndex === 0 })).join('')}</w:tr>`).join('');
-  return `<w:tbl><w:tblPr><w:bidiVisual/><w:tblW w:w="0" w:type="auto"/>${border}<w:tblLook w:firstRow="1" w:noHBand="0" w:noVBand="1"/></w:tblPr>${body}</w:tbl>`;
+  const widths = options.widths || [];
+  const body = rows.map((row, rowIndex) => {
+    const rowProperties = rowIndex === 0 ? '<w:trPr><w:tblHeader/><w:cantSplit/></w:trPr>' : '<w:trPr><w:cantSplit/></w:trPr>';
+    return `<w:tr>${rowProperties}${row.map((cell, columnIndex) => docxCell(cell, { header: rowIndex === 0, width: widths[columnIndex] })).join('')}</w:tr>`;
+  }).join('');
+  return `<w:tbl><w:tblPr><w:bidiVisual/><w:tblW w:w="0" w:type="auto"/><w:tblLayout w:type="autofit"/>${border}<w:tblLook w:firstRow="1" w:noHBand="0" w:noVBand="1"/></w:tblPr>${body}</w:tbl><w:p><w:pPr><w:spacing w:after="80"/></w:pPr></w:p>`;
 }
 
 function prettyJsonText(text) {
@@ -2967,47 +3625,135 @@ function prettyJsonText(text) {
   return parsed.ok ? JSON.stringify(parsed.value, null, 2) : String(text || '-');
 }
 
-function requestDocxRows(request) {
+function requestDocxRows(view) {
   return [
-    ['عنوان', request.documentation?.title || request.name || '-'],
-    ['نوع سرویس', request.classification?.type || 'GENERIC_HTTP'],
-    ['Transport Method', request.method],
-    ['URL', request.urlTemplate],
-    ['Core Service ID', request.classification?.serviceId || '-'],
-    ['Core Operation Path', request.classification?.operationPath || '-'],
-    ['Environment', request.environmentId || '-'],
-    ['Version', String(request.version || 1)],
+    ['ردیف', 'نام پارامتر', 'توضیحات'],
+    ...addressRows(view),
   ];
 }
 
-function inputRowsForDocx(request) {
-  const rows = [['نام', 'نوع/محل', 'مقدار/توضیح']];
-  (request.queryParameters || []).filter(item => item.enabled).forEach(item => rows.push([item.name, 'Query Parameter', item.sensitive ? '{{secret}}' : item.value]));
-  documentedRequestHeaders(request).forEach(item => {
-    const isBodyContentType = String(item.name || '').toLowerCase() === 'content-type';
-    rows.push([item.name, isBodyContentType ? 'Header - Body Content-Type' : 'Header', item.valueTemplate || '-']);
-  });
-  (request.cookies || []).filter(item => item.enabled && !item.sensitive).forEach(item => rows.push([item.name, 'Cookie', item.valueReference || '-']));
-  if (rows.length === 1) rows.push(['-', '-', 'پارامتر یا Header عمومی ثبت نشده است.']);
-  return rows;
+function headerRowsForDocx(rows) {
+  const values = headerRows(rows);
+  return [
+    ['ردیف', 'نام پارامتر', 'نوع یا مقدار نمونه', 'توضیحات'],
+    ...(values.length ? values : [['—', '—', '—', 'ثبت نشده است']]),
+  ];
 }
 
-function outputRowsForDocx(execution, manualExample) {
-  const rows = [['نام', 'مقدار']];
-  if (execution?.response) {
-    rows.push(['HTTP Status', String(execution.statusCode || '-')]);
-    rows.push(['Content-Type', execution.responseContentType || execution.response.contentType || '-']);
-    rows.push(['Response Size', `${execution.responseSize || 0} bytes`]);
-    rows.push(['Duration', `${execution.durationMs || 0}ms`]);
-    rows.push(['Evidence Type', execution.evidenceType]);
-  } else if (manualExample) {
-    rows.push(['HTTP Status', String(manualExample.statusCode || '-')]);
-    rows.push(['Evidence Type', 'MANUAL_EXAMPLE']);
-    rows.push(['Review Status', manualExample.reviewStatus || 'PENDING']);
-  } else {
-    rows.push(['-', 'Response evidence ثبت نشده است.']);
+function inputRowsForDocx(rows) {
+  const values = inputRows(rows);
+  return [
+    ['ردیف', 'نام پارامتر', 'نوع', 'الزامی', 'توضیحات'],
+    ...(values.length ? values : [['—', '—', '—', 'نامشخص', 'ثبت نشده است']]),
+  ];
+}
+
+function outputRowsForDocx(rows, parentPath = '') {
+  const values = outputRows(rows, parentPath);
+  return [
+    ['ردیف', 'نام پارامتر', 'نوع', 'توضیحات'],
+    ...(values.length ? values : [['—', '—', '—', 'ثبت نشده است']]),
+  ];
+}
+
+function allowedValueRowsForDocx(parameter) {
+  const values = allowedValueRows(parameter);
+  return [
+    ['کد', 'توضیحات'],
+    ...(values.length ? values : [['—', 'ثبت نشده است']]),
+  ];
+}
+
+function responseCodeRowsForDocx(rows) {
+  return [
+    ['Code', 'Message', 'توضیحات'],
+    ...rows.map(row => [String(row.code), row.message || '—', row.description || '—']),
+  ];
+}
+
+function docxHeading(text, level = 1, options = {}) {
+  const size = level === 1 ? 30 : level === 2 ? 27 : level === 3 ? 24 : 22;
+  return docxParagraph(text, { style: `Heading${level}`, bold: true, size, font: 'B Titr', keepNext: true, ...options });
+}
+
+function docxOutputParameterSections(rows) {
+  const groups = outputParameterGroups(rows);
+  if (!groups.length) {
+    return `${docxHeading('پارامترهای خروجی', 3)}${docxTable(outputRowsForDocx([]), { widths: [650, 2200, 1500, 4200] })}`;
   }
-  return rows;
+  return groups.map(group => {
+    const section = [
+      docxHeading(group.parentPath ? `پارامترهای خروجی ${group.titlePath}:` : 'پارامترهای خروجی', 3),
+      docxTable(outputRowsForDocx(group.parameters, group.parentPath), { widths: [650, 2200, 1500, 4200] }),
+    ];
+    group.parameters.forEach(parameter => {
+      if (!allowedValueRows(parameter).length) return;
+      section.push(
+        docxHeading(`مقادیر مجاز برای فیلد ${outputAllowedValueTitle(parameter)}:`, 4),
+        docxTable(allowedValueRowsForDocx(parameter), { widths: [1800, 6500] })
+      );
+    });
+    return section.join('');
+  }).join('');
+}
+
+function docxTableOfContents() {
+  return [
+    docxParagraph('فهرست مطالب', { style: 'TOCHeading', bold: true, size: 30, font: 'B Titr', keepNext: true }),
+    '<w:p><w:pPr><w:bidi/><w:jc w:val="right"/></w:pPr>',
+    '<w:r><w:fldChar w:fldCharType="begin" w:dirty="true"/></w:r>',
+    '<w:r><w:instrText xml:space="preserve"> TOC \\o &quot;1-3&quot; \\h \\z \\u </w:instrText></w:r>',
+    '<w:r><w:fldChar w:fldCharType="separate"/></w:r>',
+    docxRun('برای نمایش شماره صفحات، فهرست را در Microsoft Word به‌روزرسانی کنید.'),
+    '<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p>',
+  ].join('');
+}
+
+function forceA4SectionProperties(sectPr) {
+  let next = String(sectPr || '');
+  if (/<w:pgSz\b[^>]*\/>/.test(next)) {
+    next = next.replace(/<w:pgSz\b[^>]*\/>/, '<w:pgSz w:w="11906" w:h="16838"/>');
+  } else {
+    next = next.replace(/<w:sectPr([^>]*)>/, '<w:sectPr$1><w:pgSz w:w="11906" w:h="16838"/>');
+  }
+  if (/<w:pgMar\b[^>]*\/>/.test(next)) {
+    next = next.replace(/<w:pgMar\b[^>]*\/>/, '<w:pgMar w:top="1440" w:right="1134" w:bottom="1134" w:left="1134" w:header="720" w:footer="720" w:gutter="0"/>');
+  }
+  return next;
+}
+
+function docxAuthenticationSection(authentication) {
+  if (!authentication?.enabled) return '';
+  const address = {
+    endpoint: authentication.endpoint,
+    method: authentication.method,
+  };
+  return [
+    docxHeading('مقدمه سرویس احراز هویت', 1),
+    docxParagraph(`Base url: ${authentication.baseUrl || '—'}`, { ltr: true, font: 'Arial' }),
+    docxParagraph(authentication.introduction || 'ثبت نشده است'),
+    docxHeading('سرویس احراز هویت', 1),
+    docxHeading('ورودی ها', 2),
+    docxHeading('ادرس و متد درخواست', 3),
+    docxTable(requestDocxRows(address), { widths: [700, 1800, 6500] }),
+    docxHeading('پارامتر های سرایند', 3),
+    docxTable(headerRowsForDocx(authentication.headerParameters), { widths: [650, 1800, 2500, 4000] }),
+    docxHeading('پارامتر های ورودی', 3),
+    docxTable(inputRowsForDocx(authentication.inputParameters), { widths: [600, 1700, 1300, 1100, 3800] }),
+    docxHeading('خروجی ها', 2),
+    docxOutputParameterSections(authentication.outputParameters),
+    docxHeading('نمونه فراخوانی سرویس احراز هویت', 2),
+    docxCodeBlock(authentication.curlExample || 'ثبت نشده است'),
+    docxHeading('نمونه تست سرویس احراز هویت', 2),
+    docxCodeBlock(authentication.responseExample || 'ثبت نشده است'),
+  ].join('');
+}
+
+function templateCoverArtwork(templateXml) {
+  const bodyMatch = String(templateXml || '').match(/<w:body>([\s\S]*?)<w:sectPr\b/);
+  if (!bodyMatch) return '';
+  const paragraphs = bodyMatch[1].match(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g) || [];
+  return paragraphs.find(paragraph => paragraph.includes('<w:drawing>') && /r:embed="[^"]+"/.test(paragraph)) || '';
 }
 
 function buildDocxDocumentXml(templateXml, request, markdownResult, executions, manualExamples) {
@@ -3016,60 +3762,46 @@ function buildDocxDocumentXml(templateXml, request, markdownResult, executions, 
     ? templateXml.slice(0, bodyOpen + '<w:body>'.length)
     : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>';
   const sectMatch = templateXml.match(/<w:sectPr[\s\S]*?<\/w:sectPr>/);
-  const sectPr = sectMatch ? sectMatch[0] : '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1620" w:right="1016" w:bottom="720" w:left="1080" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>';
-  const latestExecution = executions.find(execution => execution.requestId === request.id && execution.transportResult === 'SUCCESS');
-  const latestManual = manualExamples.find(example => example.requestId === request.id && example.reviewStatus !== 'REJECTED');
-  const responseExample = latestExecution?.response?.bodyPreview || latestManual?.body || '';
-  const curl = exportRequestAsCurl(request, 'bash');
-  const title = request.documentation?.title || request.name || 'API Document';
-  const subtitle = request.classification?.coreOperationType
-    ? `وب سرویس ${request.classification.coreOperationType}`
-    : 'وب سرویس Generic HTTP';
+  const sectPr = forceA4SectionProperties(sectMatch ? sectMatch[0] : '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1620" w:right="1016" w:bottom="720" w:left="1080" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>');
+  const view = buildDocumentationViewModel(request, executions, manualExamples, markdownResult.generatedAt);
+  const coverArtwork = templateCoverArtwork(templateXml);
 
   const content = [
+    coverArtwork,
     docxParagraph('مستندات بهره برداری', { align: 'center', bold: true, size: 36, font: 'B Titr', after: 0 }),
-    docxParagraph(`"${title}"`, { align: 'center', bold: true, size: 32, font: 'B Titr', after: 0 }),
-    docxParagraph(subtitle, { align: 'center', bold: true, size: 28, font: 'B Titr', after: 0 }),
-    docxParagraph('وزارت آموزش و پرورش', { align: 'center', bold: true, size: 26, font: 'B Titr', after: 0 }),
-    docxParagraph(`ویرایش: ${request.documentation?.version || '1.0.0'}`, { align: 'center', size: 24, font: 'B Nazanin' }),
-    docxParagraph(`تاریخ تولید: ${new Date(markdownResult.generatedAt).toLocaleDateString('fa-IR')}`, { align: 'center', size: 22 }),
+    docxParagraph(`«${view.title}»`, { align: 'center', bold: true, size: 32, font: 'B Titr', after: 0 }),
+    docxParagraph(view.organizationName, { align: 'center', bold: true, size: 27, font: 'B Titr', after: 0 }),
+    docxParagraph(view.departmentName, { align: 'center', bold: true, size: 24, font: 'B Titr', after: 0 }),
+    docxParagraph(`ویرایش سند: ${view.documentRevision}`, { align: 'center', size: 24, font: 'B Nazanin' }),
+    docxParagraph(`تاریخ سند: ${view.documentDate}`, { align: 'center', size: 22 }),
+    docxParagraph(`تاریخ تولید: ${view.generationDate}`, { align: 'center', size: 22 }),
     docxPageBreak(),
-    docxParagraph('فهرست مطالب', { style: 'TOCHeading', bold: true, size: 28, font: 'B Titr' }),
-    docxParagraph('1. مقدمه'),
-    docxParagraph('2. مشخصات سرویس'),
-    docxParagraph('3. پارامترها و سرایندها'),
-    docxParagraph('4. Body ورودی'),
-    docxParagraph('5. خروجی‌ها'),
-    docxParagraph('6. نمونه فراخوانی سرویس'),
-    docxParagraph('7. نمونه تست سرویس'),
+    docxTableOfContents(),
     docxPageBreak(),
-    docxParagraph('مقدمه', { style: 'Heading1', bold: true, size: 30, font: 'B Titr' }),
-    docxParagraph(request.documentation?.description || request.description || 'این سند به صورت خودکار از Online API Console تولید شده است. اطلاعات حساس مانند token، password و cookieهای session در سند نهایی نمایش داده نمی‌شوند.'),
-    docxParagraph('مشخصات سرویس', { style: 'Heading1', bold: true, size: 30, font: 'B Titr' }),
-    docxTable(requestDocxRows(request)),
-    docxParagraph('پارامترها و سرایندها', { style: 'Heading2', bold: true, size: 26, font: 'B Titr' }),
-    docxTable(inputRowsForDocx(request)),
-    docxParagraph('Body ورودی', { style: 'Heading2', bold: true, size: 24, font: 'B Titr' }),
-    docxParagraph(request.bodyType !== 'none' ? `Content-Type: ${requestBodyContentType(requestBodyFromDefinition(request)) || 'text/plain'}` : 'Body ورودی ثبت نشده است.'),
-    docxCodeBlock(request.bodyTemplate ? sanitizeText(prettyJsonText(request.bodyTemplate)) : 'Body ورودی ثبت نشده است.'),
-    docxParagraph('خروجی‌ها', { style: 'Heading2', bold: true, size: 26, font: 'B Titr' }),
-    docxTable(outputRowsForDocx(latestExecution, latestManual)),
-    docxParagraph('نمونه Response', { style: 'Heading2', bold: true, size: 24, font: 'B Titr' }),
-    docxCodeBlock(responseExample ? sanitizeText(prettyJsonText(responseExample)) : 'Response example ثبت نشده است.'),
-    docxParagraph('نمونه فراخوانی سرویس', { style: 'Heading2', bold: true, size: 26, font: 'B Titr' }),
-    docxCodeBlock(sanitizeText(curl)),
-    docxParagraph('نمونه تست سرویس', { style: 'Heading2', bold: true, size: 26, font: 'B Titr' }),
-    docxTable([
-      ['نوع تست', 'تنظیمات'],
-      ...((request.assertions || []).filter(assertion => assertion.enabled).map(assertion => [assertion.assertionType, sanitizeText(JSON.stringify(assertion.configuration))])),
-      ...((request.scripts?.postResponseEnabled && request.scripts.postResponse) ? [['Post-response Script', sanitizeText(request.scripts.postResponse)]] : []),
-    ].length > 1 ? [
-      ['نوع تست', 'تنظیمات'],
-      ...((request.assertions || []).filter(assertion => assertion.enabled).map(assertion => [assertion.assertionType, sanitizeText(JSON.stringify(assertion.configuration))])),
-      ...((request.scripts?.postResponseEnabled && request.scripts.postResponse) ? [['Post-response Script', sanitizeText(request.scripts.postResponse)]] : []),
-    ] : [['نوع تست', 'تنظیمات'], ['-', 'تستی ثبت نشده است.']]),
-    docxParagraph('ملاحظات امنیتی', { style: 'Heading1', bold: true, size: 30, font: 'B Titr' }),
-    docxParagraph('در این سند مقدار واقعی Authorization، Cookie، token، password، client-secret و api-key درج نمی‌شود. اجرای Production Core Command تابع RBAC و confirmation سامانه است.'),
+    docxAuthenticationSection(view.authentication),
+    docxHeading(`مقدمه دسترسی به استعلام جزئیات وب سرویس ${view.title}`, 1),
+    docxParagraph(`Base url: ${view.baseUrl || '—'}`, { ltr: true, font: 'Arial' }),
+    docxParagraph(view.serviceIntroduction),
+    docxHeading(`جزئیات وب سرویس ${view.title}`, 1),
+    docxHeading('ورودی ها', 2),
+    docxHeading('ادرس و متد درخواست', 3),
+    docxTable(requestDocxRows(view), { widths: [700, 1800, 6500] }),
+    docxHeading('پارامتر های سرایند', 3),
+    docxTable(headerRowsForDocx(view.headers), { widths: [650, 1800, 2500, 4000] }),
+    docxHeading('پارامتر های ورودی', 3),
+    docxTable(inputRowsForDocx(view.inputs), { widths: [600, 1700, 1300, 1100, 3800] }),
+    view.rawRequestExample && view.requestBodyType !== 'json'
+      ? `${docxHeading('نمونه بدنه درخواست', 3)}${docxCodeBlock(view.rawRequestExample)}`
+      : '',
+    docxHeading('خروجی ها', 2),
+    docxOutputParameterSections(view.outputs),
+    docxHeading(`نمونه فراخوانی دریافت جزئیات وب سرویس ${view.title}`, 2),
+    docxCodeBlock(view.curlExample || 'ثبت نشده است'),
+    docxHeading(`نمونه تست موفق دریافت جزئیات وب سرویس ${view.title}`, 2),
+    docxCodeBlock(view.responseExample || 'ثبت نشده است'),
+    docxHeading(`پیوست – مرجع کدهای پاسخ و خطا وب سرویس ${view.title}`, 1),
+    docxHeading(`کدهای پاسخ HTTPS وب سرویس ${view.title}`, 2),
+    docxTable(responseCodeRowsForDocx(view.responseCodes), { widths: [1000, 2500, 5000] }),
   ].join('');
 
   return `${start}${content}${sectPr}</w:body></w:document>`;
@@ -3085,7 +3817,17 @@ function buildDocxFromTemplate(request, markdownResult, executions, manualExampl
   if (!documentEntry) throw new ApiConsoleError('INTERNAL_EXECUTION_ERROR', 'DOCX template does not contain word/document.xml.');
   const templateXml = inflateZipEntry(documentEntry).toString('utf8');
   const documentXml = buildDocxDocumentXml(templateXml, request, markdownResult, executions, manualExamples);
-  const updatedEntries = entries.map(entry => entry.name === 'word/document.xml' ? makeZipEntry(entry.name, documentXml, entry) : entry);
+  const updatedEntries = entries.map(entry => {
+    if (entry.name === 'word/document.xml') return makeZipEntry(entry.name, documentXml, entry);
+    if (entry.name === 'word/settings.xml') {
+      const settingsXml = inflateZipEntry(entry).toString('utf8');
+      const nextSettings = /<w:updateFields\b/.test(settingsXml)
+        ? settingsXml.replace(/<w:updateFields\b[^>]*\/>/, '<w:updateFields w:val="true"/>')
+        : settingsXml.replace('</w:settings>', '<w:updateFields w:val="true"/></w:settings>');
+      return makeZipEntry(entry.name, nextSettings, entry);
+    }
+    return entry;
+  });
   return writeZip(updatedEntries);
 }
 
@@ -3276,15 +4018,16 @@ function getPathParts(pathname) {
 }
 
 function upsertRequestWithPatch(existing, data, context) {
-  const next = protectRequestSecrets({
+  const merged = {
     ...existing,
     ...data,
     id: existing.id,
     version: (existing.version || 1) + 1,
     updatedBy: context.userId,
     updatedAt: nowIso(),
-  });
-  return next;
+  };
+  merged.documentation = refreshDocumentationMetadata(merged);
+  return protectRequestSecrets(merged);
 }
 
 function consumerCandidates(context) {
@@ -3374,6 +4117,10 @@ async function routeRequest(req, parsedUrl, body) {
   }
 
   if (first === 'policy' && req.method === 'GET') return API_CONSOLE_POLICY;
+
+  if (first === 'documentation' && second === 'authentication-profiles' && req.method === 'GET') {
+    return safeClone(AUTHENTICATION_DOCUMENTATION_PROFILES);
+  }
 
   if (first === 'environments' && req.method === 'GET') return safeClone(store.environments);
   if (first === 'runners' && req.method === 'GET') return safeClone(store.runners);
@@ -3763,6 +4510,7 @@ async function routeRequest(req, parsedUrl, body) {
         ownerId: context.userId,
         status: 'ACTIVE',
         variables: data.variables || [],
+        authenticationDocumentationProfileId: data.authenticationDocumentationProfileId,
         createdAt: nowIso(),
         updatedAt: nowIso(),
       };
@@ -3847,6 +4595,9 @@ async function routeRequest(req, parsedUrl, body) {
         userName: context.user?.fullName || context.userName,
         originalImportedCurl: data.originalImportedCurl,
         importedCurlId: data.importedCurlId,
+        authenticationDocumentationProfileId: data.authenticationDocumentationProfileId ||
+          collection.authenticationDocumentationProfileId ||
+          findEnvironment(data.environmentId)?.authenticationDocumentationProfileId,
       });
       store.requests.unshift(request);
       store.importedCurls = store.importedCurls.map(record => record.id === data.importedCurlId ? { ...record, requestId: request.id } : record);
@@ -4102,6 +4853,17 @@ async function routeRequest(req, parsedUrl, body) {
         return safeClone(example);
       }
     }
+    if (third === 'documentation' && fourth === 'refresh' && req.method === 'POST') {
+      const context = requireContext(req, body);
+      if (!roleAllowed(context.role, API_CONSOLE_POLICY.canEdit)) throw new ApiConsoleError('AUTHENTICATION_ERROR', 'User is not authorized to edit API documentation.', 403);
+      request.documentation = refreshDocumentationMetadata(request, store.executions, store.manualExamples);
+      request.updatedBy = context.userId;
+      request.updatedAt = nowIso();
+      request.version = (request.version || 1) + 1;
+      audit('API_DOCUMENTATION_METADATA_REFRESHED', context, { requestId: second });
+      saveStore(store);
+      return safeClone(request);
+    }
     if (third === 'documentation' && fourth === 'preview' && req.method === 'POST') {
       const context = requireContext(req, body);
       if (!roleAllowed(context.role, API_CONSOLE_POLICY.canGenerateDocumentation)) throw new ApiConsoleError('AUTHENTICATION_ERROR', 'User is not authorized to generate documentation.', 403);
@@ -4146,6 +4908,59 @@ async function routeRequest(req, parsedUrl, body) {
   }
 
   throw new ApiConsoleError('INVALID_URL', 'API Console endpoint not found.', 404);
+}
+
+function createDocumentationAcceptanceFixture() {
+  const normalized = createBlankNormalizedRequest();
+  normalized.method = 'POST';
+  normalized.url = 'https://esb.medu.ir/TeacherUniversityFunds/GetTeacherUniversityFundData';
+  normalized.headers = [
+    createHeader('Content-Type', 'application/json', 0, 'USER'),
+    createHeader('token', 'gBLon4YS-real-secret-token-jpMQ==', 1, 'USER'),
+    createHeader('Content-Length', '1234', 2, 'IMPORTED_CURL'),
+  ];
+  normalized.body = {
+    type: 'json',
+    value: { nationalCode: '3651113262' },
+    raw: '{"nationalCode":"3651113262"}',
+    contentType: 'application/json',
+  };
+  const request = definitionFromNormalized(normalized, {
+    applicationId: 'app',
+    collectionId: 'col',
+    environmentId: 'env-test',
+    name: 'وب سرویس استعلام کسورات دانشجو معلم',
+    description: 'این سرویس جزئیات کسورات دانشجو معلم را استعلام می‌کند.',
+    userId: 'u',
+  });
+  const nationalCode = request.documentation.inputParameters.find(row => row.name === 'nationalCode');
+  nationalCode.required = true;
+  nationalCode.description = 'کدملی فرد مورد نظر';
+  const manualExamples = [{
+    id: 'manual-doc',
+    requestId: request.id,
+    statusCode: 200,
+    reviewStatus: 'APPROVED',
+    body: JSON.stringify({
+      EmployeeCode: '82123484',
+      WorkPlaceCode: 4911,
+      WorkPlaceTitle: 'زرآباد',
+      NetPayablePrice: '304156763',
+      DeductionsSumPrice: '13745265',
+    }),
+  }];
+  request.documentation = refreshDocumentationMetadata(request, [], manualExamples);
+  const descriptions = {
+    WorkPlaceCode: ['Integer', 'کد منطقه'],
+    EmployeeCode: ['Integer', 'کد پرسنلی'],
+    WorkPlaceTitle: ['string', 'نام منطقه'],
+    NetPayablePrice: ['Integer', 'مجموع استعلامی'],
+    DeductionsSumPrice: ['Integer', 'مجموع کسورات'],
+  };
+  request.documentation.outputParameters = request.documentation.outputParameters.map(row => descriptions[row.name]
+    ? { ...row, dataType: descriptions[row.name][0], description: descriptions[row.name][1] }
+    : row);
+  return { request, manualExamples };
 }
 
 function runSelfCheck() {
@@ -4196,9 +5011,147 @@ function runSelfCheck() {
       normalized.headers = [];
       const request = definitionFromNormalized(normalized, { applicationId: 'app', collectionId: 'col', environmentId: 'env-development', name: 'doc', userId: 'u' });
       const markdown = generateDocumentationMarkdown(request, [], [], 'self-check').markdown;
-      return markdown.includes('content-type (Body Content-Type): application/json') &&
-        markdown.includes('## Body ورودی') &&
-        markdown.includes('Content-Type: application/json');
+      return markdown.includes('پارامتر های سرایند') &&
+        markdown.toLowerCase().includes('content-type') &&
+        markdown.includes('application/json');
+    } },
+    { name: 'Documentation JSON field extraction and type inference', run: () => {
+      const rows = inferStructuredDocumentationParameters({ student: { nationalCode: '1234567890', active: true }, items: [{ amount: 12.5 }], count: 2, empty: null }, 'BODY');
+      const byName = Object.fromEntries(rows.map(row => [row.name, row]));
+      return byName.student.dataType === 'object' &&
+        byName['student.nationalCode'].dataType === 'string' &&
+        byName['student.active'].dataType === 'boolean' &&
+        byName['items[]'].dataType === 'array' &&
+        byName['items[].amount'].dataType === 'Number' &&
+        byName.count.dataType === 'Integer' &&
+        byName.empty.dataType === 'unknown' &&
+        rows.every(row => row.required === null);
+    } },
+    { name: 'Documentation refresh preserves manual descriptions and required status', run: () => {
+      const normalized = createBlankNormalizedRequest();
+      normalized.method = 'POST';
+      normalized.body = { type: 'json', value: { student: { id: 1 } }, raw: '{"student":{"id":1}}', contentType: 'application/json' };
+      const request = definitionFromNormalized(normalized, { applicationId: 'app', collectionId: 'col', environmentId: 'env-test', name: 'refresh', userId: 'u' });
+      request.documentation.inputParameters = request.documentation.inputParameters.map(row => row.name === 'student.id'
+        ? { ...row, required: true, description: 'شناسه دانش‌آموز' }
+        : row);
+      request.bodyTemplate = '{"student":{"id":1,"name":"علی"}}';
+      const refreshed = refreshDocumentationMetadata(request);
+      const id = refreshed.inputParameters.find(row => row.name === 'student.id');
+      return id.required === true && id.description === 'شناسه دانش‌آموز' && refreshed.inputParameters.some(row => row.name === 'student.name');
+    } },
+    { name: 'Documentation header filtering keeps business and masked authentication headers', run: () => {
+      const normalized = createBlankNormalizedRequest();
+      normalized.headers = [
+        createHeader('Host', 'example.com', 0), createHeader('Connection', 'keep-alive', 1),
+        createHeader('Content-Length', '20', 2), createHeader('User-Agent', 'browser', 3),
+        createHeader('token', 'actual-token-value', 4), createHeader('x-business-unit', 'education', 5),
+      ];
+      const request = definitionFromNormalized(normalized, { applicationId: 'app', collectionId: 'col', environmentId: 'env-test', name: 'headers', userId: 'u' });
+      const rows = inferHeaderDocumentationParameters(request);
+      return rows.some(row => row.name === 'token' && row.exampleValue.includes('*')) &&
+        rows.some(row => row.name === 'x-business-unit') &&
+        !rows.some(row => ['Host', 'Connection', 'Content-Length', 'User-Agent'].includes(row.name));
+    } },
+    { name: 'Documentation cURL masking removes Content-Length and secrets', run: () => {
+      const safe = sanitizeDocumentationCurl("curl --header 'Content-Length: 99' --header 'token: actual-secret-token' --data '{\"password\":\"real-password\"}' https://example.com");
+      return !/content-length/i.test(safe) && !safe.includes('actual-secret-token') && !safe.includes('real-password') && safe.includes('****');
+    } },
+    { name: 'Documentation response schema is not execution metadata', run: () => {
+      const { request, manualExamples } = createDocumentationAcceptanceFixture();
+      const view = buildDocumentationViewModel(request, [], manualExamples);
+      const names = view.outputs.map(row => row.name);
+      return names.includes('WorkPlaceCode') && names.includes('EmployeeCode') &&
+        !names.some(name => ['Duration', 'Response Size', 'Evidence Type', 'HTTP Status'].includes(name));
+    } },
+    { name: 'Documentation groups nested output arrays and renders allowed values', run: () => {
+      const request = definitionFromNormalized(createBlankNormalizedRequest(), {
+        applicationId: 'app', collectionId: 'col', environmentId: 'env-test', name: 'سپرده کارکنان', userId: 'u',
+      });
+      const responseBody = {
+        data: [{
+          personnel_code: '12345', area_code: '1001', month: '04', year: '1405', sep_jari: '100000', percent: '3', isnew: '1',
+          deposit_status: '0', sanavat: '12', total_count: 25, page_count: 3, data: [],
+        }],
+        total_count: 25,
+        page_count: 3,
+      };
+      const manualExamples = [{
+        requestId: request.id, statusCode: 200, reviewStatus: 'APPROVED', enteredAt: nowIso(), body: JSON.stringify(responseBody),
+      }];
+      request.documentation = refreshDocumentationMetadata(request, [], manualExamples);
+      const descriptions = {
+        'data[]': ['string', 'لیستی از اطلاعات درخواست شده'],
+        total_count: ['integer', 'مجموع ردیف ها'],
+        page_count: ['integer', 'مجموع صفحات'],
+        'data[].personnel_code': ['string', 'کد پرسنلی'],
+        'data[].area_code': ['string', 'کد منطقه'],
+        'data[].month': ['string', 'ماه'],
+        'data[].year': ['string', 'سال'],
+        'data[].sep_jari': ['string', 'حق عضویت (مبلغی که ماهانه از حقوق کسر می‌شود)'],
+        'data[].percent': ['string', 'درصد حق عضویت (۲، ۳، ۴، ۵ درصد)'],
+        'data[].isnew': ['string', 'شامل (۰: قدیمی، ۱: جدید)'],
+        'data[].deposit_status': ['string', 'وضعیت سپرده (براساس جدول کدها)'],
+        'data[].sanavat': ['string', 'سنوات'],
+        'data[].total_count': ['integer', 'مجموع ردیف ها'],
+        'data[].page_count': ['integer', 'مجموع صفحات'],
+        'data[].data[]': ['list', 'لیستی از اطلاعات درخواست شده'],
+      };
+      request.documentation.outputParameters = request.documentation.outputParameters.map(row => descriptions[row.name]
+        ? { ...row, dataType: descriptions[row.name][0], description: descriptions[row.name][1] }
+        : row);
+      const depositStatus = request.documentation.outputParameters.find(row => row.name === 'data[].deposit_status');
+      const result = generateDocumentationMarkdown(request, [], manualExamples, 'self-check');
+      const buffer = buildDocxFromTemplate(request, result, [], manualExamples);
+      const documentXml = inflateZipEntry(readZipEntries(buffer).find(entry => entry.name === 'word/document.xml')).toString('utf8');
+      return request.documentation.outputParameters.some(row => row.name === 'data[]' && !row.parentPath) &&
+        request.documentation.outputParameters.some(row => row.name === 'data[].personnel_code' && row.parentPath === 'data[]') &&
+        depositStatus.allowedValues.length === 12 && depositStatus.allowedValues[11].value === '11' &&
+        result.markdown.includes('### پارامترهای خروجی data:') &&
+        result.markdown.includes('| 1 | personnel_code | string | کد پرسنلی |') &&
+        result.markdown.includes('#### مقادیر مجاز برای فیلد deposit_status:') &&
+        result.markdown.includes('| 0 | عادی (بدون تغییر) |') && result.markdown.includes('| 11 | انصراف در منطقه |') &&
+        documentXml.includes('پارامترهای خروجی data:') && documentXml.includes('مقادیر مجاز برای فیلد deposit_status:') &&
+        !documentXml.includes('data[].personnel_code');
+    } },
+    { name: 'Documentation metadata remains backward compatible', run: () => {
+      const legacy = {
+        id: 'legacy', name: 'Legacy API', description: 'Legacy description', method: 'GET', urlTemplate: 'https://example.com/legacy',
+        headers: [], queryParameters: [], cookies: [], bodyType: 'none', bodyTemplate: '', authentication: { type: 'none' },
+        tls: { verifyCertificate: true }, executionMode: 'RECOMMENDED', classification: { type: 'GENERIC_HTTP' },
+        applicationId: 'app', collectionId: 'col', environmentId: 'env-test', version: 1, documentation: { title: 'Legacy API', description: 'Legacy description' },
+      };
+      const normalized = ensureRequestApiFields(legacy);
+      return normalized.documentation.serviceIntroduction === 'Legacy description' &&
+        Array.isArray(normalized.documentation.responseCodes) && normalized.documentation.responseCodes.length === 28 &&
+        Array.isArray(normalized.documentation.inputParameters);
+    } },
+    { name: 'Persian operational DOCX structure, TOC, tables, appendix and redaction', run: () => {
+      const { request, manualExamples } = createDocumentationAcceptanceFixture();
+      const result = generateDocumentationMarkdown(request, [], manualExamples, 'self-check');
+      const buffer = buildDocxFromTemplate(request, result, [], manualExamples);
+      const entries = readZipEntries(buffer);
+      const documentEntry = entries.find(entry => entry.name === 'word/document.xml');
+      const settingsEntry = entries.find(entry => entry.name === 'word/settings.xml');
+      const xml = inflateZipEntry(documentEntry).toString('utf8');
+      const settings = inflateZipEntry(settingsEntry).toString('utf8');
+      const entryNames = new Set(entries.map(entry => entry.name));
+      const headings = [
+        'مستندات بهره برداری', 'مقدمه سرویس احراز هویت', 'سرویس احراز هویت',
+        'ورودی ها', 'ادرس و متد درخواست', 'پارامتر های سرایند', 'پارامتر های ورودی',
+        'خروجی ها', 'پارامترهای خروجی', 'نمونه فراخوانی دریافت جزئیات وب سرویس',
+        'نمونه تست موفق دریافت جزئیات وب سرویس', 'پیوست – مرجع کدهای پاسخ و خطا', 'کدهای پاسخ HTTPS وب سرویس',
+      ];
+      return buffer.slice(0, 2).toString('utf8') === 'PK' &&
+        ['[Content_Types].xml', 'word/styles.xml', 'word/header1.xml', 'word/footer1.xml', 'word/_rels/document.xml.rels', 'word/media/image1.jpeg'].every(name => entryNames.has(name)) &&
+        xml.includes('r:embed="rId8"') &&
+        headings.every(heading => xml.includes(heading)) &&
+        ['ردیف', 'نام پارامتر', 'نوع یا مقدار نمونه', 'نوع', 'الزامی', 'توضیحات'].every(column => xml.includes(column)) &&
+        xml.includes('TOC \\o') && settings.includes('<w:updateFields w:val="true"/>') &&
+        !xml.includes('gBLon4YS-real-secret-token-jpMQ==') && !xml.includes('3651113262') && !xml.includes('82123484') &&
+        result.markdown.includes('کدهای پاسخ HTTPS') && result.markdown.includes('3651***262') &&
+        result.markdown.includes('gBLon4YS...****...jpMQ==') && result.markdown.includes('82****84') &&
+        result.markdown.includes('3041**763') && result.markdown.includes('137**265');
     } },
     { name: 'Postman collection export masks secrets', run: () => {
       const normalized = createBlankNormalizedRequest();
@@ -4297,6 +5250,19 @@ module.exports = {
   exportRequestAsCurl,
   createBlankNormalizedRequest,
   definitionFromNormalized,
+  inferDocumentationDataType,
+  inferStructuredDocumentationParameters,
+  inferRequestDocumentationParameters,
+  inferHeaderDocumentationParameters,
+  refreshDocumentationMetadata,
+  buildDocumentationViewModel,
+  generateDocumentationMarkdown,
+  buildDocxDocumentXml,
+  buildDocxFromTemplate,
+  sanitizeDocumentationCurl,
+  sanitizeDocumentationResponseExample,
+  DEFAULT_RESPONSE_CODE_CATALOG,
+  AUTHENTICATION_DOCUMENTATION_PROFILES,
   runSelfCheck,
   API_CONSOLE_POLICY,
 };

@@ -19,6 +19,7 @@ import type {
   ApiUsageReport,
   ApiVersionConsumer,
   ApiDocumentationResult,
+  ApiAuthenticationDocumentationProfile,
   NormalizedApiRequest,
 } from '../types/apiConsole';
 
@@ -292,6 +293,10 @@ export const apiConsoleApi = {
     return requestJson('/runners');
   },
 
+  getAuthenticationDocumentationProfiles(): Promise<ApiAuthenticationDocumentationProfile[]> {
+    return requestJson('/documentation/authentication-profiles');
+  },
+
   getCollections(applicationId: ApplicationScopeFilter, context?: ActiveContext): Promise<ApiCollection[]> {
     return requestJson(withQuery('/collections', { applicationId: applicationScopeParam(applicationId) }), { context });
   },
@@ -326,6 +331,7 @@ export const apiConsoleApi = {
       normalizedRequest: NormalizedApiRequest;
       originalImportedCurl?: string;
       importedCurlId?: string;
+      authenticationDocumentationProfileId?: string;
     },
     context: ActiveContext
   ): Promise<ApiRequestDefinition> {
@@ -607,6 +613,14 @@ export const apiConsoleApi = {
 
   generateDocumentationPreview(requestId: string, context: ActiveContext): Promise<ApiDocumentationResult> {
     return requestJson(`/requests/${encodeURIComponent(requestId)}/documentation/preview`, {
+      method: 'POST',
+      context,
+      body: {},
+    });
+  },
+
+  refreshDocumentationMetadata(requestId: string, context: ActiveContext): Promise<ApiRequestDefinition> {
+    return requestJson(`/requests/${encodeURIComponent(requestId)}/documentation/refresh`, {
       method: 'POST',
       context,
       body: {},
