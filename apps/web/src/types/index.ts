@@ -158,6 +158,94 @@ export const TEST_REQUEST_STATUS_LABELS: Record<TestRequestStatus, string> = {
     COMPLETED: 'تکمیل شده',
 };
 export type VersionHistoryDecision = 'APPROVED' | 'CONDITIONAL' | 'REJECTED' | 'BLOCKED';
+export type SecurityTestRequestType = 'INITIAL' | 'NEW_VERSION' | 'RETEST';
+export type SecurityTestEnvironment = 'DEVELOPMENT' | 'TEST' | 'PRODUCTION';
+export type YesNo = 'YES' | 'NO';
+export type ApprovalDecision = 'APPROVED' | 'REJECTED';
+
+export interface SecurityDevelopmentAuthentication {
+    url: string;
+    loginIdentifier: string;
+    testAccounts: string;
+    accountRoles: string;
+    accountExpiresAt?: string | undefined;
+    passwordDeliveryMethod: 'VAULT' | 'SECURE_CHANNEL' | 'ONE_TIME_LINK' | '';
+    accountResetAvailable: YesNo | '';
+    accountResetContact?: string | undefined;
+}
+
+export interface SecurityTestAuthentication {
+    url: string;
+    ssoProvider: string;
+    protocol: 'OPENID_CONNECT' | 'OAUTH_2' | 'SAML_2' | 'OTHER' | '';
+    ssoTestAccounts: string;
+    accountRoles: string;
+    tenant?: string | undefined;
+    mfaStatus: 'ENABLED' | 'DISABLED' | 'CONDITIONAL' | '';
+    callbackDomain?: string | undefined;
+    redirectDomain?: string | undefined;
+    sessionDurationMinutes: string;
+    logoutBehavior: 'APPLICATION_ONLY' | 'SSO_AND_APPLICATION' | '';
+    accountExpiresAt: string;
+    knownSsoLimitations?: string | undefined;
+}
+
+export interface SecurityProductionAuthentication {
+    url: string;
+    controlledTestAccount: string;
+    testAccountOwner: string;
+    accountRole: string;
+    businessOwnerPermission: ApprovalDecision | '';
+    technicalOwnerPermission: ApprovalDecision | '';
+    productionOwnerPermission: ApprovalDecision | '';
+    securityTeamPermission: ApprovalDecision | '';
+    authorizedTestDateTime: string;
+    emergencyContact: string;
+    monitoringConfirmed: YesNo | '';
+    backupOrRollbackConfirmed: YesNo | '';
+    automatedScanRestriction: 'ALLOWED' | 'PROHIBITED' | 'LIMITED' | '';
+    dataChangeRestriction: string;
+    dataDeletionRestriction: string;
+    stopCondition: string;
+    /** @deprecated اطلاعات فنی از این پس در سطح درخواست تست امنیت ذخیره می‌شود. */
+    systemType?: string | undefined;
+    frontend?: string | undefined;
+    gateway?: string | undefined;
+    backend?: string | undefined;
+    database?: string | undefined;
+    webServer?: string | undefined;
+    communicationModel?: string | undefined;
+    testType?: 'BLACK_BOX' | 'GRAY_BOX' | '' | undefined;
+    primaryTestMethod?: string | undefined;
+}
+
+export interface SecurityTestConfiguration {
+    requestType: SecurityTestRequestType | '';
+    systemType: string;
+    frontend: string;
+    gateway: string;
+    backend: string;
+    database: string;
+    webServer: string;
+    communicationModel: string;
+    securityTestType: 'BLACK_BOX' | 'GRAY_BOX' | '';
+    primaryTestMethod: string;
+    environment: SecurityTestEnvironment | '';
+    primaryUrl: string;
+    secondaryUrls?: string | undefined;
+    accessStatus: 'INTERNET' | 'ORGANIZATION_NETWORK' | 'VPN' | 'IP_WHITELIST' | '';
+    vpnRequired: YesNo | '';
+    ipWhitelistRequired: YesNo | '';
+    allowedTestHours: string;
+    accessStartAt: string;
+    accessEndAt: string;
+    environmentStability: 'STABLE' | 'UNSTABLE' | 'COORDINATION_REQUIRED' | '';
+    environmentSupportContact: string;
+    emergencyStopContact: string;
+    development: SecurityDevelopmentAuthentication;
+    test: SecurityTestAuthentication;
+    production: SecurityProductionAuthentication;
+}
 // Test Request Priority
 export type Priority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 export const PRIORITY_LABELS: Record<Priority, string> = {
@@ -196,6 +284,10 @@ export interface TestRequest {
     versionHistoryId?: string | undefined;
     qaQualityStatus?: QAQualityStatus | undefined;
     qaQualityNotes?: string | undefined;
+    securityTestRequired?: boolean | undefined;
+    securityTestConfiguration?: SecurityTestConfiguration | undefined;
+    securityRequestedById?: string | undefined;
+    securityRequestedAt?: string | undefined;
     releaseDecision?: VersionHistoryDecision | undefined;
     releaseDecisionReason?: string | undefined;
     releaseDecisionById?: string | undefined;
@@ -411,8 +503,9 @@ export interface RetestTask {
     updatedAt: string;
 }
 // Bug Severity
-export type BugSeverity = 'CRITICAL' | 'MAJOR' | 'MINOR' | 'TRIVIAL';
+export type BugSeverity = 'BLOCKER' | 'CRITICAL' | 'MAJOR' | 'MINOR' | 'TRIVIAL';
 export const BUG_SEVERITY_LABELS: Record<BugSeverity, string> = {
+    BLOCKER: 'مسدودکننده',
     CRITICAL: 'بحرانی',
     MAJOR: 'اصلی',
     MINOR: 'جزئی',
@@ -748,10 +841,11 @@ export interface PlaywrightTestFile {
     updatedAt: string;
 }
 // Version History / Publish Decision Status
-export type VersionHistoryStatus = 'DRAFT' | 'QA_REVIEW' | 'PENDING_DECISION' | 'APPROVED' | 'CONDITIONAL' | 'REJECTED' | 'BLOCKED' | 'EMERGENCY' | 'PUBLISHED';
+export type VersionHistoryStatus = 'DRAFT' | 'QA_REVIEW' | 'SECURITY_REVIEW' | 'PENDING_DECISION' | 'APPROVED' | 'CONDITIONAL' | 'REJECTED' | 'BLOCKED' | 'EMERGENCY' | 'PUBLISHED';
 export const VERSION_HISTORY_STATUS_LABELS: Record<VersionHistoryStatus, string> = {
     DRAFT: 'پیش‌نویس',
     QA_REVIEW: 'بررسی QA',
+    SECURITY_REVIEW: 'در انتظار تست امنیت',
     PENDING_DECISION: 'در انتظار تصمیم',
     APPROVED: 'تایید شده',
     CONDITIONAL: 'تایید مشروط',
@@ -764,13 +858,14 @@ export const VERSION_HISTORY_STATUS_LABELS: Record<VersionHistoryStatus, string>
 export type ReleasePublishStatus = VersionHistoryStatus;
 export const RELEASE_PUBLISH_STATUS_LABELS = VERSION_HISTORY_STATUS_LABELS;
 // QA Quality Status
-export type QAQualityStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'READY' | 'NOT_READY' | 'CONDITIONAL';
+export type QAQualityStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'READY' | 'NOT_READY' | 'CONDITIONAL' | 'RETEST_REQUIRED';
 export const QA_QUALITY_STATUS_LABELS: Record<QAQualityStatus, string> = {
     NOT_STARTED: 'شروع نشده',
     IN_PROGRESS: 'در حال بررسی',
     READY: 'آماده',
     NOT_READY: 'آماده نیست',
     CONDITIONAL: 'مشروط',
+    RETEST_REQUIRED: 'احتیاج به اجرای مجدد',
 };
 // VersionHistory is the PRD publish entity. UI label: «تصمیم و ثبت انتشار».
 export interface VersionHistory {
@@ -790,6 +885,9 @@ export interface VersionHistory {
     qaReviewedById?: string | undefined;
     qaReviewedBy?: User | undefined;
     qaReviewedAt?: string | undefined;
+    qaRetestRequestedAt?: string | undefined;
+    qaRetestRequestedById?: string | undefined;
+    qaRetestBaselineRunCount?: number | undefined;
     decision?: VersionHistoryDecision | undefined;
     decisionReason?: string | undefined;
     decisionById?: string | undefined;
@@ -850,6 +948,57 @@ export interface VersionHistoryEvidence {
     bugs: Bug[];
     retestTasks: RetestTask[];
     runIssues: RunIssue[];
+}
+export type SecurityReviewStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+export type SecurityReviewItemResult = 'PASS' | 'FAIL' | 'PARTIAL' | 'NOT_TESTED' | 'N_A';
+export interface SecurityReviewDetailItem {
+    id: string;
+    title: string;
+    subtitle?: string | undefined;
+    status?: string | undefined;
+}
+export interface SecurityReviewRequestSummary {
+    applicationName: string;
+    requestTitle: string;
+    requirementAndTestCase: string;
+    version: string;
+    buildNumber: string;
+    requestType: SecurityTestRequestType;
+    developerRequestedAt: string;
+    technicalLeadName: string;
+    developerName: string;
+    qaSpecialistName: string;
+    qaLeadName: string;
+    qaApprovedAt: string;
+    testCases: SecurityReviewDetailItem[];
+    finalRuns: SecurityReviewDetailItem[];
+    openRuns: SecurityReviewDetailItem[];
+    passedRuns: SecurityReviewDetailItem[];
+    failedRuns: SecurityReviewDetailItem[];
+    blockedRuns: SecurityReviewDetailItem[];
+    skippedRuns: SecurityReviewDetailItem[];
+    openBlockerBugs: SecurityReviewDetailItem[];
+    openCriticalBugs: SecurityReviewDetailItem[];
+}
+export interface SecurityReview {
+    id: string;
+    testRequestId: string;
+    testRequestTitle: string;
+    applicationId: string;
+    status: SecurityReviewStatus;
+    configuration: SecurityTestConfiguration;
+    requestSummary: SecurityReviewRequestSummary;
+    items: Array<{
+        id: string;
+        title: string;
+        description: string;
+        result?: SecurityReviewItemResult | undefined;
+        notes?: string | undefined;
+    }>;
+    reviewedById?: string | undefined;
+    reviewedAt?: string | undefined;
+    createdAt: string;
+    updatedAt: string;
 }
 export type ReleaseSnapshot = VersionSnapshot;
 // Audit Action

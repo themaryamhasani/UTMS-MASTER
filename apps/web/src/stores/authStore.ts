@@ -14,7 +14,6 @@ import type {
   WorkflowCapability,
   WorkflowPolicy,
 } from '../types';
-import { applicationApi, ensureDataPersistenceReady, userApi } from '../services/api';
 import {
   canRolePerformWorkflowCapability,
   getWorkflowPolicy,
@@ -89,6 +88,7 @@ function buildAvailableContexts(
 }
 
 async function loadAvailableContexts(user: User): Promise<AvailableContext[]> {
+  const { applicationApi, ensureDataPersistenceReady, userApi } = await import('../services/api');
   await ensureDataPersistenceReady();
   const [applications, roleAssignments] = await Promise.all([
     applicationApi.getAll(),
@@ -194,6 +194,7 @@ export const useAuthStore = create<AuthState>()(
       availableContexts: [],
 
       login: async (phoneNumber: string, password: string) => {
+        const { userApi } = await import('../services/api');
         const user = await userApi.authenticate(phoneNumber, password);
         if (!user) return false;
 

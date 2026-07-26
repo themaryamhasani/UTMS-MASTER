@@ -42,7 +42,7 @@ The initial schema covers the UTMS production domains:
 - Identity, application scope, user credentials, sessions and role assignments.
 - Workflow policies, integration adapter settings and Playwright runner settings.
 - Test requests, requirements, flows, test cases, test runs, bugs, retest tasks, run issues and checklists.
-- Per-test-case security reviews and checklist templates.
+- Per-test-request security reviews created only when QA explicitly requires a security test, plus checklist templates.
 - Playwright runs, managed/discovered test files, hidden discovery paths and artifacts through attachments.
 - VersionHistory release decisions, linked requests, revisions and immutable snapshots.
 - Audit logs, comments, notifications, notification outbox, command traces and idempotency records.

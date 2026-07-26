@@ -98,6 +98,7 @@ const READ_OPERATION_POLICIES = new Set([
   'workflowPolicyApi.getForApplication',
   'applicationApi.getAll',
   'applicationApi.getById',
+  'securityChecklistApi.getAllForApp',
   'securityChecklistApi.getById',
   'securityChecklistApi.getTemplate',
   'reportsApi.getSystemOverview',
@@ -361,9 +362,11 @@ export function createDomainRpcProxy<TService extends ServiceObject>(
           return result;
         } catch (error) {
           if (mustUseBackend || DOMAIN_API_MODE === 'strict') throw error;
-          if (isTransportError(error) || (error as { backendUnavailable?: boolean }).backendUnavailable) {
-            openFallbackCircuit();
-          }
+          const backendUnavailable =
+            isTransportError(error) ||
+            Boolean((error as { backendUnavailable?: boolean }).backendUnavailable);
+          if (!backendUnavailable) throw error;
+          openFallbackCircuit();
           const result = await localMethod.apply(target, args);
           clearReadCacheAfterMutation(service, property);
           return result;

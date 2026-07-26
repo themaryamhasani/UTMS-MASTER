@@ -32,6 +32,7 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card, StatCard } from '../components/ui/Card';
 import { Input, Select, Textarea } from '../components/ui/Input';
+import { JalaliDateField } from '../components/ui/JalaliDateField';
 import { ApplicationSelect } from '../components/ui/ApplicationSelect';
 import { LoadingState, MinimalLoader } from '../components/ui/Loading';
 import { Modal } from '../components/ui/Modal';
@@ -5026,7 +5027,12 @@ const DocumentationMetadataEditor = ({ metadata, onChange, onRefresh, refreshing
         <Input label="ویرایش سند" value={metadata.documentRevision || metadata.version || ''} disabled={disabled} dir="ltr" className="text-left" onChange={(event) => patchMetadata({ documentRevision: event.target.value, version: event.target.value })} />
         <Input label="سازمان" value={metadata.organizationName || ''} disabled={disabled} onChange={(event) => patchMetadata({ organizationName: event.target.value })} />
         <Input label="واحد سازمانی" value={metadata.departmentName || ''} disabled={disabled} onChange={(event) => patchMetadata({ departmentName: event.target.value })} />
-        <Input label="تاریخ سند" type="date" value={metadata.documentDate || ''} disabled={disabled} dir="ltr" className="text-left" onChange={(event) => patchMetadata({ documentDate: event.target.value })} />
+        <JalaliDateField
+          label="تاریخ سند"
+          value={metadata.documentDate || ''}
+          disabled={disabled}
+          onChange={(documentDate) => patchMetadata({ documentDate })}
+        />
         <Input label="Base URL" value={metadata.baseUrl || ''} disabled={disabled} dir="ltr" className="text-left font-mono md:col-span-1 xl:col-span-3" onChange={(event) => patchMetadata({ baseUrl: event.target.value.replace(/\s+/g, '') })} />
         <Textarea label="مقدمه سرویس" value={metadata.serviceIntroduction || metadata.description || ''} disabled={disabled} className="min-h-28 md:col-span-2 xl:col-span-4" onChange={(event) => patchMetadata({ serviceIntroduction: event.target.value })} />
       </div>

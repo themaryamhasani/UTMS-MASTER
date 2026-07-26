@@ -4,8 +4,24 @@ import type { FullConfig } from '@playwright/test';
 
 const roles = {
   SYSTEM_ADMIN: { id: 'user-admin', phone: '09120000000', name: 'مدیر سیستم', assignment: 'ura-admin', scope: 'APP' },
-  DEVELOPER: { id: 'user-1', phone: '09121234567', name: 'احمد محمدی', assignment: 'ura-1', scope: 'SYSTEMS' },
-  QA_LEAD: { id: 'user-2', phone: '09122345678', name: 'سارا احمدی', assignment: 'ura-2', scope: 'SYSTEMS' },
+  DEVELOPER: {
+    id: 'user-1',
+    phone: '09121234567',
+    name: 'احمد محمدی',
+    assignment: 'ura-1',
+    assignmentIds: ['ura-1', 'ura-10'],
+    applicationIds: ['app-1', 'app-2'],
+    scope: 'SYSTEMS',
+  },
+  QA_LEAD: {
+    id: 'user-2',
+    phone: '09122345678',
+    name: 'سارا احمدی',
+    assignment: 'ura-2',
+    assignmentIds: ['ura-2', 'ura-9'],
+    applicationIds: ['app-1', 'app-2'],
+    scope: 'SYSTEMS',
+  },
   QA_SPECIALIST: { id: 'user-3', phone: '09123456789', name: 'علی رضایی', assignment: 'ura-3', scope: 'SYSTEMS' },
   BA: { id: 'user-4', phone: '09124567890', name: 'مریم کریمی', assignment: 'ura-4', scope: 'SYSTEMS' },
   SECURITY_REVIEWER: { id: 'user-5', phone: '09125678901', name: 'حسین نوری', assignment: 'ura-5', scope: 'APP' },
@@ -33,7 +49,17 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
       { id: 'app-2', name: 'سامانه مدیریت منابع انسانی', code: 'HRM' },
       { id: 'app-3', name: 'پورتال کارمندان', code: 'EMPLOYEE_PORTAL' },
     ];
-    const contextApplications = identity.scope === 'APP' ? applicationRows : [applicationRows[0]!];
+    const identityApplicationIds = 'applicationIds' in identity
+      ? [...identity.applicationIds]
+      : identity.scope === 'APP'
+        ? applicationRows.map(application => application.id)
+        : ['app-1'];
+    const identityAssignmentIds = 'assignmentIds' in identity
+      ? [...identity.assignmentIds]
+      : [identity.assignment];
+    const contextApplications = applicationRows.filter(application =>
+      identityApplicationIds.includes(application.id)
+    );
     const app = contextApplications[0]!;
     const user = {
       id: identity.id,
@@ -46,13 +72,13 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
       updatedAt: '2024-01-01T00:00:00Z',
     };
     const activeContext = {
-      contextId: `context:${identity.id}:${role}:${identity.assignment}`,
+      contextId: `context:${identity.id}:${role}:${identityAssignmentIds.join('+')}`,
       userId: identity.id,
       user,
       assignmentId: identity.assignment,
-      assignmentIds: [identity.assignment],
+      assignmentIds: identityAssignmentIds,
       applicationId: identity.scope === 'APP' ? 'ALL' : 'app-1',
-      scopeApplicationIds: ['app-1', ...(identity.scope === 'APP' ? ['app-2', 'app-3'] : [])],
+      scopeApplicationIds: identityApplicationIds,
       application: app,
       applications: contextApplications,
       role,
@@ -63,12 +89,12 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     const availableContext = {
       contextId: activeContext.contextId,
       assignmentId: identity.assignment,
-      assignmentIds: [identity.assignment],
+      assignmentIds: identityAssignmentIds,
       application: app,
       applications: contextApplications,
       role,
       scope: identity.scope,
-      scopeApplicationIds: activeContext.scopeApplicationIds,
+      scopeApplicationIds: identityApplicationIds,
       automatedTestsEnabled: true,
     };
     const persisted = JSON.stringify({

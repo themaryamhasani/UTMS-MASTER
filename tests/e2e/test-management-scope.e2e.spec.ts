@@ -22,6 +22,49 @@ test.describe('test management application scope', () => {
     await expect(dialog.getByText('سامانه: سامانه بانکداری آنلاین', { exact: true })).toBeVisible();
   });
 
+  test('UTMS-TC-CREATE-022 @e2e shows a newly created test case in the table', async ({ page }, testInfo) => {
+    annotateTest(testInfo, metadata('UTMS-TC-CREATE-022', {
+      requirement: 'Created Test Case is immediately visible', feature: 'Test case design', level: 'e2e',
+      type: 'functional', technique: 'Data Flow Testing', role: 'QA_LEAD', scope: 'SYSTEMS', risk: 'critical',
+      data: 'A complete test case for req-1 and flow-1', expected: 'Success is reported only after the created row is visible in the first table page',
+    }));
+
+    const title = 'تست کیس نمایش فوری پس از ایجاد';
+    await page.goto('/test-cases');
+    await page.getByRole('combobox', { name: 'فیلتر وضعیت' }).selectOption('DRAFT');
+    await page.getByRole('button', { name: 'تست کیس جدید' }).click();
+    const dialog = page.getByRole('dialog', { name: 'ایجاد تست کیس جدید' });
+    await dialog.getByLabel('سامانه تست کیس *').selectOption('app-1');
+    await dialog.getByLabel('نیازمندی مرتبط * (اجباری)').selectOption('req-1');
+    await dialog.getByLabel('جریان *').selectOption('flow-1');
+    await dialog.getByLabel('عنوان *').fill(title);
+    await dialog.getByLabel('سناریو *').fill('نمایش رکورد ایجادشده در جدول بررسی می‌شود.');
+    await dialog.getByLabel('پیش‌شرط‌ها *').fill('کاربر با نقش سرپرست QA وارد شده است.');
+    await dialog.getByLabel('داده‌های تست *').fill('داده معتبر برای ایجاد تست کیس');
+    await dialog.getByLabel('مراحل *').fill('تست کیس ایجاد و سپس جدول بررسی شود.');
+    await dialog.getByLabel('نتیجه مورد انتظار *').fill('تست کیس بدون نیاز به بازخوانی صفحه در جدول نمایش داده شود.');
+    await dialog.getByRole('button', { name: 'ایجاد', exact: true }).click();
+
+    await expect(page.getByText('تست کیس با موفقیت ایجاد شد.')).toBeVisible();
+    await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
+
+    const statusFilter = page.getByRole('combobox', { name: 'فیلتر وضعیت' });
+    await statusFilter.selectOption('DRAFT');
+    await expect(page.getByText(title, { exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'به‌روزرسانی' }).click();
+    await expect(statusFilter).toHaveValue('');
+    await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
+
+    const createdRow = page.getByRole('row').filter({ hasText: title }).first();
+    await createdRow.getByRole('button', { name: 'حذف' }).click();
+    const deleteDialog = page.getByRole('dialog', { name: 'حذف تست کیس' });
+    await deleteDialog.getByRole('button', { name: 'حذف', exact: true }).click();
+    await expect(page.getByText(`تست کیس «${title}» حذف شد.`)).toBeVisible();
+  });
+
   test('UTMS-RUN-SCOPE-018 @e2e loads requirements after selecting the request application', async ({ page }, testInfo) => {
     annotateTest(testInfo, metadata('UTMS-RUN-SCOPE-018', {
       requirement: 'Test Request to Requirement cascade in Test Run wizard', feature: 'Test execution wizard', level: 'e2e',

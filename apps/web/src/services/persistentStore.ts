@@ -3,7 +3,6 @@ import type {
   AuditLog,
   Bug,
   Checklist,
-  ChecklistResult,
   CommandTrace,
   Comment,
   Flow,
@@ -22,6 +21,7 @@ import type {
   User,
   UserRoleAssignment,
   Attachment,
+  SecurityReview,
 } from '../types';
 
 const DB_NAME = 'utms-browser-database';
@@ -35,24 +35,7 @@ export interface PersistedSecurityChecklistTemplateItem {
   description: string;
 }
 
-export interface PersistedSecurityReviewRecord {
-  id: string;
-  testCaseId: string;
-  testCaseTitle: string;
-  applicationId: string;
-  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
-  items: Array<{
-    id: string;
-    title: string;
-    description: string;
-    result?: ChecklistResult | 'N_A';
-    notes?: string;
-  }>;
-  reviewedById?: string;
-  reviewedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+export type PersistedSecurityReviewRecord = SecurityReview;
 
 export interface PersistedUserCredential {
   userId: string;

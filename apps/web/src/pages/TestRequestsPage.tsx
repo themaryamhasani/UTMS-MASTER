@@ -54,6 +54,7 @@ export const TestRequestsPage: React.FC = () => {
   const [confirmAction, setConfirmAction] = useState<{ action: string; message: string } | null>(null);
   const [detailTab, setDetailTab] = useState<'info' | 'history'>('info');
   const [requestAuditLogs, setRequestAuditLogs] = useState<AuditLog[]>([]);
+  const [auditUsersById, setAuditUsersById] = useState<Record<string, string>>({});
 
   // Form — separate state per field to avoid focus loss
   const [fTitle, setFTitle] = useState('');
@@ -95,10 +96,18 @@ export const TestRequestsPage: React.FC = () => {
       setRequestAuditLogs([]);
       return;
     }
-    auditLogApi
-      .getByEntity('TEST_REQUEST', selectedRequest.id)
-      .then(logs => setRequestAuditLogs(logs))
-      .catch(() => setRequestAuditLogs([]));
+    Promise.all([
+      auditLogApi.getByEntity('TEST_REQUEST', selectedRequest.id),
+      userApi.getAll(),
+    ])
+      .then(([logs, users]) => {
+        setRequestAuditLogs(logs);
+        setAuditUsersById(Object.fromEntries(users.map(user => [user.id, user.fullName])));
+      })
+      .catch(() => {
+        setRequestAuditLogs([]);
+        setAuditUsersById({});
+      });
   }, [selectedRequest?.id, showDetailModal]);
   useEffect(() => {
     if (expandedReqId && !reqFlows[expandedReqId]) {
@@ -286,20 +295,50 @@ export const TestRequestsPage: React.FC = () => {
     UPDATE: 'ویرایش',
     SUBMIT: 'ارسال',
     REVIEW: 'بررسی',
+    STATUS_CHANGE: 'تغییر وضعیت',
     ASSIGN: 'ارجاع',
     CANCEL: 'لغو',
+  };
+  const requestTestTypeLabels: Record<string, string> = {
+    INITIAL: 'تست اولیه',
+    RETEST_REGRESSION: 'بازآزمون + رگرسیون',
+    SMOKE: 'تست دود',
+    UAT: 'پذیرش کاربر',
+    EXPLORATORY: 'اکتشافی',
+  };
+  const formatRequestTestTypes = (testTypes?: string[]) =>
+    testTypes?.length
+      ? testTypes.map(testType => requestTestTypeLabels[testType] || testType).join('، ')
+      : '-';
+  const parseAuditValue = (value?: string): Record<string, unknown> => {
+    if (!value) return {};
+    try {
+      return JSON.parse(value) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  };
+  const getAuditAssigneeName = (log: AuditLog) => {
+    const nextValue = parseAuditValue(log.newValue);
+    if (typeof nextValue.assigneeName === 'string' && nextValue.assigneeName.trim()) {
+      return nextValue.assigneeName;
+    }
+    if (typeof nextValue.assigneeId === 'string') {
+      return auditUsersById[nextValue.assigneeId] || nextValue.assigneeId;
+    }
+    return '-';
   };
   const renderAuditSummary = (log: AuditLog) => {
     if (log.action === 'UPDATE') return 'ویرایش اطلاعات درخواست';
     if (log.action === 'SUBMIT') return 'ارسال درخواست';
     if (log.action === 'REVIEW') return 'بررسی درخواست';
-    if (log.action === 'ASSIGN') return 'ارجاع درخواست';
+    if (log.action === 'ASSIGN') return `ارجاع درخواست به ${getAuditAssigneeName(log)}`;
     if (log.action === 'CANCEL') return 'لغو درخواست';
     return auditActionLabels[log.action] || log.action;
   };
 
   const columns = [
-    { key: 'title', title: 'عنوان', sortable: true, render: (item: TestRequest) => <div><p className="font-medium text-gray-900">{item.title}</p><p className="text-xs text-gray-500 mt-0.5">نسخه: {item.version}</p></div> },
+    { key: 'title', title: 'عنوان', sortable: true, render: (item: TestRequest) => <div><p className="font-medium text-gray-900">{item.title}</p><p className="text-xs text-gray-500 mt-0.5">نسخه: {item.version}</p>{item.qaQualityStatus === 'RETEST_REQUIRED' && <p className="mt-1 text-xs font-medium text-amber-700">اجرای مجدد لازم است</p>}</div> },
     ...((isSystemAdmin || shouldShowSystemColumn) ? [{ key: 'applicationId', title: 'سامانه', render: (item: TestRequest) => <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">{getApplicationName(item.applicationId)}</span> }] : []),
     { key: 'status', title: 'وضعیت', render: (item: TestRequest) => <StatusBadge status={item.status} labels={TEST_REQUEST_STATUS_LABELS} /> },
     { key: 'releaseDecision', title: 'تصمیم انتشار', render: (item: TestRequest) => item.releaseDecision ? <StatusBadge status={item.releaseDecision} labels={RELEASE_PUBLISH_STATUS_LABELS} /> : <span className="text-gray-400">-</span> },
@@ -573,6 +612,7 @@ export const TestRequestsPage: React.FC = () => {
               <div><p className="text-xs text-gray-500">درخواست‌دهنده</p><p className="font-medium">{selectedRequest.requester?.fullName}</p></div>
               <div><p className="text-xs text-gray-500">تستر</p><p className="font-medium">{selectedRequest.assignee?.fullName || '-'}</p></div>
               <div><p className="text-xs text-gray-500">تاریخ</p><p className="font-medium">{new Date(selectedRequest.createdAt).toLocaleDateString('fa-IR')}</p></div>
+              <div><p className="text-xs text-gray-500">نوع تست</p><p className="font-medium">{formatRequestTestTypes(selectedRequest.testTypes)}</p></div>
               {/* آدرس سامانه */}
               <div className="col-span-2"><p className="text-xs text-gray-500">آدرس سامانه</p><p className="font-medium text-blue-600">{selectedRequest.systemUrl || '-'}</p></div>
             </div>
@@ -580,12 +620,24 @@ export const TestRequestsPage: React.FC = () => {
             {(selectedRequest.qaQualityStatus || selectedRequest.releaseDecision) && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {selectedRequest.qaQualityStatus && (
-                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className={`p-3 rounded-lg border ${selectedRequest.qaQualityStatus === 'RETEST_REQUIRED' ? 'bg-amber-50 border-amber-300 md:col-span-2' : 'bg-blue-50 border-blue-200'}`}>
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-medium text-gray-900">نظر QA روی Primary Request</p>
+                      <p className="text-sm font-medium text-gray-900">
+                        {selectedRequest.qaQualityStatus === 'RETEST_REQUIRED'
+                          ? 'درخواست اجرای مجدد توسط سرپرست QA'
+                          : 'نظر QA روی Primary Request'}
+                      </p>
                       <StatusBadge status={selectedRequest.qaQualityStatus} labels={QA_QUALITY_STATUS_LABELS} />
                     </div>
-                    {selectedRequest.qaQualityNotes && <p className="text-sm text-gray-700">{selectedRequest.qaQualityNotes}</p>}
+                    {selectedRequest.qaQualityStatus === 'RETEST_REQUIRED' && (
+                      <p className="mb-1 text-xs font-medium text-amber-800">دلیل سرپرست:</p>
+                    )}
+                    {selectedRequest.qaQualityNotes && <p className="whitespace-pre-wrap text-sm text-gray-700">{selectedRequest.qaQualityNotes}</p>}
+                    {selectedRequest.qaQualityStatus === 'RETEST_REQUIRED' && (
+                      <p className="mt-2 text-sm font-medium text-amber-900">
+                        متخصص QA باید یک اجرای جدید با هدف «تست مجدد» ثبت کند.
+                      </p>
+                    )}
                   </div>
                 )}
                 {selectedRequest.releaseDecision && (

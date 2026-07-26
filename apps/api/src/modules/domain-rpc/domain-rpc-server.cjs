@@ -3,6 +3,12 @@ const path = require('path');
 const { canHandleApplicationRpc, handleApplicationRpc } = require('./postgres-application-service.cjs');
 const { canHandleUserRpc, handleUserRpc } = require('./postgres-user-service.cjs');
 const { canHandleWorkflowPolicyRpc, handleWorkflowPolicyRpc } = require('./postgres-workflow-policy-service.cjs');
+const {
+  hasTestManagementData,
+  isTestManagementPersistenceEnabled,
+  persistTestManagementState,
+  readTestManagementState,
+} = require('./postgres-test-management-state.cjs');
 
 const REPOSITORY_ROOT = path.resolve(__dirname, '../../../../..');
 const GENERATED_DIR = path.join(REPOSITORY_ROOT, 'runtime', 'domain-rpc');
@@ -36,6 +42,7 @@ const SERVICE_NAMES = [
 ];
 
 let loadedServices = null;
+let testManagementReadyPromise = null;
 const inFlightQueries = new Map();
 const SINGLE_FLIGHT_MAX_AGE_MS = 30000;
 const SINGLE_FLIGHT_MAX_ENTRIES = 250;
@@ -118,6 +125,7 @@ const QUERY_OPERATION_POLICIES = new Set([
   'workflowPolicyApi.getForApplication',
   'applicationApi.getAll',
   'applicationApi.getById',
+  'securityChecklistApi.getAllForApp',
   'securityChecklistApi.getById',
   'securityChecklistApi.getTemplate',
   'reportsApi.getSystemOverview',
@@ -283,6 +291,8 @@ function writeEntryFile() {
     '  reportsApi,',
     '};',
     'export const persistCurrentDataState = domainApi.persistCurrentDataState;',
+    'export const getCurrentTestManagementState = domainApi.getCurrentTestManagementState;',
+    'export const hydrateTestManagementState = domainApi.hydrateTestManagementState;',
     '',
   ].join('\n');
   fs.writeFileSync(ENTRY_FILE, source, 'utf8');
@@ -315,8 +325,37 @@ function loadServices() {
   loadedServices = {
     services: bundled.services,
     persistCurrentDataState: bundled.persistCurrentDataState,
+    getCurrentTestManagementState: bundled.getCurrentTestManagementState,
+    hydrateTestManagementState: bundled.hydrateTestManagementState,
   };
   return loadedServices;
+}
+
+async function ensureTestManagementReady(loaded) {
+  if (!isTestManagementPersistenceEnabled()) return;
+  if (!testManagementReadyPromise) {
+    testManagementReadyPromise = (async () => {
+      const persisted = await readTestManagementState();
+      if (hasTestManagementData(persisted)) {
+        loaded.hydrateTestManagementState(persisted);
+        return;
+      }
+      await persistTestManagementState(loaded.getCurrentTestManagementState());
+    })().catch(error => {
+      testManagementReadyPromise = null;
+      throw error;
+    });
+  }
+  await testManagementReadyPromise;
+}
+
+async function refreshTestManagementState(loaded) {
+  await ensureTestManagementReady(loaded);
+  if (!isTestManagementPersistenceEnabled()) return;
+  const persisted = await readTestManagementState();
+  if (persisted) {
+    loaded.hydrateTestManagementState(persisted);
+  }
 }
 
 function canHandleDomainRpc(pathname) {
@@ -361,7 +400,13 @@ async function handleDomainRpc(req, parsedUrl, body) {
     return { data: await handleWorkflowPolicyRpc(methodName, args) };
   }
 
-  const { services, persistCurrentDataState } = loadServices();
+  const loaded = loadServices();
+  await refreshTestManagementState(loaded);
+  const {
+    services,
+    persistCurrentDataState,
+    getCurrentTestManagementState,
+  } = loaded;
   const service = services[serviceName];
 
   if (!service || typeof service !== 'object') {
@@ -380,8 +425,14 @@ async function handleDomainRpc(req, parsedUrl, body) {
     ? await executeSingleFlight(buildQueryFingerprint(req, serviceName, methodName, args), execute)
     : await execute();
 
-  if (!queryOperation && typeof persistCurrentDataState === 'function') {
-    await persistCurrentDataState();
+  if (!queryOperation) {
+    inFlightQueries.clear();
+    if (typeof persistCurrentDataState === 'function') {
+      await persistCurrentDataState();
+    }
+    if (typeof getCurrentTestManagementState === 'function') {
+      await persistTestManagementState(getCurrentTestManagementState());
+    }
   }
   return { data };
 }

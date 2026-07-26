@@ -57,6 +57,9 @@ import type {
   IntegrationProvider,
   PlaywrightRunnerConfig,
   SystemIntegrationSettings,
+  SecurityReview,
+  SecurityReviewRequestSummary,
+  SecurityTestConfiguration,
 } from '../types';
 import {
   loadPersistedUtmsState,
@@ -98,6 +101,7 @@ import {
 import { isSemVer } from '../utils/semver';
 import { DESCRIPTION_MAX_LENGTH, hasInvalidBuildNumber, isValidSystemUrl, validateRequestTitle } from '../utils/inputRules';
 import { haveSameApplication } from '../utils/testManagementScope';
+import { validateSecurityTestConfiguration } from '../utils/securityTest';
 // UserRoleAssignment type is available via mockUserRoleAssignments
 
 const DEFAULT_USER_PASSWORD = '123456';
@@ -304,6 +308,29 @@ function currentPersistentState(): PersistedUtmsState {
       items: review.items.map(item => ({ ...item })),
     })),
   };
+}
+
+export type TestManagementPersistentState = Pick<
+  PersistedUtmsState,
+  'testRequests' | 'requirements' | 'flows' | 'testCases'
+>;
+
+export function getCurrentTestManagementState(): TestManagementPersistentState {
+  syncSeedDataCollections();
+  return {
+    testRequests: [...testRequests],
+    requirements: [...requirements],
+    flows: [...flows],
+    testCases: [...testCases],
+  };
+}
+
+export function hydrateTestManagementState(state: TestManagementPersistentState): void {
+  testRequests = [...state.testRequests];
+  requirements = [...state.requirements];
+  flows = [...state.flows];
+  testCases = [...state.testCases];
+  syncSeedDataCollections();
 }
 
 function applyPersistedState(persisted: PersistedUtmsState): void {
@@ -1503,7 +1530,10 @@ const localTestRequestApi = {
     tr.assignee = getUserById(assigneeId);
     tr.status = 'IN_PROGRESS';
     tr.updatedAt = new Date().toISOString();
-    createAuditLog(userId, tr.applicationId, 'TEST_REQUEST', id, 'ASSIGN', previous, { assigneeId });
+    createAuditLog(userId, tr.applicationId, 'TEST_REQUEST', id, 'ASSIGN', previous, {
+      assigneeId,
+      assigneeName: tr.assignee?.fullName || assigneeId,
+    });
     createNotification(
       assigneeId,
       'ارجاع درخواست تست',
@@ -1921,6 +1951,52 @@ const localTestCaseApi = {
 // Test Run API
 // ============================================
 
+function markQaRetestExecutionRegistered(run: TestRun, userId: string): void {
+  if (!FINAL_RUN_STATUSES.includes(run.status)) return;
+  const request = testRequests.find(item => item.id === run.testRequestId);
+  if (!request || request.qaQualityStatus !== 'RETEST_REQUIRED') return;
+
+  const versionHistory = releasePublishes.find(item =>
+    item.qaQualityStatus === 'RETEST_REQUIRED' &&
+    getVersionHistoryRequestIds(item).includes(request.id)
+  );
+  if (!versionHistory) return;
+
+  const requestIds = getVersionHistoryRequestIds(versionHistory);
+  const finalRunCount = getRunsForRequestIds(requestIds)
+    .filter(item => FINAL_RUN_STATUSES.includes(item.status)).length;
+  if (finalRunCount <= (versionHistory.qaRetestBaselineRunCount || 0)) return;
+
+  const now = new Date().toISOString();
+  request.qaQualityStatus = 'IN_PROGRESS';
+  request.updatedAt = now;
+  createAuditLog(
+    userId,
+    request.applicationId,
+    'TEST_REQUEST',
+    request.id,
+    'STATUS_CHANGE',
+    { qaQualityStatus: 'RETEST_REQUIRED' },
+    {
+      qaQualityStatus: 'IN_PROGRESS',
+      retestRunId: run.id,
+      retestRunStatus: run.status,
+      waitingForQaLeadReview: true,
+    }
+  );
+  notifyRoles(
+    request.applicationId,
+    ['QA_LEAD'],
+    'اجرای مجدد ثبت شد',
+    `متخصص QA نتیجه اجرای مجدد درخواست "${request.title}" را ثبت کرد. وضعیت کیفیت باید دوباره بررسی شود.`,
+    'INFO',
+    'VERSION_HISTORY',
+    versionHistory.id,
+    undefined,
+    `version-history:${versionHistory.id}:qa-retest-run:${run.id}`
+  );
+}
+
 const localTestRunApi = {
   async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<TestRun>> {
     await delay();
@@ -2110,6 +2186,7 @@ const localTestRunApi = {
       run,
       commandAuditMetadata(command)
     );
+    markQaRetestExecutionRegistered(run, userId);
     createCommandTrace(command, 'COMPLETED', userId, run.applicationId, 'TEST_RUN', id);
     return rememberIdempotentResult(command, run);
   },
@@ -2147,6 +2224,7 @@ const localTestRunApi = {
       { status },
       commandAuditMetadata(command)
     );
+    markQaRetestExecutionRegistered(run, userId);
     createCommandTrace(command, 'COMPLETED', userId, run.applicationId, 'TEST_RUN', id);
     return rememberIdempotentResult(command, run);
   },
@@ -2683,7 +2761,7 @@ const localBugApi = {
     await delay();
     return bugs.filter(
       b => matchesApplicationScope(b.applicationId, applicationId) && 
-           ['CRITICAL', 'MAJOR'].includes(b.severity) &&
+           ['BLOCKER', 'CRITICAL', 'MAJOR'].includes(b.severity) &&
            !['CLOSED', 'REJECTED', 'RETEST_PASSED', 'NO_ACTION_NEEDED'].includes(b.status)
     ).map(hydrateBug);
   },
@@ -2693,7 +2771,7 @@ const localBugApi = {
     return getVisibleBugsForRole(
       bugs.filter(
         b => matchesApplicationScope(b.applicationId, applicationId) &&
-             ['CRITICAL', 'MAJOR'].includes(b.severity) &&
+             ['BLOCKER', 'CRITICAL', 'MAJOR'].includes(b.severity) &&
              !['CLOSED', 'REJECTED', 'RETEST_PASSED', 'NO_ACTION_NEEDED'].includes(b.status)
       ),
       userId,
@@ -3979,12 +4057,14 @@ function getChecklistResultForRequestIds(
 }
 
 function getSecurityReviewResultForRequestIds(requestIds: string[]): ChecklistResult | undefined {
-  const linkedTestCases = testCases.filter(tc => requestIds.includes(tc.testRequestId));
-  if (!linkedTestCases.length) return undefined;
+  const securityRequiredRequests = testRequests.filter(
+    request => requestIds.includes(request.id) && request.securityTestRequired
+  );
+  if (!securityRequiredRequests.length) return undefined;
 
-  uniqueIds(linkedTestCases.map(tc => tc.applicationId)).forEach(ensureSecurityReviewsExist);
-  const testCaseIds = linkedTestCases.map(tc => tc.id);
-  const scopedReviews = securityReviews.filter(review => testCaseIds.includes(review.testCaseId));
+  const scopedReviews = securityReviews.filter(review =>
+    securityRequiredRequests.some(request => request.id === review.testRequestId)
+  );
   if (!scopedReviews.length) {
     return getChecklistResultForRequestIds(requestIds, 'SECURITY');
   }
@@ -3993,7 +4073,7 @@ function getSecurityReviewResultForRequestIds(requestIds: string[]): ChecklistRe
   if (itemResults.some(result => result === 'FAIL')) return 'FAIL';
   if (itemResults.some(result => result === 'PARTIAL')) return 'PARTIAL';
 
-  const allReviewsCompleted = scopedReviews.length === linkedTestCases.length &&
+  const allReviewsCompleted = scopedReviews.length === securityRequiredRequests.length &&
     scopedReviews.every(review => review.status === 'COMPLETED');
   const allAnsweredItemsPassOrNA = itemResults.length > 0 &&
     scopedReviews.every(review =>
@@ -4032,7 +4112,7 @@ function buildVersionSnapshot(rp: ReleasePublish): VersionSnapshot {
     blockedTestRuns: runs.filter(tr => tr.status === 'BLOCKED').length,
     skippedTestRuns: runs.filter(tr => tr.status === 'SKIPPED').length,
     totalBugs: bgs.length,
-    criticalBugs: bgs.filter(b => b.severity === 'CRITICAL').length,
+    criticalBugs: bgs.filter(b => ['BLOCKER', 'CRITICAL'].includes(b.severity)).length,
     majorBugs: bgs.filter(b => b.severity === 'MAJOR').length,
     openBugs: bgs.filter(b => !CLOSED_BUG_STATUSES.includes(b.status)).length,
     closedBugs: bgs.filter(b => CLOSED_BUG_STATUSES.includes(b.status)).length,
@@ -4050,13 +4130,13 @@ function buildVersionSnapshot(rp: ReleasePublish): VersionSnapshot {
 
 function hasOpenCriticalBug(requestIds: string[]): boolean {
   return getBugsForRequestIds(requestIds).some(
-    b => b.severity === 'CRITICAL' && !CLOSED_BUG_STATUSES.includes(b.status)
+    b => ['BLOCKER', 'CRITICAL'].includes(b.severity) && !CLOSED_BUG_STATUSES.includes(b.status)
   );
 }
 
 function refreshVersionHistoryDerivedFields(rp: ReleasePublish): ReleasePublish {
   const requestIds = syncVersionHistoryRequestIds(rp);
-  if (!rp.snapshot || ['DRAFT', 'QA_REVIEW', 'PENDING_DECISION'].includes(rp.status)) {
+  if (!rp.snapshot || ['DRAFT', 'QA_REVIEW', 'SECURITY_REVIEW', 'PENDING_DECISION'].includes(rp.status)) {
     rp.snapshot = buildVersionSnapshot(rp);
   }
   rp.isEmergency = hasOpenCriticalBug(requestIds) || !!rp.riskAccepted;
@@ -4102,6 +4182,7 @@ function reflectVersionHistoryOnPrimaryRequest(rp: ReleasePublish) {
   const primary = testRequests.find(tr => tr.id === rp.primaryTestRequestId);
   if (!primary) return;
 
+  const previousStatus = primary.status;
   primary.versionHistoryId = rp.id;
   primary.qaQualityStatus = rp.qaQualityStatus;
   primary.qaQualityNotes = rp.qaQualityNotes;
@@ -4109,6 +4190,27 @@ function reflectVersionHistoryOnPrimaryRequest(rp: ReleasePublish) {
   primary.releaseDecisionReason = rp.decisionReason;
   primary.releaseDecisionById = rp.decisionById;
   primary.releaseDecisionAt = rp.decisionAt;
+  if (
+    ['APPROVED', 'CONDITIONAL'].includes(rp.decision || '') &&
+    primary.status !== 'COMPLETED'
+  ) {
+    primary.status = 'COMPLETED';
+    createAuditLog(
+      rp.decisionById || rp.createdById,
+      primary.applicationId,
+      'TEST_REQUEST',
+      primary.id,
+      'STATUS_CHANGE',
+      { status: previousStatus },
+      {
+        status: 'COMPLETED',
+        source: 'RELEASE_DECISION',
+        versionHistoryId: rp.id,
+        releaseDecision: rp.decision,
+      },
+      { source: 'RELEASE_DECISION' }
+    );
+  }
   primary.updatedAt = new Date().toISOString();
 }
 
@@ -4522,7 +4624,7 @@ const localReleasePublishApi = {
     const rp = releasePublishes.find(r => r.id === id);
     if (!rp) return [];
     return getBugsForRequestIds(getVersionHistoryRequestIds(rp))
-      .filter(b => b.severity === 'CRITICAL' && !CLOSED_BUG_STATUSES.includes(b.status))
+      .filter(b => ['BLOCKER', 'CRITICAL'].includes(b.severity) && !CLOSED_BUG_STATUSES.includes(b.status))
       .map(b => ({
         ...b,
         assignee: b.assigneeId ? getUserById(b.assigneeId) : undefined,
@@ -4649,12 +4751,82 @@ const localReleasePublishApi = {
     return rememberIdempotentResult(command, rp);
   },
 
+  async setMissingBuildNumber(
+    id: string,
+    buildNumber: string,
+    userId: string,
+    actorRole?: UserRole,
+    metadata?: CommandMetadata
+  ): Promise<ReleasePublish | null> {
+    await delay();
+    const normalizedBuildNumber = buildNumber.trim();
+    assertBuildNumber(normalizedBuildNumber);
+    if (!normalizedBuildNumber) return null;
+
+    const command = resolveCommandMetadata(
+      'versionHistory.setMissingBuildNumber',
+      metadata,
+      `version-history:${id}:set-missing-build`
+    );
+    const replayed = getIdempotentResult<ReleasePublish | null>(command);
+    if (replayed) {
+      createCommandTrace(command, 'REPLAYED', userId, replayed.applicationId, 'VERSION_HISTORY', id);
+      return hydrateVersionHistory(replayed);
+    }
+
+    const rp = releasePublishes.find(item => item.id === id);
+    if (!rp || !['DRAFT', 'QA_REVIEW'].includes(rp.status)) return null;
+    assertActorApplicationScope(userId, rp.applicationId);
+    if (!canActorUseWorkflowCapability(actorRole, 'versionHistory:qaReview', rp.applicationId)) return null;
+
+    const primaryRequest = testRequests.find(item => item.id === rp.primaryTestRequestId);
+    if (!primaryRequest) return null;
+    if (primaryRequest.buildNumber?.trim()) {
+      return primaryRequest.buildNumber === normalizedBuildNumber
+        ? hydrateVersionHistory(rp)
+        : null;
+    }
+
+    const now = new Date().toISOString();
+    const previousVersionBuild = rp.buildNumber;
+    primaryRequest.buildNumber = normalizedBuildNumber;
+    primaryRequest.updatedAt = now;
+    rp.buildNumber = normalizedBuildNumber;
+    rp.updatedAt = now;
+    rp.lastCommand = commandRecordMetadata(command);
+
+    createAuditLog(
+      userId,
+      primaryRequest.applicationId,
+      'TEST_REQUEST',
+      primaryRequest.id,
+      'UPDATE',
+      { buildNumber: undefined },
+      { buildNumber: normalizedBuildNumber, source: 'QA_LEAD' },
+      commandAuditMetadata(command)
+    );
+    createAuditLog(
+      userId,
+      rp.applicationId,
+      'VERSION_HISTORY',
+      rp.id,
+      'UPDATE',
+      { buildNumber: previousVersionBuild },
+      { buildNumber: normalizedBuildNumber, source: 'QA_LEAD' },
+      commandAuditMetadata(command)
+    );
+    createCommandTrace(command, 'COMPLETED', userId, rp.applicationId, 'VERSION_HISTORY', id);
+    return rememberIdempotentResult(command, rp);
+  },
+
   async setQAQuality(
     id: string,
     qualityStatus: QAQualityStatus,
     notes: string,
     userId: string,
     actorRole?: UserRole,
+    securityTestRequired = false,
+    securityConfiguration?: SecurityTestConfiguration,
     metadata?: CommandMetadata
   ): Promise<ReleasePublish | null> {
     await delay();
@@ -4678,13 +4850,60 @@ const localReleasePublishApi = {
     if (hasIncompleteLinkedRequirement(requestIds)) {
       return null;
     }
+
+    if (rp.qaQualityStatus === 'RETEST_REQUIRED' && qualityStatus !== 'RETEST_REQUIRED') {
+      const finalRunCount = getRunsForRequestIds(requestIds)
+        .filter(run => FINAL_RUN_STATUSES.includes(run.status)).length;
+      if (
+        finalRunCount <= (rp.qaRetestBaselineRunCount || 0) ||
+        !isVersionHistoryReadyForQualityQueue(rp)
+      ) {
+        return null;
+      }
+    }
+
+    const canRequestSecurityTest = ['READY', 'CONDITIONAL'].includes(qualityStatus);
+    if (securityTestRequired && !canRequestSecurityTest) return null;
+    if (
+      securityTestRequired &&
+      (!securityConfiguration ||
+        Object.keys(validateSecurityTestConfiguration(securityConfiguration)).length > 0)
+    ) {
+      return null;
+    }
+    const securityPrimaryRequest = testRequests.find(
+      request => request.id === rp.primaryTestRequestId
+    );
+    if (securityTestRequired) {
+      const hasTechnicalLead = mockUserRoleAssignments.some(assignment =>
+        assignment.isActive &&
+        assignment.role === 'TECH_LEAD' &&
+        (assignment.scope === 'APP' ||
+          (assignment.applicationIds || [assignment.applicationId]).includes(rp.applicationId))
+      );
+      if (
+        !securityPrimaryRequest ||
+        !securityPrimaryRequest.version.trim() ||
+        !securityPrimaryRequest.buildNumber?.trim() ||
+        !securityPrimaryRequest.assigneeId ||
+        !userHasRole(securityPrimaryRequest.assigneeId, ['QA_SPECIALIST'], rp.applicationId) ||
+        !securityPrimaryRequest.requesterId ||
+        getActiveReadyTestCasesForRequest(securityPrimaryRequest.id).length === 0 ||
+        !hasTechnicalLead
+      ) {
+        return null;
+      }
+    }
+    if (qualityStatus === 'RETEST_REQUIRED' && !isVersionHistoryReadyForQualityQueue(rp)) {
+      return null;
+    }
     
     rp.qaQualityStatus = qualityStatus;
     rp.qaQualityNotes = notes.trim();
     rp.qaReviewedById = userId;
     rp.qaReviewedBy = getUserById(userId);
     rp.qaReviewedAt = new Date().toISOString();
-    rp.status = 'PENDING_DECISION';
+    rp.status = securityTestRequired ? 'SECURITY_REVIEW' : 'PENDING_DECISION';
     rp.lastCommand = commandRecordMetadata(command);
     rp.updatedAt = new Date().toISOString();
     rp.snapshot = snapshot;
@@ -4700,6 +4919,60 @@ const localReleasePublishApi = {
         createdAt: new Date().toISOString(),
       },
     ];
+
+    if (qualityStatus === 'RETEST_REQUIRED') {
+      const now = new Date().toISOString();
+      rp.qaRetestRequestedAt = now;
+      rp.qaRetestRequestedById = userId;
+      rp.qaRetestBaselineRunCount = getRunsForRequestIds(requestIds)
+        .filter(run => FINAL_RUN_STATUSES.includes(run.status)).length;
+      rp.status = 'QA_REVIEW';
+      requestIds.forEach(requestId => {
+        const request = testRequests.find(item => item.id === requestId);
+        if (!request) return;
+        const previousStatus = request.status;
+        request.status = 'IN_PROGRESS';
+        request.qaQualityStatus = 'RETEST_REQUIRED';
+        request.qaQualityNotes = notes.trim();
+        request.securityTestRequired = false;
+        request.securityTestConfiguration = undefined;
+        request.updatedAt = now;
+        createAuditLog(
+          userId,
+          request.applicationId,
+          'TEST_REQUEST',
+          request.id,
+          'STATUS_CHANGE',
+          { status: previousStatus },
+          { status: 'IN_PROGRESS', qaQualityStatus: 'RETEST_REQUIRED', reason: notes.trim() }
+        );
+        createNotification(
+          request.assigneeId,
+          'احتیاج به اجرای مجدد',
+          `سرپرست QA برای درخواست "${request.title}" اجرای مجدد خواسته است. دلیل: ${notes.trim()}`,
+          'WARNING',
+          'TEST_REQUEST',
+          request.id,
+          undefined,
+          `test-request:${request.id}:qa-retest:${now}`
+        );
+      });
+    } else {
+      const primaryRequest = securityPrimaryRequest;
+      if (primaryRequest) {
+        primaryRequest.securityTestRequired = securityTestRequired;
+        primaryRequest.securityTestConfiguration = securityTestRequired
+          ? securityConfiguration
+          : undefined;
+        primaryRequest.securityRequestedById = securityTestRequired ? userId : undefined;
+        primaryRequest.securityRequestedAt = securityTestRequired
+          ? new Date().toISOString()
+          : undefined;
+        if (securityTestRequired && securityConfiguration) {
+          ensureSecurityReviewForRequest(primaryRequest, securityConfiguration);
+        }
+      }
+    }
     refreshVersionHistoryDerivedFields(rp);
     reflectVersionHistoryOnPrimaryRequest(rp);
 
@@ -4714,6 +4987,28 @@ const localReleasePublishApi = {
       commandAuditMetadata(command)
     );
     createCommandTrace(command, 'COMPLETED', userId, rp.applicationId, 'VERSION_HISTORY', id);
+    if (qualityStatus === 'RETEST_REQUIRED') {
+      notifyVersionHistoryStakeholders(
+        rp,
+        'احتیاج به اجرای مجدد',
+        `سرپرست QA برای نسخه ${rp.version}${rp.buildNumber ? ` / بیلد ${rp.buildNumber}` : ''} اجرای مجدد خواسته است. پس از ثبت اجرای جدید، وضعیت کیفیت باید دوباره ثبت شود.`,
+        'WARNING',
+        'qa-retest-required',
+        command
+      );
+    } else if (securityTestRequired) {
+      notifyRoles(
+        rp.applicationId,
+        ['SECURITY_REVIEWER'],
+        'درخواست تست امنیت جدید',
+        `برای درخواست "${testRequests.find(request => request.id === rp.primaryTestRequestId)?.title || rp.primaryTestRequestId}" تست امنیت و تکمیل چک‌لیست الزامی شده است.`,
+        'WARNING',
+        'TEST_REQUEST',
+        rp.primaryTestRequestId,
+        undefined,
+        `test-request:${rp.primaryTestRequestId}:security-review`
+      );
+    }
     return rememberIdempotentResult(command, rp);
   },
 
@@ -5078,7 +5373,7 @@ const localDashboardApi = {
       inProgressTestRequests: appTestRequests.filter(tr => tr.status === 'IN_PROGRESS').length,
       completedTestRequests: appTestRequests.filter(tr => tr.status === 'COMPLETED').length,
       pendingBugs: appBugs.filter(b => !['CLOSED', 'REJECTED', 'RETEST_PASSED', 'NO_ACTION_NEEDED'].includes(b.status)).length,
-      criticalBugs: appBugs.filter(b => b.severity === 'CRITICAL' && !['CLOSED', 'REJECTED', 'RETEST_PASSED', 'NO_ACTION_NEEDED'].includes(b.status)).length,
+      criticalBugs: appBugs.filter(b => ['BLOCKER', 'CRITICAL'].includes(b.severity) && !['CLOSED', 'REJECTED', 'RETEST_PASSED', 'NO_ACTION_NEEDED'].includes(b.status)).length,
       pendingChecklists: appChecklists.filter(c => ['PENDING', 'IN_PROGRESS'].includes(c.status)).length,
       pendingReleases: appReleases.filter(rp => ['DRAFT', 'QA_REVIEW', 'PENDING_DECISION'].includes(rp.status)).length,
       totalTestCases: appTestCases.length,
@@ -5625,8 +5920,8 @@ const localApplicationApi = {
 };
 
 // ============================================
-// Security Checklist API — Items #1/#6/#7
-// Per-test-case security checklists
+// Security Checklist API
+// One security review per explicitly selected developer test request.
 // ============================================
 
 // Default security checklist template items
@@ -5641,69 +5936,166 @@ let securityChecklistTemplate = [
   { title: 'بررسی لاگ‌ها', description: 'ثبت صحیح رویدادهای امنیتی' },
 ];
 
-// Security review records: one per test case
-interface SecurityReviewRecord {
-  id: string;
-  testCaseId: string;
-  testCaseTitle: string;
-  applicationId: string;
-  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
-  items: Array<{
-    id: string;
-    title: string;
-    description: string;
-    result?: 'PASS' | 'FAIL' | 'PARTIAL' | 'NOT_TESTED' | 'N_A';
-    notes?: string;
-  }>;
-  reviewedById?: string;
-  reviewedAt?: string;
-  createdAt: string;
-  updatedAt: string;
+let securityReviews: SecurityReview[] = [];
+
+function getApplicationRoleUserName(applicationId: string, role: UserRole): string {
+  const assignment = mockUserRoleAssignments.find(item =>
+    item.isActive &&
+    item.role === role &&
+    (item.scope === 'APP' || (item.applicationIds || [item.applicationId]).includes(applicationId))
+  );
+  return assignment ? getUserById(assignment.userId)?.fullName || '-' : '-';
 }
 
-let securityReviews: SecurityReviewRecord[] = [];
+function securityReviewDetail(
+  id: string,
+  title: string,
+  status?: string,
+  subtitle?: string
+) {
+  return { id, title, status, subtitle };
+}
 
-// Auto-generate security reviews for all test cases
-function ensureSecurityReviewsExist(applicationId: string) {
-  const appTestCases = testCases.filter(tc => tc.applicationId === applicationId);
-  for (const tc of appTestCases) {
-    if (!securityReviews.find(sr => sr.testCaseId === tc.id)) {
-      securityReviews.push({
-        id: uuidv4(),
-        testCaseId: tc.id,
-        testCaseTitle: tc.title,
-        applicationId: tc.applicationId,
-        status: 'PENDING',
-        items: securityChecklistTemplate.map((item, idx) => ({
-          id: `scli-${tc.id}-${idx}`,
-          title: item.title,
-          description: item.description,
-        })),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
-    }
+function buildSecurityReviewRequestSummary(testRequest: TestRequest): SecurityReviewRequestSummary {
+  const requestTestCases = testCases.filter(testCase => testCase.testRequestId === testRequest.id);
+  const requestRuns = testRuns.filter(run => run.testRequestId === testRequest.id);
+  const runIds = requestRuns.map(run => run.id);
+  const requestBugs = bugs.filter(bug => runIds.includes(bug.testRunId));
+  const isOpenBug = (bug: Bug) => !CLOSED_BUG_STATUSES.includes(bug.status);
+  const linkedRequirements = requirements.filter(requirement =>
+    requirement.testRequestId === testRequest.id ||
+    (testRequest.selectedRequirementIds || []).includes(requirement.id)
+  );
+  const runDetail = (run: TestRun) => {
+    const testCase = requestTestCases.find(item => item.id === run.testCaseId);
+    return securityReviewDetail(
+      run.id,
+      testCase?.title || run.testCaseId,
+      run.status,
+      `${run.version}${run.buildNumber ? ` / بیلد ${run.buildNumber}` : ''}`
+    );
+  };
+  const bugDetail = (bug: Bug) =>
+    securityReviewDetail(bug.id, bug.title, bug.status, bug.severity);
+  const versionHistory = releasePublishes.find(
+    item => item.primaryTestRequestId === testRequest.id
+  );
+
+  return {
+    applicationName: getApplicationById(testRequest.applicationId)?.name || testRequest.applicationId,
+    requestTitle: testRequest.title,
+    requirementAndTestCase: [
+      ...linkedRequirements.map(requirement => requirement.title),
+      ...requestTestCases.map(testCase => testCase.title),
+    ].join('، ') || '-',
+    version: testRequest.version,
+    buildNumber: testRequest.buildNumber || '-',
+    requestType: testRequest.securityTestConfiguration?.requestType || 'INITIAL',
+    developerRequestedAt: testRequest.createdAt,
+    technicalLeadName: getApplicationRoleUserName(testRequest.applicationId, 'TECH_LEAD'),
+    developerName: getUserById(testRequest.requesterId)?.fullName || '-',
+    qaSpecialistName: testRequest.assigneeId
+      ? getUserById(testRequest.assigneeId)?.fullName || '-'
+      : '-',
+    qaLeadName: versionHistory?.qaReviewedById
+      ? getUserById(versionHistory.qaReviewedById)?.fullName || '-'
+      : testRequest.reviewedById
+        ? getUserById(testRequest.reviewedById)?.fullName || '-'
+        : '-',
+    qaApprovedAt: versionHistory?.qaReviewedAt || testRequest.reviewedAt || '-',
+    testCases: requestTestCases.map(testCase =>
+      securityReviewDetail(testCase.id, testCase.title, testCase.status, testCase.testType)
+    ),
+    finalRuns: requestRuns.filter(run => FINAL_RUN_STATUSES.includes(run.status)).map(runDetail),
+    openRuns: requestRuns.filter(run => ['PENDING', 'IN_PROGRESS'].includes(run.status)).map(runDetail),
+    passedRuns: requestRuns.filter(run => run.status === 'PASSED').map(runDetail),
+    failedRuns: requestRuns.filter(run => run.status === 'FAILED').map(runDetail),
+    blockedRuns: requestRuns.filter(run => run.status === 'BLOCKED').map(runDetail),
+    skippedRuns: requestRuns.filter(run => run.status === 'SKIPPED').map(runDetail),
+    openBlockerBugs: requestBugs
+      .filter(bug => bug.severity === 'BLOCKER' && isOpenBug(bug))
+      .map(bugDetail),
+    openCriticalBugs: requestBugs
+      .filter(bug => bug.severity === 'CRITICAL' && isOpenBug(bug))
+      .map(bugDetail),
+  };
+}
+
+function hydrateSecurityReview(review: SecurityReview): SecurityReview {
+  const request = testRequests.find(item => item.id === review.testRequestId);
+  if (!request) return review;
+  return {
+    ...review,
+    testRequestTitle: request.title,
+    configuration: request.securityTestConfiguration || review.configuration,
+    requestSummary: buildSecurityReviewRequestSummary(request),
+  };
+}
+
+function ensureSecurityReviewForRequest(
+  testRequest: TestRequest,
+  configuration: SecurityTestConfiguration
+): SecurityReview {
+  const existing = securityReviews.find(review => review.testRequestId === testRequest.id);
+  if (existing) {
+    existing.configuration = configuration;
+    existing.testRequestTitle = testRequest.title;
+    existing.requestSummary = buildSecurityReviewRequestSummary(testRequest);
+    existing.updatedAt = new Date().toISOString();
+    return existing;
   }
+
+  const now = new Date().toISOString();
+  const review: SecurityReview = {
+    id: uuidv4(),
+    testRequestId: testRequest.id,
+    testRequestTitle: testRequest.title,
+    applicationId: testRequest.applicationId,
+    status: 'PENDING',
+    configuration,
+    requestSummary: buildSecurityReviewRequestSummary(testRequest),
+    items: securityChecklistTemplate.map((item, index) => ({
+      id: `scli-${testRequest.id}-${index}`,
+      title: item.title,
+      description: item.description,
+    })),
+    createdAt: now,
+    updatedAt: now,
+  };
+  securityReviews.unshift(review);
+  return review;
 }
 
 const localSecurityChecklistApi = {
-  // Get all security reviews for an application (one per test case)
-  async getAllForApp(applicationId: string): Promise<SecurityReviewRecord[]> {
+  async getAllForApp(applicationId: string): Promise<SecurityReview[]> {
     await delay();
-    ensureSecurityReviewsExist(applicationId);
-    return securityReviews.filter(sr => sr.applicationId === applicationId);
+    return securityReviews
+      .filter(review => {
+        const request = testRequests.find(item => item.id === review.testRequestId);
+        return review.applicationId === applicationId && request?.securityTestRequired === true;
+      })
+      .map(hydrateSecurityReview);
   },
 
-  async getById(id: string): Promise<SecurityReviewRecord | null> {
+  async getById(id: string): Promise<SecurityReview | null> {
     await delay();
-    return securityReviews.find(sr => sr.id === id) || null;
+    const review = securityReviews.find(item => item.id === id);
+    return review ? hydrateSecurityReview(review) : null;
   },
 
-  // Update a single item result within a security review
-  async updateItem(reviewId: string, itemId: string, result: string, notes: string, userId: string): Promise<SecurityReviewRecord | null> {
+  async updateItem(
+    reviewId: string,
+    itemId: string,
+    result: string,
+    notes: string,
+    userId: string
+  ): Promise<SecurityReview | null> {
     await delay();
     const review = securityReviews.find(sr => sr.id === reviewId);
-    if (!review) return null;
+    if (!review || review.status === 'COMPLETED') return null;
+    if (!userHasRole(userId, ['SECURITY_REVIEWER', 'SYSTEM_ADMIN'], review.applicationId)) {
+      throw new Error('SECURITY_REVIEW_FORBIDDEN');
+    }
     const item = review.items.find(i => i.id === itemId);
     if (!item) return null;
     item.result = ensureSecurityReviewItemResult(result);
@@ -5711,19 +6103,57 @@ const localSecurityChecklistApi = {
     review.status = 'IN_PROGRESS';
     review.reviewedById = userId;
     review.updatedAt = new Date().toISOString();
-    return review;
+    return hydrateSecurityReview(review);
   },
 
-  // Complete a security review
-  async complete(reviewId: string, userId: string): Promise<SecurityReviewRecord | null> {
+  async complete(reviewId: string, userId: string): Promise<SecurityReview | null> {
     await delay();
     const review = securityReviews.find(sr => sr.id === reviewId);
     if (!review) return null;
+    if (!userHasRole(userId, ['SECURITY_REVIEWER', 'SYSTEM_ADMIN'], review.applicationId)) {
+      throw new Error('SECURITY_REVIEW_FORBIDDEN');
+    }
+    if (review.items.some(item => !item.result)) {
+      throw new Error('SECURITY_REVIEW_INCOMPLETE');
+    }
     review.status = 'COMPLETED';
     review.reviewedById = userId;
     review.reviewedAt = new Date().toISOString();
     review.updatedAt = new Date().toISOString();
-    return review;
+
+    const versionHistory = releasePublishes.find(
+      item => item.primaryTestRequestId === review.testRequestId &&
+        item.status === 'SECURITY_REVIEW'
+    );
+    if (versionHistory) {
+      const previousStatus = versionHistory.status;
+      versionHistory.status = 'PENDING_DECISION';
+      versionHistory.snapshot = buildVersionSnapshot(versionHistory);
+      versionHistory.updatedAt = new Date().toISOString();
+      reflectVersionHistoryOnPrimaryRequest(versionHistory);
+      createAuditLog(
+        userId,
+        versionHistory.applicationId,
+        'VERSION_HISTORY',
+        versionHistory.id,
+        'STATUS_CHANGE',
+        { status: previousStatus },
+        { status: 'PENDING_DECISION', securityReviewId: review.id }
+      );
+      notifyRoles(
+        versionHistory.applicationId,
+        ['TECH_LEAD'],
+        'تست امنیت تکمیل شد',
+        `چک‌لیست امنیت درخواست "${review.testRequestTitle}" تکمیل و برای تصمیم فنی ارسال شد.`,
+        'SUCCESS',
+        'VERSION_HISTORY',
+        versionHistory.id,
+        undefined,
+        `version-history:${versionHistory.id}:security-completed`
+      );
+    }
+
+    return hydrateSecurityReview(review);
   },
 
   // Admin: get template items
@@ -5780,4 +6210,3 @@ export const systemSettingsApi = createDomainRpcProxy('systemSettingsApi', local
 export const workflowPolicyApi = createDomainRpcProxy('workflowPolicyApi', localWorkflowPolicyApi);
 export const applicationApi = createDomainRpcProxy('applicationApi', localApplicationApi);
 export const securityChecklistApi = createDomainRpcProxy('securityChecklistApi', localSecurityChecklistApi);
-

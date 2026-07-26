@@ -82,6 +82,9 @@ const REQUEST_ENVIRONMENT_LABELS: Record<string, string> = {
 };
 
 const REQUEST_TEST_TYPE_FALLBACK_LABELS: Record<string, string> = {
+  INITIAL: 'تست اولیه',
+  RETEST_REGRESSION: 'بازآزمون + رگرسیون',
+  EXPLORATORY: 'اکتشافی',
   SECURITY_TEST: 'تست امنیت',
   PERFORMANCE_TEST: 'تست کارایی',
   PLAYWRIGHT: 'پلی‌رایت',
@@ -527,6 +530,13 @@ export const TestRunsBugsPage: React.FC = () => {
     setWizardErrors({});
   };
 
+  const openQaRetestWizard = (testRequest: TestRequest) => {
+    resetWizard();
+    handleWizardTestRequestChange(testRequest.id);
+    setWizardPurposes(['RETEST']);
+    setShowWizard(true);
+  };
+
   // Wizard step 1 submit
   const handleWizardStep1 = async () => {
     if (!activeContext) return;
@@ -575,6 +585,7 @@ export const TestRunsBugsPage: React.FC = () => {
         await uploadFilesForEntity('TEST_RUN', run.id, wizardFiles);
         toast.info(`${wizardFiles.length} فایل مدرک ذخیره شد.`);
       }
+      await loadTestRequests();
       setWizardCreatedRunId(run.id);
       if (wizardResult === 'FAILED') { setWizardStep(2); toast.info('مرحله ۲: ثبت باگ‌ها'); }
       else if (wizardResult === 'BLOCKED') { setWizardStep(3); toast.info('مرحله ۲: ثبت مشکل اجرا'); }
@@ -649,7 +660,7 @@ export const TestRunsBugsPage: React.FC = () => {
       toast.success(isRetestFailureReview
         ? `نتیجه Retest ثبت شد و ${validBugs.length} باگ جدید اضافه شد.`
         : `${validBugs.length} باگ ثبت شد.`);
-      loadRuns(); loadBugs(); loadAllBugs(); loadRetestTasks();
+      loadRuns(); loadTestRequests(); loadBugs(); loadAllBugs(); loadRetestTasks();
     } catch { toast.error('خطا.'); } finally { setActionLoading(false); }
   };
 
@@ -666,7 +677,7 @@ export const TestRunsBugsPage: React.FC = () => {
     setActionLoading(true);
     try {
       await runIssueApi.create({ testRunId: wizardCreatedRunId, issueType: wizardIssueType, title: wizardIssueTitle, description: wizardIssueDesc }, activeContext.userId, wizardApplicationId!);
-      resetWizard(); toast.success('مشکل اجرا ثبت شد.'); loadRuns(); loadRetestTasks();
+      resetWizard(); toast.success('مشکل اجرا ثبت شد.'); loadRuns(); loadTestRequests(); loadRetestTasks();
     } catch { toast.error('خطا.'); } finally { setActionLoading(false); }
   };
 
@@ -931,7 +942,7 @@ export const TestRunsBugsPage: React.FC = () => {
       setDeletedBugIds([]);
       setRunEditFiles([]);
       toast.success('اجرای تست و باگ‌های مرتبط بروزرسانی شد.');
-      loadRuns(); loadAllRuns(); loadBugs(); loadAllBugs(); loadRetestTasks();
+      loadRuns(); loadAllRuns(); loadTestRequests(); loadBugs(); loadAllBugs(); loadRetestTasks();
     } catch {
       toast.error('ویرایش اجرا ممکن نیست. قفل VersionHistory، آماده بودن تست کیس و داده‌های انتخابی را بررسی کنید.');
     } finally {
@@ -949,6 +960,10 @@ export const TestRunsBugsPage: React.FC = () => {
 
   const getPrevRun = () => allRuns.find(r => r.id === wizardPrevRunId);
   const openRetestTasks = (retestTasksData?.data || []).filter(t => ['QUEUED', 'IN_PROGRESS'].includes(t.status));
+  const qaRetestRequests = testRequests.filter(request =>
+    request.qaQualityStatus === 'RETEST_REQUIRED' &&
+    (role === 'SYSTEM_ADMIN' || request.assigneeId === activeContext.userId)
+  );
   const getRetestTaskBugIds = (task: RetestTask) => task.bugIds?.length ? task.bugIds : [task.bugId];
   const canStartRetestTask = (task: RetestTask) =>
     role === 'SYSTEM_ADMIN' || (role === 'QA_SPECIALIST' && task.assignedToId === activeContext.userId);
@@ -1060,9 +1075,54 @@ export const TestRunsBugsPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <Header title="کارتابل اجرای تست و باگ‌ها" subtitle={isDeveloper ? 'باگ‌های تخصیص‌یافته' : 'اجرای ویزاردی تست و مدیریت باگ'}
-        onRefresh={() => { loadRuns(); loadBugs(); loadAllBugs(); loadRetestTasks(); }} refreshing={runsLoading || bugsLoading || retestTasksLoading} />
+        onRefresh={() => { loadRuns(); loadTestRequests(); loadBugs(); loadAllBugs(); loadRetestTasks(); }} refreshing={runsLoading || bugsLoading || retestTasksLoading} />
       <main className="p-4 sm:p-6">
         {activeContext.scope === 'APP' && <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200 text-sm text-blue-700">🌐 سطح کل اپلیکیشن</div>}
+
+        {qaRetestRequests.length > 0 && (
+          <section className="mb-8 rounded-xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm">
+            <div className="mb-4 flex items-start gap-3">
+              <RotateCcw className="mt-0.5 h-6 w-6 shrink-0 text-amber-700" />
+              <div>
+                <h2 className="font-semibold text-amber-950">درخواست‌های نیازمند اجرای مجدد</h2>
+                <p className="mt-1 text-sm text-amber-800">
+                  سرپرست QA برای درخواست‌های زیر اجرای جدید خواسته است. دلیل هر درخواست را بخوانید و اجرا را با هدف «تست مجدد» ثبت کنید.
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {qaRetestRequests.map(request => (
+                <article key={request.id} className="rounded-lg border border-amber-200 bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-gray-900">{request.title}</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {getApplicationName(request.applicationId)} | نسخه {request.version}
+                        {request.buildNumber ? ` | بیلد ${request.buildNumber}` : ''}
+                      </p>
+                    </div>
+                    <Badge variant="warning">اجرای مجدد لازم است</Badge>
+                  </div>
+                  <div className="my-3 rounded-lg bg-amber-50 p-3">
+                    <p className="text-xs font-medium text-amber-800">دلیل سرپرست QA</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-amber-950">
+                      {request.qaQualityNotes || 'دلیلی ثبت نشده است.'}
+                    </p>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      icon={<RotateCcw className="h-4 w-4" />}
+                      onClick={() => openQaRetestWizard(request)}
+                    >
+                      ثبت اجرای مجدد
+                    </Button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
 
         {(isQA || role === 'SYSTEM_ADMIN') && openRetestTasks.length > 0 && (
           <div className="mb-8">
@@ -1178,8 +1238,20 @@ export const TestRunsBugsPage: React.FC = () => {
             />
 
             {selectedWizardTestRequest && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-                سامانه درخواست تست: <span className="font-semibold">{getApplicationName(selectedWizardTestRequest.applicationId)}</span>
+              <div className={`rounded-lg border p-3 text-sm ${
+                selectedWizardTestRequest.qaQualityStatus === 'RETEST_REQUIRED'
+                  ? 'border-amber-300 bg-amber-50 text-amber-900'
+                  : 'border-blue-200 bg-blue-50 text-blue-800'
+              }`}>
+                <p>
+                  سامانه درخواست تست: <span className="font-semibold">{getApplicationName(selectedWizardTestRequest.applicationId)}</span>
+                </p>
+                {selectedWizardTestRequest.qaQualityStatus === 'RETEST_REQUIRED' && (
+                  <>
+                    <p className="mt-2 font-semibold">این درخواست به اجرای مجدد نیاز دارد.</p>
+                    <p className="mt-1">دلیل سرپرست QA: {selectedWizardTestRequest.qaQualityNotes || '-'}</p>
+                  </>
+                )}
               </div>
             )}
 

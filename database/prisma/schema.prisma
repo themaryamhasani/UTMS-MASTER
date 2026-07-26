@@ -125,6 +125,7 @@ enum RetestTaskStatus {
 }
 
 enum BugSeverity {
+  BLOCKER
   CRITICAL
   MAJOR
   MINOR
@@ -285,6 +286,7 @@ enum PlaywrightTestFileSource {
 enum VersionHistoryStatus {
   DRAFT
   QA_REVIEW
+  SECURITY_REVIEW
   PENDING_DECISION
   APPROVED
   CONDITIONAL
@@ -313,6 +315,7 @@ enum QAQualityStatus {
   READY
   NOT_READY
   CONDITIONAL
+  RETEST_REQUIRED
 }
 
 enum AuditAction {
@@ -528,6 +531,7 @@ model User {
   assignedTestRequests    TestRequest[]             @relation("TestRequestAssignee")
   reviewedTestRequests    TestRequest[]             @relation("TestRequestReviewer")
   releaseDecisionRequests TestRequest[]             @relation("TestRequestReleaseDecisionBy")
+  securityRequestedTests  TestRequest[]             @relation("TestRequestSecurityRequestedBy")
   createdRequirements     Requirement[]             @relation("RequirementCreator")
   createdFlows            Flow[]                    @relation("FlowCreator")
   createdTestCases        TestCase[]                @relation("TestCaseCreator")
@@ -546,6 +550,7 @@ model User {
   triggeredPlaywrightRuns PlaywrightRun[]           @relation("PlaywrightRunTrigger")
   createdPlaywrightFiles  PlaywrightTestFile[]      @relation("PlaywrightFileCreator")
   qaReviewedVersions      VersionHistory[]          @relation("VersionHistoryQaReviewer")
+  qaRetestVersions        VersionHistory[]          @relation("VersionHistoryQaRetestRequester")
   decidedVersions         VersionHistory[]          @relation("VersionHistoryDecisionBy")
   createdVersions         VersionHistory[]          @relation("VersionHistoryCreator")
   createdVersionRevisions VersionHistoryRevision[]  @relation("VersionHistoryRevisionCreator")
@@ -715,7 +720,7 @@ model TestRequest {
   riskLevel               Priority                 @map("risk_level")
   status                  TestRequestStatus
   systemUrl               String?                  @map("system_url") @db.Text
-  testTypes               TestType[]               @default([]) @map("test_types")
+  testTypes               String[]                 @default([]) @map("test_types")
   requesterId             String                   @map("requester_id")
   requester               User                     @relation("TestRequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
   assigneeId              String?                  @map("assignee_id")
@@ -731,6 +736,11 @@ model TestRequest {
   versionHistory          VersionHistory?          @relation("TestRequestCurrentVersionHistory", fields: [versionHistoryId], references: [id], onDelete: SetNull)
   qaQualityStatus         QAQualityStatus?         @map("qa_quality_status")
   qaQualityNotes          String?                  @map("qa_quality_notes") @db.Text
+  securityTestRequired    Boolean                  @default(false) @map("security_test_required")
+  securityTestConfiguration Json?                  @map("security_test_configuration")
+  securityRequestedById   String?                  @map("security_requested_by_id")
+  securityRequestedBy     User?                    @relation("TestRequestSecurityRequestedBy", fields: [securityRequestedById], references: [id], onDelete: SetNull)
+  securityRequestedAt     DateTime?                @map("security_requested_at") @db.Timestamptz(6)
   releaseDecision         VersionHistoryDecision?  @map("release_decision")
   releaseDecisionReason   String?                  @map("release_decision_reason") @db.Text
   releaseDecisionById     String?                  @map("release_decision_by_id")
@@ -744,6 +754,7 @@ model TestRequest {
   testRuns                TestRun[]
   retestTasks             RetestTask[]
   checklists              Checklist[]
+  securityReview          SecurityReview?
   playwrightRuns          PlaywrightRun[]
   primaryVersionHistories VersionHistory[]         @relation("VersionHistoryPrimaryRequest")
   versionHistoryLinks     VersionHistoryRequest[]
@@ -844,7 +855,6 @@ model TestCase {
   updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
   testRuns             TestRun[]
   retestTasks          RetestTask[]
-  securityReviews      SecurityReview[]
 
   @@index([applicationId, status, isActive])
   @@index([requirementId])
@@ -1069,21 +1079,20 @@ model SecurityChecklistTemplateItem {
 }
 
 model SecurityReview {
-  id            String               @id @default(cuid())
-  testCaseId    String               @map("test_case_id")
-  testCase      TestCase             @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
-  testCaseTitle String               @map("test_case_title") @db.VarChar(500)
-  applicationId String               @map("application_id")
-  application   Application          @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  status        SecurityReviewStatus
-  reviewedById  String?              @map("reviewed_by_id")
-  reviewedBy    User?                @relation("SecurityReviewReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
-  reviewedAt    DateTime?            @map("reviewed_at") @db.Timestamptz(6)
-  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
-  items         SecurityReviewItem[]
+  id               String               @id @default(cuid())
+  testRequestId    String               @unique @map("test_request_id")
+  testRequest      TestRequest          @relation(fields: [testRequestId], references: [id], onDelete: Cascade)
+  testRequestTitle String               @map("test_request_title") @db.VarChar(500)
+  applicationId    String               @map("application_id")
+  application      Application          @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  status           SecurityReviewStatus
+  reviewedById     String?              @map("reviewed_by_id")
+  reviewedBy       User?                @relation("SecurityReviewReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt       DateTime?            @map("reviewed_at") @db.Timestamptz(6)
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  items            SecurityReviewItem[]
 
-  @@unique([testCaseId])
   @@index([applicationId, status])
   @@map("security_reviews")
 }
@@ -1219,6 +1228,10 @@ model VersionHistory {
   qaReviewedById       String?                  @map("qa_reviewed_by_id")
   qaReviewedBy         User?                    @relation("VersionHistoryQaReviewer", fields: [qaReviewedById], references: [id], onDelete: SetNull)
   qaReviewedAt         DateTime?                @map("qa_reviewed_at") @db.Timestamptz(6)
+  qaRetestRequestedAt  DateTime?                @map("qa_retest_requested_at") @db.Timestamptz(6)
+  qaRetestRequestedById String?                 @map("qa_retest_requested_by_id")
+  qaRetestRequestedBy  User?                    @relation("VersionHistoryQaRetestRequester", fields: [qaRetestRequestedById], references: [id], onDelete: SetNull)
+  qaRetestBaselineRunCount Int?                 @map("qa_retest_baseline_run_count")
   decision             VersionHistoryDecision?
   decisionReason       String?                  @map("decision_reason") @db.Text
   decisionById         String?                  @map("decision_by_id")

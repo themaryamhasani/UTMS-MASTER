@@ -11,6 +11,7 @@ import { CartableSearchInput } from '../components/ui/CartableToolbar';
 import { Badge, StatusBadge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { Input, Textarea, Select } from '../components/ui/Input';
+import { SecurityTestConfigurationFields } from '../components/security/SecurityTestConfigurationFields';
 import { useAuthStore, canPerformWorkflowAction, getWorkflowPolicyForContext } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
 import { useApplicationLookup } from '../utils/useApplicationLookup';
@@ -18,7 +19,15 @@ import { formatDisplayId } from '../utils/displayId';
 import { applicationApi, releasePublishApi, commentApi, testRequestApi } from '../services/api';
 import { syncApplicationWorkflowPolicies } from '../services/workflowPolicyStore';
 import { toast } from '../components/ui/Toast';
-import type { ReleasePublish, Bug, Comment, TestRequest, VersionHistoryEvidence, CartableFilterParams, PaginatedResponse, QAQualityStatus, VersionHistoryDecision, TestType } from '../types';
+import {
+  createEmptySecurityTestConfiguration,
+  validateSecurityTestConfiguration,
+} from '../utils/securityTest';
+import {
+  BUILD_NUMBER_INPUT_HINT,
+  sanitizeBuildNumberInput,
+} from '../utils/inputRules';
+import type { ReleasePublish, Bug, Comment, TestRequest, VersionHistoryEvidence, CartableFilterParams, PaginatedResponse, QAQualityStatus, VersionHistoryDecision, TestType, SecurityTestConfiguration } from '../types';
 import { 
   RELEASE_PUBLISH_STATUS_LABELS, 
   QA_QUALITY_STATUS_LABELS,
@@ -36,6 +45,9 @@ const REQUEST_ENVIRONMENT_LABELS: Record<string, string> = {
 };
 
 const REQUEST_TEST_TYPE_FALLBACK_LABELS: Record<string, string> = {
+  INITIAL: 'تست اولیه',
+  RETEST_REGRESSION: 'بازآزمون + رگرسیون',
+  EXPLORATORY: 'اکتشافی',
   SECURITY_TEST: 'تست امنیت',
   PERFORMANCE_TEST: 'تست کارایی',
   PLAYWRIGHT: 'پلی‌رایت',
@@ -86,6 +98,11 @@ export const ReleasesPage: React.FC = () => {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [qaQualityStatus, setQaQualityStatus] = useState<QAQualityStatus | ''>('');
   const [qaQualityNotes, setQaQualityNotes] = useState('');
+  const [qaBuildNumber, setQaBuildNumber] = useState('');
+  const [securityTestRequired, setSecurityTestRequired] = useState(false);
+  const [securityConfiguration, setSecurityConfiguration] = useState<SecurityTestConfiguration>(
+    createEmptySecurityTestConfiguration
+  );
   const [decision, setDecision] = useState<VersionHistoryDecision | ''>('');
   const [decisionReason, setDecisionReason] = useState('');
   const [emergencyReason, setEmergencyReason] = useState('');
@@ -248,6 +265,15 @@ export const ReleasesPage: React.FC = () => {
     const errors: Record<string, string> = {};
     if (!qaQualityStatus) errors.qaQualityStatus = 'انتخاب وضعیت کیفیت الزامی است.';
     if (!qaQualityNotes.trim()) errors.qaQualityNotes = 'ثبت توضیح QA الزامی است.';
+    const qaBuildValidation = sanitizeBuildNumberInput(qaBuildNumber);
+    if (qaBuildValidation.error) errors.qaBuildNumber = BUILD_NUMBER_INPUT_HINT;
+    const effectiveBuildNumber = evidence?.primaryRequest?.buildNumber?.trim() || qaBuildNumber.trim();
+    if (securityTestRequired) {
+      Object.assign(errors, validateSecurityTestConfiguration(securityConfiguration));
+      if (!effectiveBuildNumber) {
+        errors.securityBuildNumber = 'شماره Build درخواست برای ارسال به کارشناس امنیت الزامی است.';
+      }
+    }
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) {
       return;
@@ -256,12 +282,35 @@ export const ReleasesPage: React.FC = () => {
     if (!selectedQaQualityStatus) return;
     setActionLoading(true);
     try {
+      if (!evidence?.primaryRequest?.buildNumber?.trim() && qaBuildNumber.trim()) {
+        const buildUpdated = await releasePublishApi.setMissingBuildNumber(
+          selectedRelease.id,
+          qaBuildNumber.trim(),
+          activeContext.userId,
+          activeContext.role
+        );
+        if (!buildUpdated) {
+          toast.error('ثبت شماره بیلد توسط سرپرست QA مجاز نیست.');
+          return;
+        }
+        setEvidence(previous => previous?.primaryRequest
+          ? {
+              ...previous,
+              primaryRequest: {
+                ...previous.primaryRequest,
+                buildNumber: qaBuildNumber.trim(),
+              },
+            }
+          : previous);
+      }
       const updated = await releasePublishApi.setQAQuality(
         selectedRelease.id,
         selectedQaQualityStatus,
         qaQualityNotes,
         activeContext.userId,
-        activeContext.role
+        activeContext.role,
+        securityTestRequired,
+        securityTestRequired ? securityConfiguration : undefined
       );
       if (!updated) {
         toast.error('ثبت نظر QA مجاز نیست. اجرای تست، تکمیل نیازمندی‌ها و وضعیت انتخاب‌شده را بررسی کنید.');
@@ -270,6 +319,9 @@ export const ReleasesPage: React.FC = () => {
       setShowQAReviewModal(false);
       setQaQualityStatus('');
       setQaQualityNotes('');
+      setQaBuildNumber('');
+      setSecurityTestRequired(false);
+      setSecurityConfiguration(createEmptySecurityTestConfiguration());
       setSelectedRelease(updated);
       toast.success('نظر QA و Snapshot ثبت شد.');
       loadData();
@@ -377,6 +429,32 @@ export const ReleasesPage: React.FC = () => {
     setFieldErrors({});
   };
 
+  const openQAReviewModal = () => {
+    const config = createEmptySecurityTestConfiguration();
+    const request = evidence?.primaryRequest;
+    if (request) {
+      config.primaryUrl = request.systemUrl || '';
+      config.requestType = selectedRelease?.qaRetestRequestedAt ? 'RETEST' : 'NEW_VERSION';
+      if (request.environment === 'development') {
+        config.environment = 'DEVELOPMENT';
+        config.development.url = request.systemUrl || '';
+      } else if (request.environment === 'production') {
+        config.environment = 'PRODUCTION';
+        config.production.url = request.systemUrl || '';
+      } else {
+        config.environment = 'TEST';
+        config.test.url = request.systemUrl || '';
+      }
+    }
+    setQaQualityStatus('');
+    setQaQualityNotes('');
+    setQaBuildNumber(request?.buildNumber || '');
+    setSecurityTestRequired(false);
+    setSecurityConfiguration(config);
+    setFieldErrors({});
+    setShowQAReviewModal(true);
+  };
+
   const selectedPrimaryRequest = eligibleRequests.find(r => r.id === formData.primaryTestRequestId);
 
   if (!activeContext) return null;
@@ -400,6 +478,10 @@ export const ReleasesPage: React.FC = () => {
     : false;
   const closedBugStatuses = ['CLOSED', 'REJECTED', 'RETEST_PASSED', 'NO_ACTION_NEEDED'];
   const primaryRequestDetails = evidence?.primaryRequest || selectedPrimaryRequest;
+  const retestRunPending = selectedRelease?.qaQualityStatus === 'RETEST_REQUIRED' &&
+    (evidence?.testRuns.filter(run =>
+      ['PASSED', 'FAILED', 'BLOCKED', 'SKIPPED'].includes(run.status)
+    ).length || 0) <= (selectedRelease.qaRetestBaselineRunCount || 0);
   const openEvidenceList = (
     title: string,
     items: Array<{ id: string; title: string; subtitle?: string; status?: string }>
@@ -1012,6 +1094,12 @@ export const ReleasesPage: React.FC = () => {
                 <p className="text-xs text-gray-500 mt-2">
                   بررسی توسط: {selectedRelease.qaReviewedBy?.fullName} - {selectedRelease.qaReviewedAt && new Date(selectedRelease.qaReviewedAt).toLocaleDateString('fa-IR')}
                 </p>
+                {selectedRelease.qaQualityStatus === 'RETEST_REQUIRED' && (
+                  <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                    احتیاج به گرفتن تست مجدد وجود دارد. کارشناس تست باید یک اجرای جدید ثبت کند؛
+                    سپس سرپرست QA وضعیت کیفیت را دوباره ثبت می‌کند.
+                  </div>
+                )}
               </div>
             )}
 
@@ -1178,9 +1266,12 @@ export const ReleasesPage: React.FC = () => {
                 <Button
                   variant="primary"
                   icon={<Shield className="w-4 h-4" />}
-                  onClick={() => { setFieldErrors({}); setShowQAReviewModal(true); }}
+                  onClick={openQAReviewModal}
+                  disabled={retestRunPending}
                 >
-                  ثبت وضعیت کیفیت ({selectedReleasePolicy.versionHistory.qaReviewOwnerLabel})
+                  {retestRunPending
+                    ? 'در انتظار اجرای مجدد'
+                    : `ثبت وضعیت کیفیت (${selectedReleasePolicy.versionHistory.qaReviewOwnerLabel})`}
                 </Button>
               )}
 
@@ -1208,7 +1299,7 @@ export const ReleasesPage: React.FC = () => {
         isOpen={showQAReviewModal}
         onClose={() => setShowQAReviewModal(false)}
         title="ثبت وضعیت کیفیت"
-        size="md"
+        size="full"
       >
         <div className="space-y-4">
           {primaryRequestDetails && (
@@ -1227,10 +1318,37 @@ export const ReleasesPage: React.FC = () => {
               </div>
             </div>
           )}
+          {primaryRequestDetails && !primaryRequestDetails.buildNumber?.trim() && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+              <Input
+                label="شماره بیلد توسط سرپرست QA"
+                value={qaBuildNumber}
+                onChange={(event) => {
+                  const sanitized = sanitizeBuildNumberInput(event.target.value);
+                  setQaBuildNumber(sanitized.value);
+                  setFieldErrors(prev => ({
+                    ...prev,
+                    qaBuildNumber: sanitized.error || '',
+                    securityBuildNumber: '',
+                  }));
+                }}
+                placeholder="مثال: build-1234"
+                hint="درخواست‌دهنده شماره بیلد را وارد نکرده است؛ سرپرست QA می‌تواند آن را تکمیل کند."
+                error={fieldErrors.qaBuildNumber}
+              />
+            </div>
+          )}
           <Select
             label="وضعیت کیفیت *"
             value={qaQualityStatus}
-            onChange={(e) => { setFieldErrors(prev => ({ ...prev, qaQualityStatus: '' })); setQaQualityStatus(e.target.value as QAQualityStatus); }}
+            onChange={(e) => {
+              const nextStatus = e.target.value as QAQualityStatus;
+              setFieldErrors(prev => ({ ...prev, qaQualityStatus: '' }));
+              setQaQualityStatus(nextStatus);
+              if (!['READY', 'CONDITIONAL'].includes(nextStatus)) {
+                setSecurityTestRequired(false);
+              }
+            }}
             options={qaQualityOptions}
             placeholder="انتخاب کنید"
             error={fieldErrors.qaQualityStatus}
@@ -1242,6 +1360,37 @@ export const ReleasesPage: React.FC = () => {
             placeholder="توضیحات وضعیت کیفیت..."
             error={fieldErrors.qaQualityNotes}
           />
+          {['READY', 'CONDITIONAL'].includes(qaQualityStatus) && (
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-purple-200 bg-purple-50 p-4">
+              <input
+                type="checkbox"
+                checked={securityTestRequired}
+                onChange={(event) => {
+                  setSecurityTestRequired(event.target.checked);
+                  setFieldErrors({});
+                }}
+                className="mt-1 h-4 w-4 rounded border-gray-300 text-purple-600"
+              />
+              <span>
+                <span className="block text-sm font-medium text-purple-900">احتیاج به تست امنیت دارد</span>
+                <span className="mt-1 block text-xs text-purple-700">
+                  با انتخاب این گزینه، تست و تکمیل چک‌لیست امنیت اجباری و درخواست فقط برای کارشناس امنیت ارسال می‌شود.
+                </span>
+              </span>
+            </label>
+          )}
+          {securityTestRequired && (
+            <>
+              {fieldErrors.securityBuildNumber && (
+                <p className="text-sm text-red-600">{fieldErrors.securityBuildNumber}</p>
+              )}
+              <SecurityTestConfigurationFields
+                value={securityConfiguration}
+                onChange={setSecurityConfiguration}
+                errors={fieldErrors}
+              />
+            </>
+          )}
           <div className="flex gap-3 justify-end pt-4">
             <Button variant="secondary" onClick={() => setShowQAReviewModal(false)}>
               انصراف

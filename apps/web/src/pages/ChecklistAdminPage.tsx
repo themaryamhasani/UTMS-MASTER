@@ -11,34 +11,11 @@ import { useAuthStore } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
 import { securityChecklistApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
+import type { SecurityReview as SecurityReviewRecord } from '../types';
 
 interface TemplateItem {
   title: string;
   description: string;
-}
-
-type SecurityReviewStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
-type SecurityReviewResult = 'PASS' | 'FAIL' | 'PARTIAL' | 'NOT_TESTED' | 'N_A';
-
-interface SecurityReviewItem {
-  id: string;
-  title: string;
-  description: string;
-  result?: SecurityReviewResult;
-  notes?: string;
-}
-
-interface SecurityReviewRecord {
-  id: string;
-  testCaseId: string;
-  testCaseTitle: string;
-  applicationId: string;
-  status: SecurityReviewStatus;
-  items: SecurityReviewItem[];
-  reviewedById?: string;
-  reviewedAt?: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export const ChecklistAdminPage: React.FC = () => {
@@ -144,7 +121,7 @@ export const ChecklistAdminPage: React.FC = () => {
   let filteredReviews = [...reviews];
   if (searchFilter) {
     const s = searchFilter.toLowerCase();
-    filteredReviews = filteredReviews.filter(r => r.testCaseTitle.toLowerCase().includes(s));
+    filteredReviews = filteredReviews.filter(r => r.testRequestTitle.toLowerCase().includes(s));
   }
 
   const RESULT_LABELS: Record<string, string> = { PASS: 'قبول', FAIL: 'رد', PARTIAL: 'ناقص', NOT_TESTED: 'تست نشده', N_A: 'غیرقابل اعمال' };
@@ -160,8 +137,8 @@ export const ChecklistAdminPage: React.FC = () => {
 
   const reviewColumns = [
     {
-      key: 'testCase', title: 'تست کیس',
-      render: (item: SecurityReviewRecord) => <p className="font-medium text-gray-900">{item.testCaseTitle}</p>,
+      key: 'testRequest', title: 'درخواست تست',
+      render: (item: SecurityReviewRecord) => <p className="font-medium text-gray-900">{item.testRequestTitle}</p>,
     },
     {
       key: 'status', title: 'وضعیت',
@@ -199,7 +176,7 @@ export const ChecklistAdminPage: React.FC = () => {
         {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <StatCard title="آیتم‌های قالب" value={templateItems.length} icon={<ShieldCheck className="w-6 h-6" />} />
-          <StatCard title="تست کیس‌ها (کل)" value={reviews.length} icon={<ShieldCheck className="w-6 h-6" />} />
+          <StatCard title="درخواست‌ها (کل)" value={reviews.length} icon={<ShieldCheck className="w-6 h-6" />} />
           <StatCard title="در انتظار/در حال بررسی" value={pendingCount + inProgressCount} icon={<AlertTriangle className="w-6 h-6" />} variant="warning" />
           <StatCard title="تکمیل شده" value={completedCount} icon={<CheckCircle className="w-6 h-6" />} variant="success" />
         </div>
@@ -220,7 +197,7 @@ export const ChecklistAdminPage: React.FC = () => {
         {activeTab === 'template' && (
           <>
             <div className="flex justify-between items-center mb-4">
-              <p className="text-sm text-gray-600">این آیتم‌ها به صورت خودکار برای هر تست کیس جدید ایجاد می‌شوند.</p>
+              <p className="text-sm text-gray-600">این آیتم‌ها فقط برای درخواست‌هایی ساخته می‌شوند که تست امنیت آن‌ها توسط QA الزامی شده است.</p>
               <Button icon={<Plus className="w-4 h-4" />} onClick={() => { setItemForm({ title: '', description: '' }); setFormErrors({}); setShowAddModal(true); }}>
                 افزودن آیتم
               </Button>
@@ -266,7 +243,7 @@ export const ChecklistAdminPage: React.FC = () => {
             <Card className="mb-4" padding="sm">
               <div className="relative">
                 <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="text" placeholder="جستجو در تست کیس‌ها..." value={searchFilter}
+                <input type="text" placeholder="جستجو در درخواست‌ها..." value={searchFilter}
                   onChange={(e) => setSearchFilter(e.target.value)}
                   className="w-full pr-10 pl-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
@@ -317,7 +294,7 @@ export const ChecklistAdminPage: React.FC = () => {
         {selectedReview && (
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <h3 className="font-semibold text-gray-900">{selectedReview.testCaseTitle}</h3>
+              <h3 className="font-semibold text-gray-900">{selectedReview.testRequestTitle}</h3>
               <Badge variant={selectedReview.status === 'COMPLETED' ? 'success' : selectedReview.status === 'IN_PROGRESS' ? 'info' : 'default'}>
                 {selectedReview.status === 'COMPLETED' ? 'تکمیل شده' : selectedReview.status === 'IN_PROGRESS' ? 'در حال بررسی' : 'در انتظار'}
               </Badge>

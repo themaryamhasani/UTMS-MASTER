@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Eye, Edit, Trash2, FileText, GitBranch } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
@@ -160,6 +160,7 @@ export const TestCasesPage: React.FC = () => {
   const [selectedCase, setSelectedCase] = useState<TestCase | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const loadRequestSequence = useRef(0);
 
   const [formData, setFormData] = useState<TestCaseFormState>(createEmptyFormState);
   const [formApplicationId, setFormApplicationId] = useState('');
@@ -191,17 +192,46 @@ export const TestCasesPage: React.FC = () => {
     }
   }, [formData.requirementId]);
 
-  const loadData = async () => {
-    if (!activeContext) return;
+  const loadData = async (
+    requestedFilters: CartableFilterParams = filters
+  ): Promise<PaginatedResponse<TestCase> | null> => {
+    if (!activeContext) return null;
+    const requestSequence = ++loadRequestSequence.current;
     setLoading(true);
     try {
-      const response = await testCaseApi.getVisibleForRole(appId, filters, activeContext.userId, activeContext.role);
-      setData(response);
+      const response = await testCaseApi.getVisibleForRole(
+        appId,
+        requestedFilters,
+        activeContext.userId,
+        activeContext.role
+      );
+      if (requestSequence === loadRequestSequence.current) {
+        setData(response);
+      }
+      return response;
     } catch {
-      toast.error('خطا در بارگذاری تست کیس‌ها.');
+      if (requestSequence === loadRequestSequence.current) {
+        toast.error('خطا در بارگذاری تست کیس‌ها.');
+      }
+      return null;
     } finally {
-      setLoading(false);
+      if (requestSequence === loadRequestSequence.current) {
+        setLoading(false);
+      }
     }
+  };
+
+  const handleRefresh = () => {
+    const refreshedFilters: CartableFilterParams = {
+      ...filters,
+      page: 1,
+      search: '',
+      status: '',
+      sortBy: 'createdAt',
+      sortOrder: 'desc',
+    };
+    setFilters(refreshedFilters);
+    void loadData(refreshedFilters);
   };
 
   const loadRequirements = async () => {
@@ -384,7 +414,7 @@ export const TestCasesPage: React.FC = () => {
     
     setActionLoading(true);
     try {
-      await testCaseApi.create(
+      const createdTestCase = await testCaseApi.create(
         {
           ...formData,
           testRequestId: selectedTestRequest?.id || '',
@@ -400,10 +430,33 @@ export const TestCasesPage: React.FC = () => {
         activeContext.userId,
         selectedRequirement.applicationId
       );
+
+      const revealCreatedFilters: CartableFilterParams = {
+        ...filters,
+        page: 1,
+        search: '',
+        status: '',
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+      };
+      setFilters(revealCreatedFilters);
+      const refreshedData = await loadData(revealCreatedFilters);
+      if (refreshedData && !refreshedData.data.some(testCase => testCase.id === createdTestCase.id)) {
+        const visibleRows = [
+          createdTestCase,
+          ...refreshedData.data.filter(testCase => testCase.id !== createdTestCase.id),
+        ].slice(0, revealCreatedFilters.limit);
+        setData({
+          ...refreshedData,
+          data: visibleRows,
+          total: refreshedData.total + 1,
+          page: 1,
+          totalPages: Math.ceil((refreshedData.total + 1) / revealCreatedFilters.limit),
+        });
+      }
       setShowCreateModal(false);
       resetForm();
       toast.success('تست کیس با موفقیت ایجاد شد.');
-      loadData();
     } catch {
       toast.error('خطا در ایجاد تست کیس.');
     } finally {
@@ -586,7 +639,7 @@ export const TestCasesPage: React.FC = () => {
       <Header
         title="کارتابل تست کیس‌ها"
         subtitle={`${data?.total || 0} تست کیس`}
-        onRefresh={loadData}
+        onRefresh={handleRefresh}
         refreshing={loading}
       />
 

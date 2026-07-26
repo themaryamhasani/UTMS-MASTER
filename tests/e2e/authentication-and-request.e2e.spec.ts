@@ -9,17 +9,20 @@ test.describe('developer workflow', () => {
     annotateTest(testInfo, metadata('UTMS-REQ-STATE-001', {
       requirement: 'Developer to QA workflow steps 1-5', feature: 'Test request', level: 'e2e', type: 'ui-ux',
       technique: 'State Transition Testing', role: 'DEVELOPER', scope: 'SYSTEMS', risk: 'critical',
-      data: 'Valid request plus an existing requirement/flow', expected: 'DRAFT is created, visible after refresh, then transitions to SUBMITTED',
+      data: 'Valid request with INITIAL and UAT plus an existing requirement/flow', expected: 'DRAFT and both test types persist after refresh, then the request transitions to SUBMITTED',
     }));
     const title = 'درخواست خودکار پرداخت پایدار';
     await page.goto('/test-requests');
     await page.getByRole('button', { name: 'درخواست جدید' }).click();
     const dialog = page.getByRole('dialog', { name: 'ایجاد درخواست تست جدید' });
+    await dialog.getByLabel('سامانه درخواست تست *').selectOption('app-1');
     await dialog.getByLabel('عنوان درخواست *').fill(title);
     await dialog.getByLabel('توضیحات').fill('ایجادشده توسط آزمون قطعی Playwright');
     await dialog.getByLabel('نسخه *').fill('2.5.0');
     await dialog.getByLabel('شماره بیلد').fill('build-250');
     await dialog.getByLabel('آدرس سامانه').fill('https://app.example.com');
+    await dialog.getByRole('button', { name: 'تست اولیه (Initial Test)' }).click();
+    await dialog.getByRole('button', { name: 'پذیرش کاربر (UAT)' }).click();
     await dialog.getByRole('checkbox').first().check();
     await dialog.getByRole('button', { name: 'ایجاد', exact: true }).click();
     await expect(page.getByText('درخواست تست ایجاد شد.')).toBeVisible();
@@ -30,6 +33,7 @@ test.describe('developer workflow', () => {
     await page.getByText(title).first().click();
     const details = page.getByRole('dialog', { name: 'جزئیات درخواست تست' });
     await expect(details.getByText('پیش‌نویس')).toBeVisible();
+    await expect(details.getByText('تست اولیه، پذیرش کاربر', { exact: true })).toBeVisible();
     await details.getByRole('button', { name: 'ارسال', exact: true }).click();
     await expect(page.getByText('ارسال شد.')).toBeVisible();
     await page.getByText(title).first().click();
