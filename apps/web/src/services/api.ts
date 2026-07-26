@@ -58,6 +58,11 @@ import type {
   PlaywrightRunnerConfig,
   SystemIntegrationSettings,
   SecurityReview,
+  SecurityExecution,
+  SecurityReviewAttachmentKind,
+  SecurityReviewHistoryAction,
+  SecurityReviewItemResult,
+  SecurityReviewStatus,
   SecurityReviewRequestSummary,
   SecurityTestConfiguration,
 } from '../types';
@@ -306,6 +311,14 @@ function currentPersistentState(): PersistedUtmsState {
     securityReviews: securityReviews.map(review => ({
       ...review,
       items: review.items.map(item => ({ ...item })),
+      attachments: [],
+      securityEvidenceAttachmentIds: [...(review.securityEvidenceAttachmentIds || [])],
+      qaReportAttachmentIds: [...(review.qaReportAttachmentIds || [])],
+      securityExecutions: (review.securityExecutions || []).map(execution => ({ ...execution })),
+      history: (review.history || []).map(entry => ({
+        ...entry,
+        attachmentIds: entry.attachmentIds ? [...entry.attachmentIds] : undefined,
+      })),
     })),
   };
 }
@@ -520,8 +533,7 @@ const AUDIT_ACTIONS: readonly AuditAction[] = [
   'CONTEXT_SWITCH',
 ];
 const CHECKLIST_RESULTS: readonly ChecklistResult[] = ['PASS', 'FAIL', 'PARTIAL', 'NOT_TESTED'];
-const SECURITY_REVIEW_RESULTS = [...CHECKLIST_RESULTS, 'N_A'] as const;
-type SecurityReviewItemResult = typeof SECURITY_REVIEW_RESULTS[number];
+const SECURITY_REVIEW_RESULTS: readonly SecurityReviewItemResult[] = ['PASS', 'FAIL', 'PARTIAL', 'N_A'];
 
 function ensureAuditableEntityType(value: string): AuditableEntityType {
   if (AUDIT_ENTITY_TYPES.includes(value as AuditableEntityType)) return value as AuditableEntityType;
@@ -5937,6 +5949,122 @@ let securityChecklistTemplate = [
 ];
 
 let securityReviews: SecurityReview[] = [];
+const SECURITY_REVIEW_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const SECURITY_REVIEW_EDITABLE_STATUSES: SecurityReviewStatus[] = [
+  'PENDING',
+  'IN_PROGRESS',
+  'RETURNED_TO_SECURITY',
+];
+
+interface SecurityReviewUploadFile {
+  name: string;
+  size: number;
+  type: string;
+  dataUrl?: string;
+}
+
+function requireSecurityReviewNotes(notes: string): string {
+  const value = notes.trim();
+  if (!value) throw new Error('SECURITY_REVIEW_NOTES_REQUIRED');
+  return value;
+}
+
+function appendSecurityReviewHistory(
+  review: SecurityReview,
+  action: SecurityReviewHistoryAction,
+  actorId: string,
+  toStatus: SecurityReviewStatus,
+  notes?: string,
+  attachmentIds?: string[]
+): void {
+  const fromStatus = review.status;
+  review.status = toStatus;
+  review.lastActionNotes = notes?.trim() || undefined;
+  review.updatedAt = new Date().toISOString();
+  review.history ||= [];
+  review.history.unshift({
+    id: uuidv4(),
+    action,
+    actorId,
+    actorName: getUserById(actorId)?.fullName || actorId,
+    fromStatus,
+    toStatus,
+    notes: notes?.trim() || undefined,
+    attachmentIds: attachmentIds?.length ? [...attachmentIds] : undefined,
+    createdAt: review.updatedAt,
+  });
+}
+
+function createSecurityReviewAttachment(
+  review: SecurityReview,
+  file: SecurityReviewUploadFile,
+  kind: SecurityReviewAttachmentKind,
+  userId: string
+): Attachment {
+  const fileName = file.name?.trim();
+  if (!fileName) throw new Error('SECURITY_REVIEW_FILE_NAME_REQUIRED');
+  if (!Number.isFinite(file.size) || file.size <= 0) {
+    throw new Error('SECURITY_REVIEW_FILE_EMPTY');
+  }
+  if (file.size > SECURITY_REVIEW_MAX_FILE_SIZE_BYTES) {
+    throw new Error('SECURITY_REVIEW_FILE_TOO_LARGE');
+  }
+  if (file.dataUrl) {
+    const base64Marker = ';base64,';
+    const markerIndex = file.dataUrl.indexOf(base64Marker);
+    if (!file.dataUrl.startsWith('data:') || markerIndex < 5) {
+      throw new Error('SECURITY_REVIEW_FILE_CONTENT_INVALID');
+    }
+    const base64 = file.dataUrl.slice(markerIndex + base64Marker.length);
+    const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+    const decodedSize = Math.floor((base64.length * 3) / 4) - padding;
+    if (decodedSize <= 0 || decodedSize > SECURITY_REVIEW_MAX_FILE_SIZE_BYTES) {
+      throw new Error('SECURITY_REVIEW_FILE_TOO_LARGE');
+    }
+    if (Math.abs(decodedSize - file.size) > 2) {
+      throw new Error('SECURITY_REVIEW_FILE_CONTENT_INVALID');
+    }
+  }
+
+  const now = new Date().toISOString();
+  const attachment: Attachment = {
+    id: uuidv4(),
+    entityType: 'CHECKLIST',
+    entityId: review.id,
+    type: kind === 'QA_REPORT' ? 'REPORT' : 'DOCUMENT',
+    fileName,
+    fileSize: file.size,
+    mimeType: file.type || 'application/octet-stream',
+    storagePath: file.dataUrl ||
+      `/attachments/security-reviews/${review.id}/${uuidv4()}-${encodeURIComponent(fileName)}`,
+    status: 'UPLOADED',
+    uploadedById: userId,
+    uploadedBy: getUserById(userId),
+    createdAt: now,
+    updatedAt: now,
+  };
+  attachments.unshift(attachment);
+  return attachment;
+}
+
+function notifySecurityReviewUser(
+  userId: string | undefined,
+  review: SecurityReview,
+  title: string,
+  message: string,
+  type: Notification['type'] = 'INFO'
+): void {
+  createNotification(
+    userId,
+    title,
+    message,
+    type,
+    'CHECKLIST',
+    review.id,
+    ['IN_APP'],
+    `security-review:${review.id}:${title}`
+  );
+}
 
 function getApplicationRoleUserName(applicationId: string, role: UserRole): string {
   const assignment = mockUserRoleAssignments.find(item =>
@@ -5993,7 +6121,9 @@ function buildSecurityReviewRequestSummary(testRequest: TestRequest): SecurityRe
     requestType: testRequest.securityTestConfiguration?.requestType || 'INITIAL',
     developerRequestedAt: testRequest.createdAt,
     technicalLeadName: getApplicationRoleUserName(testRequest.applicationId, 'TECH_LEAD'),
+    developerId: testRequest.requesterId,
     developerName: getUserById(testRequest.requesterId)?.fullName || '-',
+    qaSpecialistId: testRequest.assigneeId,
     qaSpecialistName: testRequest.assigneeId
       ? getUserById(testRequest.assigneeId)?.fullName || '-'
       : '-',
@@ -6023,11 +6153,36 @@ function buildSecurityReviewRequestSummary(testRequest: TestRequest): SecurityRe
 
 function hydrateSecurityReview(review: SecurityReview): SecurityReview {
   const request = testRequests.find(item => item.id === review.testRequestId);
-  if (!request) return review;
-  return {
+  const securityEvidenceAttachmentIds = review.securityEvidenceAttachmentIds || [];
+  const qaReportAttachmentIds = review.qaReportAttachmentIds || [];
+  const attachmentIds = new Set([
+    ...securityEvidenceAttachmentIds,
+    ...qaReportAttachmentIds,
+  ]);
+  const hydrated = {
     ...review,
+    securityEvidenceAttachmentIds,
+    qaReportAttachmentIds,
+    attachments: attachments
+      .filter(item => attachmentIds.has(item.id) && item.status !== 'DELETED')
+      .map(item => ({
+        ...item,
+        uploadedBy: item.uploadedBy || getUserById(item.uploadedById),
+      })),
+    securityExecutions: review.securityExecutions || [],
+    history: review.history || [],
+    items: review.items.map(item => ({
+      ...item,
+      result: (item.result as string) === 'NOT_TESTED'
+        ? 'PARTIAL' as const
+        : item.result,
+    })),
+  };
+  if (!request) return hydrated;
+  return {
+    ...hydrated,
     testRequestTitle: request.title,
-    configuration: request.securityTestConfiguration || review.configuration,
+    configuration: request.securityTestConfiguration || hydrated.configuration,
     requestSummary: buildSecurityReviewRequestSummary(request),
   };
 }
@@ -6046,6 +6201,7 @@ function ensureSecurityReviewForRequest(
   }
 
   const now = new Date().toISOString();
+  const actorId = testRequest.securityRequestedById || testRequest.reviewedById || testRequest.requesterId;
   const review: SecurityReview = {
     id: uuidv4(),
     testRequestId: testRequest.id,
@@ -6059,6 +6215,19 @@ function ensureSecurityReviewForRequest(
       title: item.title,
       description: item.description,
     })),
+    securityEvidenceAttachmentIds: [],
+    qaReportAttachmentIds: [],
+    attachments: [],
+    securityExecutions: [],
+    history: [{
+      id: uuidv4(),
+      action: 'CREATED',
+      actorId,
+      actorName: getUserById(actorId)?.fullName || actorId,
+      toStatus: 'PENDING',
+      notes: 'درخواست تست امنیت توسط سرپرست QA ایجاد شد.',
+      createdAt: now,
+    }],
     createdAt: now,
     updatedAt: now,
   };
@@ -6073,6 +6242,38 @@ const localSecurityChecklistApi = {
       .filter(review => {
         const request = testRequests.find(item => item.id === review.testRequestId);
         return review.applicationId === applicationId && request?.securityTestRequired === true;
+      })
+      .map(hydrateSecurityReview);
+  },
+
+  async getFollowUpsForApp(
+    applicationId: string,
+    userId: string,
+    role: UserRole
+  ): Promise<SecurityReview[]> {
+    await delay();
+    const allowedRoles: UserRole[] = [
+      'SYSTEM_ADMIN',
+      'QA_LEAD',
+      'QA_SPECIALIST',
+      'DEVELOPER',
+      'SECURITY_REVIEWER',
+    ];
+    if (!allowedRoles.includes(role)) return [];
+    if (role !== 'SYSTEM_ADMIN' && !userHasRole(userId, [role], applicationId)) return [];
+
+    return securityReviews
+      .filter(review =>
+        review.applicationId === applicationId &&
+        Boolean(
+          review.followUpStartedAt ||
+          review.history?.some(entry => entry.action === 'SUBMITTED_TO_QA_LEAD')
+        )
+      )
+      .filter(review => {
+        if (['SYSTEM_ADMIN', 'QA_LEAD', 'SECURITY_REVIEWER'].includes(role)) return true;
+        if (role === 'QA_SPECIALIST') return review.assignedQASpecialistId === userId;
+        return review.securityExecutions?.some(execution => execution.developerId === userId) ?? false;
       })
       .map(hydrateSecurityReview);
   },
@@ -6092,39 +6293,152 @@ const localSecurityChecklistApi = {
   ): Promise<SecurityReview | null> {
     await delay();
     const review = securityReviews.find(sr => sr.id === reviewId);
-    if (!review || review.status === 'COMPLETED') return null;
+    if (!review || !SECURITY_REVIEW_EDITABLE_STATUSES.includes(review.status)) return null;
     if (!userHasRole(userId, ['SECURITY_REVIEWER', 'SYSTEM_ADMIN'], review.applicationId)) {
       throw new Error('SECURITY_REVIEW_FORBIDDEN');
     }
     const item = review.items.find(i => i.id === itemId);
     if (!item) return null;
     item.result = ensureSecurityReviewItemResult(result);
-    item.notes = notes;
-    review.status = 'IN_PROGRESS';
+    item.notes = notes.trim();
     review.reviewedById = userId;
-    review.updatedAt = new Date().toISOString();
+    appendSecurityReviewHistory(
+      review,
+      'ITEM_UPDATED',
+      userId,
+      review.status === 'PENDING' ? 'IN_PROGRESS' : review.status,
+      `${item.title}: ${item.result}${item.notes ? ` - ${item.notes}` : ''}`
+    );
     return hydrateSecurityReview(review);
   },
 
-  async complete(reviewId: string, userId: string): Promise<SecurityReview | null> {
+  async uploadEvidence(
+    reviewId: string,
+    file: SecurityReviewUploadFile,
+    kind: SecurityReviewAttachmentKind,
+    userId: string
+  ): Promise<SecurityReview | null> {
+    await delay();
+    const review = securityReviews.find(item => item.id === reviewId);
+    if (!review) return null;
+
+    if (kind === 'SECURITY_EVIDENCE') {
+      if (!SECURITY_REVIEW_EDITABLE_STATUSES.includes(review.status)) {
+        throw new Error('SECURITY_REVIEW_FILE_UPLOAD_NOT_ALLOWED');
+      }
+      if (!userHasRole(userId, ['SECURITY_REVIEWER', 'SYSTEM_ADMIN'], review.applicationId)) {
+        throw new Error('SECURITY_REVIEW_FORBIDDEN');
+      }
+    } else {
+      if (review.status !== 'FIXED_PENDING_QA') {
+        throw new Error('SECURITY_REVIEW_FILE_UPLOAD_NOT_ALLOWED');
+      }
+      const canUploadQaReport =
+        review.assignedQASpecialistId === userId ||
+        userHasRole(userId, ['SYSTEM_ADMIN'], review.applicationId);
+      if (!canUploadQaReport) throw new Error('SECURITY_REVIEW_FORBIDDEN');
+    }
+
+    const attachment = createSecurityReviewAttachment(review, file, kind, userId);
+    if (kind === 'SECURITY_EVIDENCE') {
+      review.securityEvidenceAttachmentIds ||= [];
+      review.securityEvidenceAttachmentIds.push(attachment.id);
+    } else {
+      review.qaReportAttachmentIds ||= [];
+      review.qaReportAttachmentIds.push(attachment.id);
+    }
+    appendSecurityReviewHistory(
+      review,
+      'FILE_UPLOADED',
+      userId,
+      review.status,
+      `${kind === 'QA_REPORT' ? 'گزارش QA' : 'مستند امنیت'}: ${attachment.fileName}`,
+      [attachment.id]
+    );
+    return hydrateSecurityReview(review);
+  },
+
+  async complete(reviewId: string, userId: string, notes = ''): Promise<SecurityReview | null> {
     await delay();
     const review = securityReviews.find(sr => sr.id === reviewId);
-    if (!review) return null;
+    if (!review || !SECURITY_REVIEW_EDITABLE_STATUSES.includes(review.status)) return null;
     if (!userHasRole(userId, ['SECURITY_REVIEWER', 'SYSTEM_ADMIN'], review.applicationId)) {
       throw new Error('SECURITY_REVIEW_FORBIDDEN');
     }
     if (review.items.some(item => !item.result)) {
       throw new Error('SECURITY_REVIEW_INCOMPLETE');
     }
-    review.status = 'COMPLETED';
+    if (!(review.securityEvidenceAttachmentIds || []).length) {
+      throw new Error('SECURITY_REVIEW_EVIDENCE_REQUIRED');
+    }
+
     review.reviewedById = userId;
     review.reviewedAt = new Date().toISOString();
-    review.updatedAt = new Date().toISOString();
 
     const versionHistory = releasePublishes.find(
       item => item.primaryTestRequestId === review.testRequestId &&
         item.status === 'SECURITY_REVIEW'
     );
+    const hasFindings = review.items.some(item =>
+      item.result === 'FAIL' || item.result === 'PARTIAL'
+    );
+    const previousReviewStatus = review.status;
+
+    if (hasFindings) {
+      review.followUpStartedAt ||= new Date().toISOString();
+      appendSecurityReviewHistory(
+        review,
+        'SUBMITTED_TO_QA_LEAD',
+        userId,
+        'NEEDS_QA_REVIEW',
+        notes || 'چک‌لیست دارای موارد رد یا ناقص است و به بررسی سرپرست QA نیاز دارد.',
+        [...(review.securityEvidenceAttachmentIds || [])]
+      );
+      if (versionHistory) {
+        versionHistory.snapshot = buildVersionSnapshot(versionHistory);
+        versionHistory.updatedAt = new Date().toISOString();
+      }
+      createAuditLog(
+        userId,
+        review.applicationId,
+        'CHECKLIST',
+        review.id,
+        'STATUS_CHANGE',
+        { status: previousReviewStatus },
+        { status: 'NEEDS_QA_REVIEW', testRequestId: review.testRequestId }
+      );
+      notifyRoles(
+        review.applicationId,
+        ['QA_LEAD'],
+        'بررسی امنیت نیازمند اقدام است',
+        `درخواست "${review.testRequestTitle}" دارای موارد رد یا ناقص است و همراه مستندات برای بررسی ارسال شد.`,
+        'WARNING',
+        'CHECKLIST',
+        review.id,
+        ['IN_APP'],
+        `security-review:${review.id}:qa-review`
+      );
+      return hydrateSecurityReview(review);
+    }
+
+    appendSecurityReviewHistory(
+      review,
+      'SUBMITTED_TO_TECH_LEAD',
+      userId,
+      'COMPLETED',
+      notes || 'تمام موارد امنیتی قبول یا غیرقابل اعمال هستند.',
+      [...(review.securityEvidenceAttachmentIds || [])]
+    );
+    createAuditLog(
+      userId,
+      review.applicationId,
+      'CHECKLIST',
+      review.id,
+      'STATUS_CHANGE',
+      { status: previousReviewStatus },
+      { status: 'COMPLETED', testRequestId: review.testRequestId }
+    );
+
     if (versionHistory) {
       const previousStatus = versionHistory.status;
       versionHistory.status = 'PENDING_DECISION';
@@ -6153,6 +6467,294 @@ const localSecurityChecklistApi = {
       );
     }
 
+    return hydrateSecurityReview(review);
+  },
+
+  async qaLeadReview(
+    reviewId: string,
+    decision: 'ASSIGN_QA' | 'RETURN_SECURITY',
+    notes: string,
+    userId: string,
+    qaSpecialistId?: string
+  ): Promise<SecurityReview | null> {
+    await delay();
+    const review = securityReviews.find(item => item.id === reviewId);
+    if (!review || review.status !== 'NEEDS_QA_REVIEW') return null;
+    if (!userHasRole(userId, ['QA_LEAD', 'SYSTEM_ADMIN'], review.applicationId)) {
+      throw new Error('SECURITY_REVIEW_FORBIDDEN');
+    }
+    const normalizedNotes = requireSecurityReviewNotes(notes);
+
+    if (decision === 'ASSIGN_QA') {
+      if (!qaSpecialistId || !userHasRole(qaSpecialistId, ['QA_SPECIALIST'], review.applicationId)) {
+        throw new Error('SECURITY_REVIEW_QA_SPECIALIST_REQUIRED');
+      }
+      review.assignedQASpecialistId = qaSpecialistId;
+      appendSecurityReviewHistory(
+        review,
+        'ASSIGNED_TO_QA_SPECIALIST',
+        userId,
+        'ASSIGNED_TO_QA',
+        normalizedNotes
+      );
+      notifySecurityReviewUser(
+        qaSpecialistId,
+        review,
+        'ارجاع بررسی امنیت به متخصص QA',
+        `بررسی امنیت درخواست "${review.testRequestTitle}" با توضیح سرپرست QA به شما ارجاع شد.`,
+        'WARNING'
+      );
+      createAuditLog(
+        userId,
+        review.applicationId,
+        'CHECKLIST',
+        review.id,
+        'ASSIGN',
+        { status: 'NEEDS_QA_REVIEW' },
+        { status: 'ASSIGNED_TO_QA', qaSpecialistId },
+        { notes: normalizedNotes }
+      );
+      return hydrateSecurityReview(review);
+    }
+
+    appendSecurityReviewHistory(
+      review,
+      'RETURNED_TO_SECURITY',
+      userId,
+      'RETURNED_TO_SECURITY',
+      normalizedNotes
+    );
+    notifyRoles(
+      review.applicationId,
+      ['SECURITY_REVIEWER'],
+      'بازگشت بررسی به تیم امنیت',
+      `بررسی "${review.testRequestTitle}" با توضیح سرپرست QA برای اصلاح بازگردانده شد.`,
+      'WARNING',
+      'CHECKLIST',
+      review.id,
+      ['IN_APP'],
+      `security-review:${review.id}:returned-to-security`
+    );
+    createAuditLog(
+      userId,
+      review.applicationId,
+      'CHECKLIST',
+      review.id,
+      'REJECT',
+      { status: 'NEEDS_QA_REVIEW' },
+      { status: 'RETURNED_TO_SECURITY' },
+      { notes: normalizedNotes }
+    );
+    return hydrateSecurityReview(review);
+  },
+
+  async createSecurityExecution(
+    reviewId: string,
+    description: string,
+    developerId: string,
+    userId: string
+  ): Promise<SecurityReview | null> {
+    await delay();
+    const review = securityReviews.find(item => item.id === reviewId);
+    if (!review || review.status !== 'ASSIGNED_TO_QA') return null;
+    const canCreate =
+      review.assignedQASpecialistId === userId ||
+      userHasRole(userId, ['SYSTEM_ADMIN'], review.applicationId);
+    if (!canCreate) throw new Error('SECURITY_REVIEW_FORBIDDEN');
+    if (!isActiveDeveloperForApplication(developerId, review.applicationId)) {
+      throw new Error('SECURITY_REVIEW_DEVELOPER_REQUIRED');
+    }
+    const normalizedDescription = requireSecurityReviewNotes(description);
+    const now = new Date().toISOString();
+    const execution: SecurityExecution = {
+      id: uuidv4(),
+      title: `اجرای امنیتی ${(review.securityExecutions || []).length + 1}`,
+      description: normalizedDescription,
+      developerId,
+      developerName: getUserById(developerId)?.fullName || developerId,
+      createdById: userId,
+      status: 'ASSIGNED_TO_DEVELOPER',
+      createdAt: now,
+    };
+    review.securityExecutions ||= [];
+    review.securityExecutions.unshift(execution);
+    appendSecurityReviewHistory(
+      review,
+      'SECURITY_EXECUTION_CREATED',
+      userId,
+      'DEVELOPER_FIX',
+      normalizedDescription
+    );
+    notifySecurityReviewUser(
+      developerId,
+      review,
+      'اجرای امنیتی جدید',
+      `مشکلات امنیتی درخواست "${review.testRequestTitle}" برای رفع به شما ارجاع شد.`,
+      'WARNING'
+    );
+    createAuditLog(
+      userId,
+      review.applicationId,
+      'CHECKLIST',
+      review.id,
+      'ASSIGN',
+      { status: 'ASSIGNED_TO_QA' },
+      { status: 'DEVELOPER_FIX', executionId: execution.id, developerId },
+      { description: normalizedDescription }
+    );
+    return hydrateSecurityReview(review);
+  },
+
+  async resolveSecurityExecution(
+    reviewId: string,
+    executionId: string,
+    resolution: string,
+    userId: string
+  ): Promise<SecurityReview | null> {
+    await delay();
+    const review = securityReviews.find(item => item.id === reviewId);
+    if (!review || review.status !== 'DEVELOPER_FIX') return null;
+    const execution = (review.securityExecutions || []).find(item => item.id === executionId);
+    if (!execution || execution.status !== 'ASSIGNED_TO_DEVELOPER') return null;
+    const isAdmin = userHasRole(userId, ['SYSTEM_ADMIN'], review.applicationId);
+    if (execution.developerId !== userId && !isAdmin) {
+      throw new Error('SECURITY_REVIEW_FORBIDDEN');
+    }
+    const normalizedResolution = requireSecurityReviewNotes(resolution);
+    execution.status = 'FIXED';
+    execution.resolution = normalizedResolution;
+    execution.resolvedAt = new Date().toISOString();
+    appendSecurityReviewHistory(
+      review,
+      'DEVELOPER_FIXED',
+      userId,
+      'FIXED_PENDING_QA',
+      normalizedResolution
+    );
+    notifySecurityReviewUser(
+      review.assignedQASpecialistId,
+      review,
+      'مشکلات امنیتی رفع شد',
+      `برنامه‌نویس رفع مشکلات درخواست "${review.testRequestTitle}" را ثبت کرد؛ گزارش بازبینی QA را ارسال کنید.`,
+      'SUCCESS'
+    );
+    createAuditLog(
+      userId,
+      review.applicationId,
+      'CHECKLIST',
+      review.id,
+      'STATUS_CHANGE',
+      { status: 'DEVELOPER_FIX' },
+      { status: 'FIXED_PENDING_QA', executionId },
+      { resolution: normalizedResolution }
+    );
+    return hydrateSecurityReview(review);
+  },
+
+  async submitQaReport(
+    reviewId: string,
+    notes: string,
+    userId: string
+  ): Promise<SecurityReview | null> {
+    await delay();
+    const review = securityReviews.find(item => item.id === reviewId);
+    if (!review || review.status !== 'FIXED_PENDING_QA') return null;
+    const canSubmit =
+      review.assignedQASpecialistId === userId ||
+      userHasRole(userId, ['SYSTEM_ADMIN'], review.applicationId);
+    if (!canSubmit) throw new Error('SECURITY_REVIEW_FORBIDDEN');
+    if (!(review.qaReportAttachmentIds || []).length) {
+      throw new Error('SECURITY_REVIEW_QA_REPORT_REQUIRED');
+    }
+    const normalizedNotes = requireSecurityReviewNotes(notes);
+    appendSecurityReviewHistory(
+      review,
+      'QA_REPORT_SUBMITTED',
+      userId,
+      'QA_REPORT_REVIEW',
+      normalizedNotes,
+      [...(review.qaReportAttachmentIds || [])]
+    );
+    notifyRoles(
+      review.applicationId,
+      ['QA_LEAD'],
+      'گزارش اجرای امنیتی آماده بررسی است',
+      `متخصص QA گزارش رفع مشکلات امنیتی درخواست "${review.testRequestTitle}" را ارسال کرد.`,
+      'INFO',
+      'CHECKLIST',
+      review.id,
+      ['IN_APP'],
+      `security-review:${review.id}:qa-report`
+    );
+    createAuditLog(
+      userId,
+      review.applicationId,
+      'CHECKLIST',
+      review.id,
+      'SUBMIT',
+      { status: 'FIXED_PENDING_QA' },
+      { status: 'QA_REPORT_REVIEW' },
+      { notes: normalizedNotes, attachmentIds: review.qaReportAttachmentIds }
+    );
+    return hydrateSecurityReview(review);
+  },
+
+  async reviewQaReport(
+    reviewId: string,
+    approved: boolean,
+    notes: string,
+    userId: string
+  ): Promise<SecurityReview | null> {
+    await delay();
+    const review = securityReviews.find(item => item.id === reviewId);
+    if (!review || review.status !== 'QA_REPORT_REVIEW') return null;
+    if (!userHasRole(userId, ['QA_LEAD', 'SYSTEM_ADMIN'], review.applicationId)) {
+      throw new Error('SECURITY_REVIEW_FORBIDDEN');
+    }
+    const normalizedNotes = requireSecurityReviewNotes(notes);
+    const nextStatus: SecurityReviewStatus = approved
+      ? 'RETURNED_TO_SECURITY'
+      : 'FIXED_PENDING_QA';
+    appendSecurityReviewHistory(
+      review,
+      approved ? 'QA_REPORT_APPROVED' : 'QA_REPORT_REJECTED',
+      userId,
+      nextStatus,
+      normalizedNotes,
+      [...(review.qaReportAttachmentIds || [])]
+    );
+
+    if (approved) {
+      notifyRoles(
+        review.applicationId,
+        ['SECURITY_REVIEWER'],
+        'گزارش رفع مشکلات امنیتی تأیید شد',
+        `گزارش QA برای درخواست "${review.testRequestTitle}" تأیید و برای بازبینی مجدد امنیت ارسال شد.`,
+        'SUCCESS',
+        'CHECKLIST',
+        review.id,
+        ['IN_APP'],
+        `security-review:${review.id}:qa-report-approved`
+      );
+    } else {
+      notifySecurityReviewUser(
+        review.assignedQASpecialistId,
+        review,
+        'گزارش اجرای امنیتی نیازمند اصلاح است',
+        `گزارش درخواست "${review.testRequestTitle}" توسط سرپرست QA بازگردانده شد.`,
+        'WARNING'
+      );
+    }
+    createAuditLog(
+      userId,
+      review.applicationId,
+      'CHECKLIST',
+      review.id,
+      approved ? 'APPROVE' : 'REJECT',
+      { status: 'QA_REPORT_REVIEW' },
+      { status: nextStatus },
+      { notes: normalizedNotes, attachmentIds: review.qaReportAttachmentIds }
+    );
     return hydrateSecurityReview(review);
   },
 

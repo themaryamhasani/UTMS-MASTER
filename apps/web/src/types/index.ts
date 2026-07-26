@@ -949,8 +949,55 @@ export interface VersionHistoryEvidence {
     retestTasks: RetestTask[];
     runIssues: RunIssue[];
 }
-export type SecurityReviewStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
-export type SecurityReviewItemResult = 'PASS' | 'FAIL' | 'PARTIAL' | 'NOT_TESTED' | 'N_A';
+export type SecurityReviewStatus =
+    | 'PENDING'
+    | 'IN_PROGRESS'
+    | 'NEEDS_QA_REVIEW'
+    | 'ASSIGNED_TO_QA'
+    | 'DEVELOPER_FIX'
+    | 'FIXED_PENDING_QA'
+    | 'QA_REPORT_REVIEW'
+    | 'RETURNED_TO_SECURITY'
+    | 'COMPLETED';
+export type SecurityReviewItemResult = 'PASS' | 'FAIL' | 'PARTIAL' | 'N_A';
+export type SecurityReviewAttachmentKind = 'SECURITY_EVIDENCE' | 'QA_REPORT';
+export type SecurityExecutionStatus = 'ASSIGNED_TO_DEVELOPER' | 'FIXED';
+export interface SecurityExecution {
+    id: string;
+    title: string;
+    description: string;
+    developerId: string;
+    developerName: string;
+    createdById: string;
+    status: SecurityExecutionStatus;
+    resolution?: string | undefined;
+    createdAt: string;
+    resolvedAt?: string | undefined;
+}
+export type SecurityReviewHistoryAction =
+    | 'CREATED'
+    | 'ITEM_UPDATED'
+    | 'FILE_UPLOADED'
+    | 'SUBMITTED_TO_TECH_LEAD'
+    | 'SUBMITTED_TO_QA_LEAD'
+    | 'ASSIGNED_TO_QA_SPECIALIST'
+    | 'RETURNED_TO_SECURITY'
+    | 'SECURITY_EXECUTION_CREATED'
+    | 'DEVELOPER_FIXED'
+    | 'QA_REPORT_SUBMITTED'
+    | 'QA_REPORT_APPROVED'
+    | 'QA_REPORT_REJECTED';
+export interface SecurityReviewHistoryEntry {
+    id: string;
+    action: SecurityReviewHistoryAction;
+    actorId: string;
+    actorName: string;
+    fromStatus?: SecurityReviewStatus | undefined;
+    toStatus: SecurityReviewStatus;
+    notes?: string | undefined;
+    attachmentIds?: string[] | undefined;
+    createdAt: string;
+}
 export interface SecurityReviewDetailItem {
     id: string;
     title: string;
@@ -966,7 +1013,9 @@ export interface SecurityReviewRequestSummary {
     requestType: SecurityTestRequestType;
     developerRequestedAt: string;
     technicalLeadName: string;
+    developerId: string;
     developerName: string;
+    qaSpecialistId?: string | undefined;
     qaSpecialistName: string;
     qaLeadName: string;
     qaApprovedAt: string;
@@ -997,6 +1046,14 @@ export interface SecurityReview {
     }>;
     reviewedById?: string | undefined;
     reviewedAt?: string | undefined;
+    assignedQASpecialistId?: string | undefined;
+    securityEvidenceAttachmentIds: string[];
+    qaReportAttachmentIds: string[];
+    attachments: Attachment[];
+    securityExecutions: SecurityExecution[];
+    history: SecurityReviewHistoryEntry[];
+    followUpStartedAt?: string | undefined;
+    lastActionNotes?: string | undefined;
     createdAt: string;
     updatedAt: string;
 }

@@ -1,6 +1,6 @@
 # Current Implementation
 
-Source-verified: 2026-07-22
+Source-verified: 2026-07-26
 
 This document describes the code that is executable in this checkout. Product requirements and phase reports describe intended or historical behavior; when they conflict with runtime details, this document and the linked source files are the current implementation reference.
 
@@ -12,7 +12,7 @@ This document describes the code that is executable in this checkout. Product re
 | API | `apps/api/src/main.cjs` | Health, domain RPC, reports RPC and Online API Console HTTP routes | Executable transitional server |
 | Worker | `apps/worker/src/main.ts` | Declares notification-outbox and scheduled-report capabilities | Foundation only; no processor loop |
 | Playwright runner | `apps/playwright-runner/src/main.ts` | Declares per-run isolation and artifact policy | Foundation only; no job executor |
-| PostgreSQL | `database/prisma/schema.prisma` | Full target relational schema and baseline seed data | Schema/migration executable; runtime adapters are partial |
+| PostgreSQL | `database/prisma/schema.prisma` | Target relational schema, migrations and baseline seed data | Executable; runtime adoption is partial |
 | Redis | Compose services | Provisioned dependency for future queues/coordination | Not used by current domain operations |
 
 The default development ports are web `5173`, API `4174`, PostgreSQL `5432` and Redis `6379`.
@@ -34,6 +34,7 @@ The default development ports are web `5173`, API `4174`, PostgreSQL `5432` and 
 | `/developer-board` | Developer work board |
 | `/run-issues` | Run issues |
 | `/checklists` | Checklists |
+| `/security-review` | Security remediation and role-to-role follow-up |
 | `/playwright` | Playwright runs |
 | `/playwright-files` | Managed/discovered Playwright files |
 | `/releases` | VersionHistory decisions and publishing |
@@ -68,12 +69,22 @@ The repository contains a complete Prisma schema, but the running system uses a 
 | Users, credentials, password-reset OTPs, role assignments | PostgreSQL through Prisma | `postgres-user-service.cjs` |
 | Applications | PostgreSQL through Prisma | `postgres-application-service.cjs` |
 | Workflow policies and application-policy assignment | PostgreSQL through Prisma | `postgres-workflow-policy-service.cjs` |
-| Test-management domains, reports, settings and security reviews | API-process memory plus `runtime/domain-rpc/utms-state.json` when invoked through domain RPC; IndexedDB with a localStorage mirror in browser mock mode | `apps/web/src/services/api.ts`, `persistentStore.ts`, `reportsApi.ts` |
+| Test requests, requirements, flows and test cases | PostgreSQL snapshot bridge through Prisma; refreshed before RPC reads and persisted transactionally after mutations | `postgres-test-management-state.cjs` |
+| Test runs, bugs, retest tasks, run issues, legacy checklists, Playwright data, VersionHistory, audit, notifications, comments, attachments, reports, settings and security reviews | API-process memory plus `runtime/domain-rpc/utms-state.json` when invoked through domain RPC; IndexedDB with a localStorage mirror in browser mock mode | `apps/web/src/services/api.ts`, `persistentStore.ts`, `reportsApi.ts` |
 | Online API Console | JSON store, encrypted secret vault and key beneath `API_CONSOLE_DATA_DIR` | `api-console-server.cjs` |
-| PostgreSQL schema beyond the three adapters above | Tables and seeds exist, but the current domain server does not yet route those services to Prisma repositories | `database/prisma/schema.prisma` |
+| Remaining PostgreSQL schema | Tables and seeds exist, but the remaining domain services are not yet routed to Prisma repositories | `database/prisma/schema.prisma` |
 | Redis | Persistent Compose volume only | No application consumer yet |
 
-This means “backend mode” is real HTTP execution, but it is not synonymous with “all domains use PostgreSQL.” The domain server bundles the transitional TypeScript service implementation from `apps/web/src/services` for services without a dedicated PostgreSQL adapter.
+The test-management bridge hydrates its four collections from PostgreSQL
+before domain-RPC execution and writes them back in one transaction after
+mutations. `VersionHistory` is still transitional, so its relation is not
+persisted by this snapshot bridge; the mirrored QA, security and release
+decision fields on `TestRequest` are persisted.
+
+“Backend mode” is real HTTP execution, but it is not synonymous with “all
+domains use PostgreSQL.” The domain server bundles the transitional
+TypeScript service implementation from `apps/web/src/services` for services
+without a dedicated PostgreSQL adapter or bridge.
 
 ## Domain RPC Behavior
 
@@ -82,7 +93,7 @@ The browser wraps domain service objects with `createDomainRpcProxy`.
 - `VITE_DOMAIN_API_MODE=backend` is the default. Calls go to `POST /api/domain/rpc`.
 - `VITE_DOMAIN_API_MODE=mock` runs eligible operations in the browser. Users, applications and workflow policies remain backend-only.
 - `VITE_DOMAIN_API_MODE=strict` disables availability fallback.
-- In non-strict backend mode, any backend error on an eligible service falls back to its local implementation. Transport/502/503/504 failures also open the temporary fallback circuit for subsequent calls.
+- In non-strict backend mode, only transport failures and HTTP 502/503/504 responses fall back to an eligible local implementation and open the temporary fallback circuit. Validation, authorization, domain and other 4xx/5xx errors are surfaced to the caller.
 - Read operations use request single-flight and a short browser response cache. Mutations clear that cache.
 - The server applies its own single-flight policy and persists non-query transitional state after mutations.
 
@@ -100,7 +111,15 @@ npm run db:seed
 npm run db:verify
 ```
 
-`db:migrate` uses `prisma migrate deploy`. `db:verify` validates the schema, connects to PostgreSQL and checks required UTMS tables. The committed initial migration is under `database/prisma/migrations/20260720000000_init_utms_postgres`.
+`db:migrate` uses `prisma migrate deploy`. `db:verify` validates the schema,
+connects to PostgreSQL and checks required UTMS tables. Committed migrations
+currently include:
+
+- `20260720000000_init_utms_postgres`
+- `20260726000000_request_security_workflow`
+- `20260726103000_test_request_types_text`
+- `20260726114000_complete_approved_test_requests`
+- `20260726130000_security_review_follow_up`
 
 ## Shared Packages
 
@@ -141,10 +160,14 @@ CI is defined in `.github/workflows/qa.yml` and uses Node.js 22, an isolated Com
 
 ## Known Production Gaps
 
-- Most Prisma models do not yet have runtime repositories.
+- Most Prisma models do not yet have dedicated runtime repositories.
 - Domain RPC reuses and bundles frontend service code as a transitional adapter.
-- The current API Dockerfile does not copy `apps/web/src`, so the dynamically generated non-PostgreSQL service bundle is unavailable inside that image; eligible browser calls can fall back locally. The image must include a prebuilt backend-owned bundle or, preferably, dedicated modules.
-- API Console and most domain state remain file-backed outside the three PostgreSQL-backed services.
+- The current API Dockerfile does not copy `apps/web/src`, so the dynamically
+  generated transitional service bundle is unavailable inside that image.
+  Bundle-loading failures are server errors and are now surfaced rather than
+  hidden by local fallback. The image must include a prebuilt backend-owned
+  bundle or, preferably, dedicated modules.
+- API Console and remaining transitional domain state are file-backed outside the three dedicated PostgreSQL services and the test-management bridge.
 - The root Compose file mounts API Console state but not `runtime/domain-rpc`, so transitional domain state is not durable across API-container replacement.
 - The active-context header is development trust, not signed authentication/authorization.
 - Redis, the worker and the product Playwright runner are not operational integrations.

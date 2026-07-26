@@ -1,6 +1,6 @@
 # Domain RPC API
 
-Source-verified: 2026-07-22
+Source-verified: 2026-07-26
 
 The domain RPC bridge lets the React service interfaces execute inside the API process while the monolith is decomposed into backend modules. It is a transitional internal API, not a public REST contract.
 
@@ -52,9 +52,14 @@ The bridge registers:
 | `userApi` | Dedicated Prisma/PostgreSQL adapter |
 | `applicationApi` | Dedicated Prisma/PostgreSQL adapter |
 | `workflowPolicyApi` | Dedicated Prisma/PostgreSQL adapter |
+| `testRequestApi`, `requirementApi`, `flowApi`, `testCaseApi` | Transitional domain implementation with a Prisma/PostgreSQL snapshot bridge |
 | All other registered services | Bundled transitional implementation from `apps/web/src/services`; server state is saved to `UTMS_DOMAIN_STATE_FILE` or `runtime/domain-rpc/utms-state.json` |
 
-The Prisma schema defines tables for the wider system, but merely having a model does not make that service PostgreSQL-backed.
+Before each RPC operation, the test-management bridge refreshes test
+requests, requirements, flows and test cases from PostgreSQL. After a mutation
+it persists those four collections in one transaction. The Prisma schema
+defines tables for the wider system, but merely having a model does not make
+every other service PostgreSQL-backed.
 
 ## Browser Client Modes
 
@@ -62,7 +67,7 @@ The Prisma schema defines tables for the wider system, but merely having a model
 
 | `VITE_DOMAIN_API_MODE` | Behavior |
 | --- | --- |
-| `backend` | Default. Call the backend; fall back locally after any backend error for eligible services. Availability failures also open a short fallback circuit. |
+| `backend` | Default. Call the backend; fall back locally only after a transport error or HTTP 502/503/504 for eligible services. These failures open a short fallback circuit. |
 | `strict` | Call the backend and surface failures; no fallback circuit. |
 | `mock` | Execute eligible local service methods in the browser. Database-only services still require the backend. |
 
@@ -88,7 +93,9 @@ Known read operations are listed explicitly in both client and server policy set
 
 The bridge accepts active context from a request header and does not currently validate a signed session or token. Scope and workflow checks inside the service layer are useful domain safeguards, but this endpoint is not yet a production authorization boundary.
 
-In default `backend` mode, eligible calls also fall back to local execution after `4xx`/domain errors, not only when the backend is unavailable. Use `strict` when backend authorization/errors must never be bypassed by the development fallback.
+In default `backend` mode, `4xx`, validation, authorization and domain errors
+are returned to the caller and do not trigger local fallback. Use `strict` to
+disable even the availability fallback.
 
 Before production exposure:
 
@@ -98,7 +105,12 @@ Before production exposure:
 4. Replace bundled frontend services with backend-owned modules and Prisma repositories.
 5. Version or replace the generic RPC contract with stable public APIs where needed.
 
-The current API Dockerfile copies `apps/api` and shared packages but not `apps/web/src`, which is the source of the transitional dynamic bundle. Consequently, non-PostgreSQL RPC service loading is not self-contained in that image. This must be corrected by producing a backend-owned build artifact or dedicated modules; relying on browser fallback is not a deployment architecture.
+The current API Dockerfile copies `apps/api` and shared packages but not
+`apps/web/src`, which is the source of the transitional dynamic bundle.
+Consequently, transitional RPC service loading is not self-contained in that
+image. This must be corrected by producing a backend-owned build artifact or
+dedicated modules. The resulting server error is not an availability fallback
+case and is surfaced to the client.
 
 ## Source Map
 
@@ -107,4 +119,5 @@ The current API Dockerfile copies `apps/api` and shared packages but not `apps/w
 - Report read models: `apps/web/src/services/reportsApi.ts`
 - Server dispatcher: `apps/api/src/modules/domain-rpc/domain-rpc-server.cjs`
 - PostgreSQL adapters: `apps/api/src/modules/domain-rpc/postgres-*-service.cjs`
+- PostgreSQL test-management bridge: `apps/api/src/modules/domain-rpc/postgres-test-management-state.cjs`
 - HTTP host: `apps/api/src/modules/api-console/infrastructure/http/api-console-server.cjs`

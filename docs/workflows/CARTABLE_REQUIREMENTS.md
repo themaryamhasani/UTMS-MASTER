@@ -1,13 +1,19 @@
 # UTMS - Cartable Requirements
 
-Source-verified: 2026-07-22
+Source-verified: 2026-07-26
 
 ## Overview
 This document details the requirements for each Cartable in the UTMS system.
 
 ### Current implementation boundary
 
-- Unless a section explicitly points to Online API Console, the resource-style Backend APIs below are target public contracts. The executable web app calls the same service interfaces through `POST /api/domain/rpc` in backend mode. Users, applications and workflow policies use PostgreSQL adapters; the remaining cartable services execute through the transitional server-side service bundle and file state.
+- Resource-style Backend APIs below are target public contracts unless a
+  section explicitly points to Online API Console. The executable web app
+  calls the same service interfaces through `POST /api/domain-rpc`.
+- Users, applications and workflow policies use dedicated PostgreSQL
+  adapters. Test requests, requirements, flows and test cases use the
+  PostgreSQL state bridge. Remaining cartable services execute through the
+  transitional server-side service bundle and file/runtime state.
 - Visibility is evaluated against the active Context: `scope = APP OR applicationId IN scopeApplicationIds`. A single `activeContext.applicationId` is not the complete Scope for APP or multi-system Contexts.
 - Independent create flows require an explicit real Application in APP/multi-system Contexts. Child entities derive Application from their validated parent and may not create cross-system links.
 - `SYSTEM_ADMIN` may select all active Applications according to the current UI policy.
@@ -194,33 +200,66 @@ Requirements in the active Context scope
 SECURITY_REVIEWER
 
 ### Access Rule
-Checklists assigned/in application
+Security reviews explicitly requested by QA Lead in the active application
 
 ### Visibility Rule
 `activeContext.scope = APP OR applicationId IN activeContext.scopeApplicationIds`
 
 ### Records Shown
-- Security, Performance, Penetration checklists
+- One security review per Test Request
+- Only requests whose `securityTestRequired` flag is true
 - Priority: PENDING, IN_PROGRESS
 
 ### Required Filters
 - Status
-- Type
+- Application when active scope spans multiple systems
 
 ### Available Actions
 - View Details
-- Review Items (PASS/FAIL/PARTIAL)
+- Inspect request evidence and drill-down counters
+- Review Items (PASS/FAIL/PARTIAL/N_A)
 - Add Notes
+- Upload at least one evidence file, maximum 10 MiB per file
 - Complete Checklist
 
-### Backend APIs
-- `GET /checklists`
-- `PUT /checklists/:id/items/:itemId`
-- `POST /checklists/:id/complete`
+The request detail includes system and request identity, requirement/test-case
+context, version/build, request type and date, responsible Developer, QA
+Specialist, QA Lead and Tech Lead, QA approval time, and clickable details for
+test cases, run outcomes and open Blocker/Critical bugs. Completion requires a
+result for every item and a security document. Completed requests remain
+visible with their new status. PASS/N_A-only reviews go to the decision owner;
+FAIL/PARTIAL reviews go to the Security Remediation queue.
+
+### Current Domain RPC Service
+
+- `securityChecklistApi.getAllForApp`
+- `securityChecklistApi.getFollowUpsForApp`
+- `securityChecklistApi.getById`
+- `securityChecklistApi.updateItem`
+- `securityChecklistApi.uploadEvidence`
+- `securityChecklistApi.complete`
+- `securityChecklistApi.qaLeadReview`
+- `securityChecklistApi.createSecurityExecution`
+- `securityChecklistApi.resolveSecurityExecution`
+- `securityChecklistApi.submitQaReport`
+- `securityChecklistApi.reviewQaReport`
 
 ### Frontend Route/Component
 - Route: `/checklists`
 - Component: `ChecklistsPage.tsx`
+
+### Security Remediation Queue
+
+- Route: `/security-review`
+- Component: `SecurityReviewPage.tsx`
+- Visible to `SYSTEM_ADMIN`, `QA_LEAD`, `QA_SPECIALIST`, `DEVELOPER` and
+  `SECURITY_REVIEWER`
+- Keeps the checklist, security evidence, QA reports, named security
+  executions and immutable transition history together
+- Enforces explanation on every hand-off and a 10 MiB limit on every uploaded
+  file
+- Preserves authorized download access to the uploaded security evidence and
+  QA reports
 
 ---
 
@@ -252,11 +291,16 @@ Releases pending decision
 - Emergency Publish
 - Final Publish
 
-### Backend APIs
-- `GET /releases`
-- `POST /releases/:id/decide`
-- `POST /releases/:id/publish`
-- `POST /releases/:id/emergency`
+Approved and conditional decisions also complete the primary Test Request and
+reflect the decision in its status/history.
+
+### Current Domain RPC Service
+
+- `releasePublishApi.getAll`
+- `releasePublishApi.getById`
+- `releasePublishApi.decide`
+- `releasePublishApi.publish`
+- `releasePublishApi.emergencyPublish`
 
 ### Frontend Route/Component
 - Route: `/releases`

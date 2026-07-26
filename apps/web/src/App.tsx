@@ -17,6 +17,7 @@ import { BugsPage } from './pages/BugsPage';
 import { DeveloperBoardPage } from './pages/DeveloperBoardPage';
 import { RunIssuesPage } from './pages/RunIssuesPage';
 import { ChecklistsPage } from './pages/ChecklistsPage';
+import { SecurityReviewPage } from './pages/SecurityReviewPage';
 import { PlaywrightPage } from './pages/PlaywrightPage';
 import { PlaywrightFilesPage } from './pages/PlaywrightFilesPage';
 import { ReleasesPage } from './pages/ReleasesPage';
@@ -41,6 +42,7 @@ const routePermissions: Record<string, string> = {
   'developer-board': 'developer-board',
   'run-issues': 'run-issues',
   'checklists': 'checklists',
+  'security-review': 'security-review',
   'playwright': 'playwright',
   'playwright-files': 'playwright-files',
   'releases': 'releases',
@@ -65,6 +67,7 @@ const appRoutes = [
   { id: 'developer-board', path: '/developer-board', element: <DeveloperBoardPage /> },
   { id: 'run-issues', path: '/run-issues', element: <RunIssuesPage /> },
   { id: 'checklists', path: '/checklists', element: <ChecklistsPage /> },
+  { id: 'security-review', path: '/security-review', element: <SecurityReviewPage /> },
   { id: 'playwright', path: '/playwright', element: <PlaywrightPage /> },
   { id: 'playwright-files', path: '/playwright-files', element: <PlaywrightFilesPage /> },
   { id: 'releases', path: '/releases', element: <ReleasesPage /> },

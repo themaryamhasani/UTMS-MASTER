@@ -239,6 +239,12 @@ enum ChecklistResult {
 enum SecurityReviewStatus {
   PENDING
   IN_PROGRESS
+  NEEDS_QA_REVIEW
+  ASSIGNED_TO_QA
+  DEVELOPER_FIX
+  FIXED_PENDING_QA
+  QA_REPORT_REVIEW
+  RETURNED_TO_SECURITY
   COMPLETED
 }
 
@@ -246,8 +252,12 @@ enum SecurityReviewItemResult {
   PASS
   FAIL
   PARTIAL
-  NOT_TESTED
   N_A
+}
+
+enum SecurityExecutionStatus {
+  ASSIGNED_TO_DEVELOPER
+  FIXED
 }
 
 enum PlaywrightRunStatus {
@@ -1089,12 +1099,54 @@ model SecurityReview {
   reviewedById     String?              @map("reviewed_by_id")
   reviewedBy       User?                @relation("SecurityReviewReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   reviewedAt       DateTime?            @map("reviewed_at") @db.Timestamptz(6)
+  assignedQASpecialistId       String?   @map("assigned_qa_specialist_id")
+  securityEvidenceAttachmentIds String[] @default([]) @map("security_evidence_attachment_ids")
+  qaReportAttachmentIds         String[] @default([]) @map("qa_report_attachment_ids")
+  followUpStartedAt             DateTime? @map("follow_up_started_at") @db.Timestamptz(6)
+  lastActionNotes               String?   @map("last_action_notes") @db.Text
   createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
   items            SecurityReviewItem[]
+  executions       SecurityExecution[]
+  transitions      SecurityReviewTransition[]
 
   @@index([applicationId, status])
   @@map("security_reviews")
+}
+
+model SecurityExecution {
+  id          String                  @id @default(cuid())
+  reviewId    String                  @map("review_id")
+  review      SecurityReview          @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  title       String                  @db.VarChar(500)
+  description String                  @db.Text
+  developerId String                  @map("developer_id")
+  createdById String                  @map("created_by_id")
+  status      SecurityExecutionStatus
+  resolution  String?                 @db.Text
+  createdAt   DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt  DateTime?               @map("resolved_at") @db.Timestamptz(6)
+
+  @@index([reviewId, status])
+  @@index([developerId, status])
+  @@map("security_executions")
+}
+
+model SecurityReviewTransition {
+  id            String               @id @default(cuid())
+  reviewId      String               @map("review_id")
+  review        SecurityReview       @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  action        String               @db.VarChar(100)
+  actorId       String               @map("actor_id")
+  fromStatus    SecurityReviewStatus? @map("from_status")
+  toStatus      SecurityReviewStatus  @map("to_status")
+  notes         String?              @db.Text
+  attachmentIds String[]             @default([]) @map("attachment_ids")
+  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([reviewId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("security_review_transitions")
 }
 
 model SecurityReviewItem {

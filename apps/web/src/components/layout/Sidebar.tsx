@@ -30,6 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate, onLogo
         { id: 'developer-board', label: 'برد توسعه', icon: <Activity className="w-5 h-5"/>, cartableType: 'developer-board' },
         { id: 'run-issues', label: 'مشکلات اجرا', icon: <AlertTriangle className="w-5 h-5"/>, cartableType: 'run-issues' },
         { id: 'checklists', label: 'چک‌لیست‌ها', icon: <ShieldCheck className="w-5 h-5"/>, cartableType: 'checklists' },
+        { id: 'security-review', label: 'بررسی امنیت', icon: <ShieldCheck className="w-5 h-5"/>, cartableType: 'security-review' },
         { id: 'playwright', label: 'Playwright', icon: <Terminal className="w-5 h-5"/>, cartableType: 'playwright' },
         { id: 'playwright-files', label: 'فایل تست Playwright', icon: <FileText className="w-5 h-5"/>, cartableType: 'playwright-files' },
         { id: 'releases', label: 'تصمیم و ثبت انتشار', icon: <Rocket className="w-5 h-5"/>, cartableType: 'releases' },

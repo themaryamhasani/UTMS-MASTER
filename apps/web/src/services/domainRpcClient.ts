@@ -99,6 +99,7 @@ const READ_OPERATION_POLICIES = new Set([
   'applicationApi.getAll',
   'applicationApi.getById',
   'securityChecklistApi.getAllForApp',
+  'securityChecklistApi.getFollowUpsForApp',
   'securityChecklistApi.getById',
   'securityChecklistApi.getTemplate',
   'reportsApi.getSystemOverview',

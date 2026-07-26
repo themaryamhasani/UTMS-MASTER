@@ -1,6 +1,6 @@
 # Database
 
-Source-verified: 2026-07-22
+Source-verified: 2026-07-26
 
 Database ownership lives under `database/`.
 
@@ -51,6 +51,30 @@ The initial schema covers the UTMS production domains:
 
 ## Runtime Adoption
 
-Schema coverage is not the same as repository coverage. The API currently routes `userApi`, `applicationApi` and `workflowPolicyApi` to PostgreSQL adapters. Other domain-RPC services use transitional server file persistence (or browser persistence in mock mode) even though corresponding Prisma models exist. See [Current Implementation](../docs/architecture/CURRENT_IMPLEMENTATION.md#persistence-boundary).
+Schema coverage is not the same as repository coverage. The API routes
+`userApi`, `applicationApi` and `workflowPolicyApi` to dedicated PostgreSQL
+adapters. Test requests, requirements, flows and test cases use
+`postgres-test-management-state.cjs`, which refreshes those collections from
+PostgreSQL before RPC execution and persists mutations transactionally.
+Other domain-RPC services still use transitional server file persistence or
+browser persistence in mock mode, even when a Prisma model exists. See
+[Current Implementation](../docs/architecture/CURRENT_IMPLEMENTATION.md#persistence-boundary).
+
+## Migrations
+
+The current migration chain is:
+
+1. `20260720000000_init_utms_postgres`
+2. `20260726000000_request_security_workflow`
+3. `20260726103000_test_request_types_text`
+4. `20260726114000_complete_approved_test_requests`
+5. `20260726130000_security_review_follow_up`
+
+The third migration changes `TestRequest.testTypes` to `TEXT[]`, matching the
+multi-select domain model. The fourth completes the primary test request when
+an approved or conditional release decision has already been recorded.
+The fifth adds the traceable security-remediation states, executions,
+transitions and attachment references, and removes `NOT_TESTED` from security
+review item results.
 
 The committed seed populates workflow policies, applications, identity/role data, integration and runner settings, VersionHistory/testing baselines and API Console relational tables. The Online API Console runtime itself remains on its dedicated file store in this checkout.

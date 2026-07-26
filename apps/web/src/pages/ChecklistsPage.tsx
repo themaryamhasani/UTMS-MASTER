@@ -4,8 +4,10 @@ import {
   CheckCircle,
   Eye,
   Minus,
+  Paperclip,
   Search,
   ShieldCheck,
+  Upload,
   XCircle,
 } from 'lucide-react';
 import { Header } from '../components/layout/Header';
@@ -25,11 +27,18 @@ import type {
   SecurityReview,
   SecurityReviewDetailItem,
   SecurityReviewItemResult,
+  SecurityReviewStatus,
 } from '../types';
 
-const STATUS_LABELS = {
+const STATUS_LABELS: Record<SecurityReviewStatus, string> = {
   PENDING: 'در انتظار بررسی',
   IN_PROGRESS: 'در حال بررسی',
+  NEEDS_QA_REVIEW: 'در انتظار بررسی سرپرست QA',
+  ASSIGNED_TO_QA: 'ارجاع‌شده به متخصص QA',
+  DEVELOPER_FIX: 'در انتظار رفع برنامه‌نویس',
+  FIXED_PENDING_QA: 'در انتظار گزارش متخصص QA',
+  QA_REPORT_REVIEW: 'در انتظار تأیید گزارش QA',
+  RETURNED_TO_SECURITY: 'بازگشت به تیم امنیت',
   COMPLETED: 'تکمیل شده',
 };
 
@@ -37,9 +46,24 @@ const RESULT_LABELS: Record<SecurityReviewItemResult, string> = {
   PASS: 'قبول',
   FAIL: 'رد',
   PARTIAL: 'ناقص',
-  NOT_TESTED: 'تست نشده',
   N_A: 'غیرقابل اعمال',
 };
+
+const MAX_SECURITY_FILE_SIZE = 10 * 1024 * 1024;
+
+const formatFileSize = (size: number) => {
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => typeof reader.result === 'string'
+    ? resolve(reader.result)
+    : reject(new Error('SECURITY_REVIEW_FILE_READ_FAILED'));
+  reader.onerror = () => reject(reader.error || new Error('SECURITY_REVIEW_FILE_READ_FAILED'));
+  reader.readAsDataURL(file);
+});
 
 const REQUEST_TYPE_LABELS = {
   INITIAL: 'تست اولیه',
@@ -85,10 +109,16 @@ export const ChecklistsPage: React.FC = () => {
     items: SecurityReviewDetailItem[];
   } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
 
   const shouldSelectApplication = isAppLevel || isMultiSystem;
   const role = activeContext?.role;
   const canReview = canPerformAction(role!, 'checklist:review');
+  const canEditChecklist = Boolean(
+    canReview &&
+    selectedReview &&
+    ['PENDING', 'IN_PROGRESS', 'RETURNED_TO_SECURITY'].includes(selectedReview.status)
+  );
 
   useEffect(() => {
     if (!activeContext) return;
@@ -171,6 +201,10 @@ export const ChecklistsPage: React.FC = () => {
       toast.warning('تکمیل نتیجه همه آیتم‌های چک‌لیست الزامی است.');
       return;
     }
+    if (!selectedReview.securityEvidenceAttachmentIds.length) {
+      toast.warning('آپلود حداقل یک مستند امنیت الزامی است.');
+      return;
+    }
     setActionLoading(true);
     try {
       const updated = await securityChecklistApi.complete(
@@ -181,13 +215,56 @@ export const ChecklistsPage: React.FC = () => {
         toast.error('تکمیل چک‌لیست مجاز نیست.');
         return;
       }
-      toast.success('چک‌لیست تکمیل و برای سرپرست فنی ارسال شد.');
-      setShowDetailModal(false);
+      setSelectedReview(updated as SecurityReview);
+      if ((updated as SecurityReview).status === 'COMPLETED') {
+        toast.success('نتیجه امنیت برای تصمیم نسخه‌گذاری به سرپرست فنی ارسال شد.');
+      } else {
+        toast.warning('موارد رد یا ناقص همراه مستندات برای بررسی سرپرست QA ارسال شد.');
+      }
       await loadData(selectedAppId);
-    } catch {
-      toast.error('همه آیتم‌ها باید تکمیل شده باشند.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      toast.error(message.includes('EVIDENCE_REQUIRED')
+        ? 'آپلود حداقل یک مستند امنیت الزامی است.'
+        : 'همه آیتم‌ها باید تکمیل شده باشند.');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleEvidenceUpload = async (file?: File) => {
+    if (!file || !selectedReview || !activeContext) return;
+    if (file.size > MAX_SECURITY_FILE_SIZE) {
+      toast.error('حجم فایل نباید بیشتر از ۱۰ مگابایت باشد.');
+      return;
+    }
+    if (file.size <= 0) {
+      toast.error('فایل خالی قابل آپلود نیست.');
+      return;
+    }
+    setUploadLoading(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const updated = await securityChecklistApi.uploadEvidence(
+        selectedReview.id,
+        { name: file.name, size: file.size, type: file.type, dataUrl },
+        'SECURITY_EVIDENCE',
+        activeContext.userId
+      );
+      if (!updated) {
+        toast.error('آپلود فایل در وضعیت فعلی مجاز نیست.');
+        return;
+      }
+      setSelectedReview(updated as SecurityReview);
+      toast.success('مستند امنیت آپلود شد.');
+      await loadData(selectedAppId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      toast.error(message.includes('TOO_LARGE')
+        ? 'حجم فایل نباید بیشتر از ۱۰ مگابایت باشد.'
+        : 'آپلود مستند امنیت ناموفق بود.');
+    } finally {
+      setUploadLoading(false);
     }
   };
 
@@ -288,7 +365,9 @@ export const ChecklistsPage: React.FC = () => {
             openReview(review);
           }}
         >
-          {canReview && review.status !== 'COMPLETED' ? 'بررسی' : 'مشاهده'}
+          {canReview && ['PENDING', 'IN_PROGRESS', 'RETURNED_TO_SECURITY'].includes(review.status)
+            ? 'بررسی'
+            : 'مشاهده'}
         </Button>
       ),
     },
@@ -627,7 +706,7 @@ export const ChecklistsPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {canReview && selectedReview.status !== 'COMPLETED' && editingItemId === item.id && (
+                    {canEditChecklist && editingItemId === item.id && (
                       <div className="mt-3 space-y-3 rounded-lg border border-blue-200 bg-blue-50 p-3">
                         <Select
                           label="نتیجه بررسی *"
@@ -648,7 +727,7 @@ export const ChecklistsPage: React.FC = () => {
                       </div>
                     )}
 
-                    {canReview && selectedReview.status !== 'COMPLETED' && editingItemId !== item.id && (
+                    {canEditChecklist && editingItemId !== item.id && (
                       <div className="mt-2">
                         <Button
                           size="sm"
@@ -668,15 +747,83 @@ export const ChecklistsPage: React.FC = () => {
               </div>
             </section>
 
+            <section>
+              <h3 className="mb-3 flex items-center gap-2 font-semibold text-gray-900">
+                <Paperclip className="h-5 w-5 text-blue-600" />
+                مستندات تست امنیت
+              </h3>
+              <div className="rounded-lg border border-dashed border-blue-300 bg-blue-50 p-4">
+                <p className="text-sm text-blue-900">
+                  حداقل یک مستند برای تکمیل چک‌لیست لازم است. حداکثر حجم هر فایل ۱۰ مگابایت است.
+                </p>
+                {canEditChecklist && (
+                  <div className="mt-3">
+                    <label
+                      htmlFor="security-evidence-upload"
+                      className={`inline-flex cursor-pointer items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 ${
+                        uploadLoading ? 'pointer-events-none opacity-60' : ''
+                      }`}
+                    >
+                      <Upload className="h-4 w-4" />
+                      {uploadLoading ? 'در حال آپلود...' : 'آپلود مستند'}
+                    </label>
+                    <input
+                      id="security-evidence-upload"
+                      type="file"
+                      className="sr-only"
+                      disabled={uploadLoading}
+                      onChange={event => {
+                        const file = event.target.files?.[0];
+                        event.target.value = '';
+                        void handleEvidenceUpload(file);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {selectedReview.attachments
+                  .filter(attachment => selectedReview.securityEvidenceAttachmentIds.includes(attachment.id))
+                  .map(attachment => (
+                    <div
+                      key={attachment.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white p-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-gray-900">{attachment.fileName}</p>
+                        <p className="text-xs text-gray-500">
+                          {formatFileSize(attachment.fileSize)} · {attachment.uploadedBy?.fullName || '-'} · {formatDate(attachment.createdAt)}
+                        </p>
+                      </div>
+                      <Badge size="sm" variant="info">مستند امنیت</Badge>
+                      <a
+                        href={attachment.storagePath}
+                        download={attachment.fileName}
+                        className="text-sm font-medium text-blue-700 hover:underline"
+                      >
+                        دانلود
+                      </a>
+                    </div>
+                  ))}
+                {!selectedReview.securityEvidenceAttachmentIds.length && (
+                  <p className="text-sm text-gray-500">هنوز مستندی آپلود نشده است.</p>
+                )}
+              </div>
+            </section>
+
             <div className="flex justify-end gap-3 border-t pt-4">
-              {canReview && selectedReview.status !== 'COMPLETED' && (
+              {canEditChecklist && (
                 <Button
                   icon={<CheckCircle className="h-4 w-4" />}
                   onClick={handleComplete}
                   loading={actionLoading}
-                  disabled={selectedReview.items.some(item => !item.result)}
+                  disabled={
+                    selectedReview.items.some(item => !item.result) ||
+                    !selectedReview.securityEvidenceAttachmentIds.length
+                  }
                 >
-                  تکمیل چک‌لیست و ارسال به سرپرست فنی
+                  تکمیل چک‌لیست و ارسال نتیجه
                 </Button>
               )}
               <Button variant="secondary" onClick={() => setShowDetailModal(false)}>بستن</Button>

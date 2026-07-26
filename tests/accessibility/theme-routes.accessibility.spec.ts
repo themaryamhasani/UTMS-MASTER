@@ -5,7 +5,7 @@ import { annotateTest, metadata } from '../helpers/traceability';
 
 const routes = [
   '/dashboard', '/test-requests', '/requirements', '/test-cases', '/test-runs',
-  '/bugs', '/test-runs-bugs', '/developer-board', '/run-issues', '/checklists',
+  '/bugs', '/test-runs-bugs', '/developer-board', '/run-issues', '/checklists', '/security-review',
   '/playwright', '/playwright-files', '/releases', '/reports', '/api-console',
   '/users', '/applications', '/checklist-admin', '/admin-operations', '/audit', '/settings',
 ] as const;

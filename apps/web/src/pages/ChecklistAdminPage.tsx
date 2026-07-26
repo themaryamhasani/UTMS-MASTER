@@ -124,7 +124,7 @@ export const ChecklistAdminPage: React.FC = () => {
     filteredReviews = filteredReviews.filter(r => r.testRequestTitle.toLowerCase().includes(s));
   }
 
-  const RESULT_LABELS: Record<string, string> = { PASS: 'قبول', FAIL: 'رد', PARTIAL: 'ناقص', NOT_TESTED: 'تست نشده', N_A: 'غیرقابل اعمال' };
+  const RESULT_LABELS: Record<string, string> = { PASS: 'قبول', FAIL: 'رد', PARTIAL: 'ناقص', N_A: 'غیرقابل اعمال' };
 
   const getResultIcon = (result?: string) => {
     switch (result) {

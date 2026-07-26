@@ -1,6 +1,6 @@
 # Documentation Index
 
-Source-verified index: 2026-07-22
+Source-verified index: 2026-07-26
 
 Use [Current implementation](architecture/CURRENT_IMPLEMENTATION.md) for executable behavior and persistence boundaries. Requirements describe intended product behavior; migration documents and dated test results are historical evidence.
 
@@ -19,6 +19,7 @@ Use [Current implementation](architecture/CURRENT_IMPLEMENTATION.md) for executa
 
 ## Workflows And Requirements
 
+- [Current system guide (Persian)](workflows/CURRENT_SYSTEM_GUIDE_FA.md)
 - [Final PRD](workflows/TheFinalPRD.md)
 - [Assumptions](workflows/ASSUMPTIONS.md)
 - [Cartable requirements](workflows/CARTABLE_REQUIREMENTS.md)

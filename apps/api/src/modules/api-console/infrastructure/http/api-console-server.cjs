@@ -172,7 +172,7 @@ const AUTHENTICATION_DOCUMENTATION_PROFILES = [
 ];
 
 const LIMITS = {
-  requestBodyBytes: Number(process.env.API_CONSOLE_MAX_REQUEST_BODY || 2 * 1024 * 1024),
+  requestBodyBytes: Number(process.env.API_CONSOLE_MAX_REQUEST_BODY || 16 * 1024 * 1024),
   responseBytes: Number(process.env.API_CONSOLE_MAX_RESPONSE_BODY || 1024 * 1024),
   maxRedirects: Number(process.env.API_CONSOLE_MAX_REDIRECTS || 5),
   connectTimeoutMs: Number(process.env.API_CONSOLE_CONNECT_TIMEOUT_MS || 30000),

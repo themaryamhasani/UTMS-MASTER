@@ -420,16 +420,158 @@ test('security review is request-scoped, explicitly selected, and hands off to T
       notification.title === 'درخواست تست امنیت جدید'
   )).toBeTruthy();
 
-  for (const item of review.items) {
+  for (const [index, item] of review.items.entries()) {
     await domainRpc(request, 'securityChecklistApi', 'updateItem', [
       review.id,
       item.id,
-      'PASS',
+      index === 0 ? 'PARTIAL' : 'PASS',
       'بررسی شد',
       'user-5',
     ]);
   }
-  await domainRpc(request, 'securityChecklistApi', 'complete', [review.id, 'user-5']);
+
+  const apiBaseUrl = process.env.UTMS_API_BASE_URL || 'http://127.0.0.1:4174';
+  const oversizedUploadResponse = await request.post(`${apiBaseUrl}/api/domain/rpc`, {
+    data: {
+      service: 'securityChecklistApi',
+      method: 'uploadEvidence',
+      args: [
+        review.id,
+        {
+          name: 'oversized-security-evidence.pdf',
+          size: (10 * 1024 * 1024) + 1,
+          type: 'application/pdf',
+        },
+        'SECURITY_EVIDENCE',
+        'user-5',
+      ],
+    },
+  });
+  expect(oversizedUploadResponse.ok()).toBeFalsy();
+  expect((await oversizedUploadResponse.json()).error.message)
+    .toContain('SECURITY_REVIEW_FILE_TOO_LARGE');
+
+  await domainRpc(request, 'securityChecklistApi', 'uploadEvidence', [
+    review.id,
+    {
+      name: 'security-evidence.pdf',
+      size: 1024,
+      type: 'application/pdf',
+      dataUrl: `data:application/pdf;base64,${Buffer.alloc(1024, 1).toString('base64')}`,
+    },
+    'SECURITY_EVIDENCE',
+    'user-5',
+  ]);
+
+  const reviewWithFindings = await domainRpc(
+    request,
+    'securityChecklistApi',
+    'complete',
+    [review.id, 'user-5', 'یک مورد ناقص برای پیگیری وجود دارد']
+  );
+  expect(reviewWithFindings.status).toBe('NEEDS_QA_REVIEW');
+
+  const versionWaitingForRemediation = await domainRpc(
+    request,
+    'releasePublishApi',
+    'getById',
+    [versionHistory.id]
+  );
+  expect(versionWaitingForRemediation.status).toBe('SECURITY_REVIEW');
+
+  const followUps = await domainRpc(
+    request,
+    'securityChecklistApi',
+    'getFollowUpsForApp',
+    ['app-1', 'user-2', 'QA_LEAD']
+  );
+  expect(followUps.some((item: { id?: string }) => item.id === review.id)).toBeTruthy();
+
+  const assignedToQa = await domainRpc(
+    request,
+    'securityChecklistApi',
+    'qaLeadReview',
+    [
+      review.id,
+      'ASSIGN_QA',
+      'لطفاً مورد ناقص را به اجرای امنیتی تبدیل کنید',
+      'user-2',
+      'user-3',
+    ]
+  );
+  expect(assignedToQa.status).toBe('ASSIGNED_TO_QA');
+
+  const withSecurityExecution = await domainRpc(
+    request,
+    'securityChecklistApi',
+    'createSecurityExecution',
+    [
+      review.id,
+      'اصلاح کنترل امنیتی ناقص و ارائه شواهد رفع',
+      'user-1',
+      'user-3',
+    ]
+  );
+  expect(withSecurityExecution.status).toBe('DEVELOPER_FIX');
+  expect(withSecurityExecution.securityExecutions).toHaveLength(1);
+
+  const fixedByDeveloper = await domainRpc(
+    request,
+    'securityChecklistApi',
+    'resolveSecurityExecution',
+    [
+      review.id,
+      withSecurityExecution.securityExecutions[0].id,
+      'کنترل اصلاح و روی محیط تست مستقر شد',
+      'user-1',
+    ]
+  );
+  expect(fixedByDeveloper.status).toBe('FIXED_PENDING_QA');
+
+  await domainRpc(request, 'securityChecklistApi', 'uploadEvidence', [
+    review.id,
+    {
+      name: 'qa-security-report.pdf',
+      size: 2048,
+      type: 'application/pdf',
+      dataUrl: `data:application/pdf;base64,${Buffer.alloc(2048, 2).toString('base64')}`,
+    },
+    'QA_REPORT',
+    'user-3',
+  ]);
+
+  const qaReportSubmitted = await domainRpc(
+    request,
+    'securityChecklistApi',
+    'submitQaReport',
+    [review.id, 'رفع انجام شد و گزارش بازبینی پیوست است', 'user-3']
+  );
+  expect(qaReportSubmitted.status).toBe('QA_REPORT_REVIEW');
+
+  const returnedToSecurity = await domainRpc(
+    request,
+    'securityChecklistApi',
+    'reviewQaReport',
+    [review.id, true, 'گزارش مورد تأیید است؛ بازبینی امنیت انجام شود', 'user-2']
+  );
+  expect(returnedToSecurity.status).toBe('RETURNED_TO_SECURITY');
+
+  await domainRpc(request, 'securityChecklistApi', 'updateItem', [
+    review.id,
+    review.items[0].id,
+    'PASS',
+    'پس از اصلاح مجدداً بررسی و قبول شد',
+    'user-5',
+  ]);
+
+  const completedReview = await domainRpc(
+    request,
+    'securityChecklistApi',
+    'complete',
+    [review.id, 'user-5', 'همه موارد پس از اصلاح قبول شدند']
+  );
+  expect(completedReview.status).toBe('COMPLETED');
+  expect(completedReview.history.length).toBeGreaterThanOrEqual(10);
 
   const handedOffVersion = await domainRpc(
     request,

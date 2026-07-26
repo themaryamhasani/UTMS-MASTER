@@ -13,6 +13,7 @@ const applicationRoutes = [
   '/developer-board',
   '/run-issues',
   '/checklists',
+  '/security-review',
   '/playwright',
   '/playwright-files',
   '/releases',

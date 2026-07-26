@@ -2,7 +2,7 @@
 
 UTMS is a Persian, RTL Unified Test Management System organized as an npm-workspace monorepo. The current checkout includes a React web application, a transitional Node API, a complete Prisma/PostgreSQL schema, local persistence adapters, automated QA, and Docker environments.
 
-For the exact runtime and persistence boundaries, start with [Current Implementation](docs/architecture/CURRENT_IMPLEMENTATION.md). In particular, the Prisma schema is broader than the current PostgreSQL-backed runtime: users, applications and workflow policies have dedicated Prisma adapters; most other domain services still use transitional file/browser persistence through the domain-RPC bridge.
+For the exact runtime and persistence boundaries, start with [Current Implementation](docs/architecture/CURRENT_IMPLEMENTATION.md). A current Persian product and workflow guide is available in [Current System Guide](docs/workflows/CURRENT_SYSTEM_GUIDE_FA.md). Users, applications and workflow policies have dedicated Prisma adapters; test requests, requirements, flows and test cases are persisted through the PostgreSQL test-management bridge. Other domains still use transitional file/runtime persistence.
 
 ## Workspaces
 
@@ -18,7 +18,7 @@ For the exact runtime and persistence boundaries, start with [Current Implementa
 ## Prerequisites
 
 - Node.js 22 and npm, matching CI and Docker.
-- PostgreSQL 16 for database-backed users, applications and workflow policies, or Docker Compose for the complete local infrastructure.
+- PostgreSQL 16 for the database-backed domains, or Docker Compose for the complete local infrastructure.
 - Playwright browser binaries only when running browser suites.
 
 ## Quick Start
@@ -111,6 +111,7 @@ docker compose down -v
 Start with [docs/INDEX.md](docs/INDEX.md). The primary current-state references are:
 
 - [Current implementation](docs/architecture/CURRENT_IMPLEMENTATION.md)
+- [Current system guide (Persian)](docs/workflows/CURRENT_SYSTEM_GUIDE_FA.md)
 - [Final repository structure](docs/architecture/FINAL_REPOSITORY_STRUCTURE.md)
 - [Dependency inventory](docs/architecture/DEPENDENCY_INVENTORY.md)
 - [Database guide](database/README.md)

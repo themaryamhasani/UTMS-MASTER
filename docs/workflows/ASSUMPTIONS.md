@@ -1,8 +1,13 @@
 # UTMS - Implementation Assumptions (Updated)
 
-Source-verified: 2026-07-22
+Source-verified: 2026-07-26
 
-The word “mock” in the phase-by-phase notes below refers to the transitional service implementation in `apps/web/src/services`. In normal backend mode that implementation is invoked through domain RPC and persisted by the API process; it is still not a complete PostgreSQL/worker/external-integration implementation. Users, applications and workflow policies are the current PostgreSQL-backed exceptions.
+The word “mock” in the phase-by-phase notes below refers to the transitional
+service implementation in `apps/web/src/services`. In normal backend mode it
+is invoked through domain RPC. Users, applications and workflow policies use
+dedicated PostgreSQL adapters; test requests, requirements, flows and test
+cases use the PostgreSQL state bridge. Remaining domains are persisted by the
+API process in transitional file/runtime state.
 
 ## Item 1: QA Delete/Edit
 - "Delete" is soft-delete (deactivation) not physical deletion
@@ -32,11 +37,20 @@ The word “mock” in the phase-by-phase notes below refers to the transitional
 - Scope filtering per system would be applied at the data query level in production
 
 ## Item 4: Security Reviewer Checklists
-- Checklists are linked to test requests (testRequestId)
+- Security Reviews are linked uniquely to test requests (`testRequestId`)
 - Each test request contains multiple test cases and test runs
-- The Security Reviewer fills checklist items that cover the test cases/runs within that scope
-- For per-test-case granularity, separate checklist records can be created
-- In the current MVP, checklists are per test request
+- A review is created only when QA Lead explicitly selects the security-test
+  checkbox for a `READY` or `CONDITIONAL` quality outcome
+- The Security Reviewer fills checklist items covering all evidence within
+  that request
+- The request never enters the security cartable when the checkbox is not
+  selected
+- Security Review granularity is per request, not per test case
+- Every completed submission requires at least one security evidence file;
+  each security or QA report file is limited to 10 MiB
+- Completed reviews remain visible and change status instead of being removed
+- PASS/N_A-only reviews go to the final decision owner; FAIL/PARTIAL reviews
+  enter the traceable Security Review remediation cartable
 
 ## Item 5: Admin Checklist Back-Office
 - The admin back-office shows all checklists across the active application
@@ -82,8 +96,10 @@ The word “mock” in the phase-by-phase notes below refers to the transitional
 - Backend implementation should persist policies and enforce the same `versionHistory:*` capabilities server-side
 
 ## Item 11: Phase 9 VersionHistory Snapshot and Notifications
-- VersionHistory security snapshot reads the per-TestCase Security Review model first
-- Legacy request-level Checklist data remains only as a fallback for older mock records
+- VersionHistory security snapshot reads the request-scoped Security Review
+  first
+- Legacy Checklist data remains only as a fallback for older transitional
+  records
 - Final VersionHistory decisions notify stakeholders through the mock notification outbox
 - Publish and Emergency Risk Acceptance also emit stakeholder notifications
 - Production backend should commit snapshot, lock, audit, and outbox records in one transaction

@@ -352,6 +352,7 @@ export const canAccessCartable = (role: UserRole, cartableType: string, context?
     'developer-board': ['DEVELOPER'],
     'run-issues': ['QA_LEAD', 'QA_SPECIALIST'],
     'checklists': ['SECURITY_REVIEWER', 'QA_LEAD', 'TECH_LEAD'],
+    'security-review': ['QA_LEAD', 'QA_SPECIALIST', 'DEVELOPER', 'SECURITY_REVIEWER'],
     'playwright': ['QA_LEAD', 'QA_SPECIALIST'],
     'playwright-files': ['QA_LEAD', 'QA_SPECIALIST'],
     'releases': ['QA_LEAD', 'TECH_LEAD', 'PRODUCT_OWNER', 'DEVELOPER'],
