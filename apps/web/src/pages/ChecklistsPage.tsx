@@ -24,6 +24,7 @@ import { applicationApi, securityChecklistApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
 import { formatJalaliDateTime } from '../utils/jalaliDate';
 import type {
+  Attachment,
   SecurityReview,
   SecurityReviewDetailItem,
   SecurityReviewItemResult,
@@ -110,6 +111,7 @@ export const ChecklistsPage: React.FC = () => {
   } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [uploadLoading, setUploadLoading] = useState(false);
+  const [downloadingAttachmentId, setDownloadingAttachmentId] = useState('');
 
   const shouldSelectApplication = isAppLevel || isMultiSystem;
   const role = activeContext?.role;
@@ -265,6 +267,35 @@ export const ChecklistsPage: React.FC = () => {
         : 'آپلود مستند امنیت ناموفق بود.');
     } finally {
       setUploadLoading(false);
+    }
+  };
+
+  const handleEvidenceDownload = async (attachment: Attachment) => {
+    if (!selectedReview || !activeContext) return;
+    setDownloadingAttachmentId(attachment.id);
+    try {
+      const download = attachment.storagePath
+        ? attachment
+        : await securityChecklistApi.getAttachmentDownload(
+            selectedReview.id,
+            attachment.id,
+            activeContext.userId,
+            activeContext.role
+          );
+      if (!download?.storagePath) {
+        toast.error('محتوای مستند برای دانلود پیدا نشد.');
+        return;
+      }
+      const anchor = document.createElement('a');
+      anchor.href = download.storagePath;
+      anchor.download = download.fileName || attachment.fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch {
+      toast.error('دانلود مستند امنیت ناموفق بود.');
+    } finally {
+      setDownloadingAttachmentId('');
     }
   };
 
@@ -797,13 +828,14 @@ export const ChecklistsPage: React.FC = () => {
                         </p>
                       </div>
                       <Badge size="sm" variant="info">مستند امنیت</Badge>
-                      <a
-                        href={attachment.storagePath}
-                        download={attachment.fileName}
-                        className="text-sm font-medium text-blue-700 hover:underline"
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        loading={downloadingAttachmentId === attachment.id}
+                        onClick={() => void handleEvidenceDownload(attachment)}
                       >
                         دانلود
-                      </a>
+                      </Button>
                     </div>
                   ))}
                 {!selectedReview.securityEvidenceAttachmentIds.length && (

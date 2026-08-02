@@ -861,7 +861,7 @@ export const RELEASE_PUBLISH_STATUS_LABELS = VERSION_HISTORY_STATUS_LABELS;
 export type QAQualityStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'READY' | 'NOT_READY' | 'CONDITIONAL' | 'RETEST_REQUIRED';
 export const QA_QUALITY_STATUS_LABELS: Record<QAQualityStatus, string> = {
     NOT_STARTED: 'شروع نشده',
-    IN_PROGRESS: 'در حال بررسی',
+    IN_PROGRESS: 'در انتظار بررسی مجدد QA',
     READY: 'آماده',
     NOT_READY: 'آماده نیست',
     CONDITIONAL: 'مشروط',
@@ -1075,6 +1075,27 @@ export interface AuditLog {
     metadata?: Record<string, unknown> | undefined;
     ipAddress?: string | undefined;
     userAgent?: string | undefined;
+    createdAt: string;
+}
+export interface TestRequestHistoryEvent {
+    id: string;
+    testRequestId: string;
+    entityType: AuditLog['entityType'];
+    entityId: string;
+    entityTitle: string;
+    action: string;
+    actorId: string;
+    actor?: User | undefined;
+    actorRole?: UserRole | undefined;
+    targetUserId?: string | undefined;
+    targetUser?: User | undefined;
+    targetRole?: UserRole | undefined;
+    previousStatus?: string | undefined;
+    status?: string | undefined;
+    previousQualityStatus?: QAQualityStatus | undefined;
+    qualityStatus?: QAQualityStatus | undefined;
+    decision?: VersionHistoryDecision | undefined;
+    details?: string | undefined;
     createdAt: string;
 }
 // Comment

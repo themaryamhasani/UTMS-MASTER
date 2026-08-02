@@ -22,6 +22,7 @@ import { toast } from '../components/ui/Toast';
 import { applicationApi, securityChecklistApi, userApi } from '../services/api';
 import { useAuthStore } from '../stores/authStore';
 import type {
+  Attachment,
   SecurityReview,
   SecurityReviewHistoryAction,
   SecurityReviewItemResult,
@@ -93,6 +94,35 @@ const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) 
   reader.readAsDataURL(file);
 });
 
+const normalizeSecurityReview = (review: SecurityReview): SecurityReview => {
+  const summary = review.requestSummary || ({} as SecurityReview['requestSummary']);
+  return {
+    ...review,
+    items: Array.isArray(review.items) ? review.items : [],
+    attachments: Array.isArray(review.attachments) ? review.attachments : [],
+    securityEvidenceAttachmentIds: Array.isArray(review.securityEvidenceAttachmentIds)
+      ? review.securityEvidenceAttachmentIds
+      : [],
+    qaReportAttachmentIds: Array.isArray(review.qaReportAttachmentIds)
+      ? review.qaReportAttachmentIds
+      : [],
+    securityExecutions: Array.isArray(review.securityExecutions) ? review.securityExecutions : [],
+    history: Array.isArray(review.history) ? review.history : [],
+    requestSummary: {
+      ...summary,
+      testCases: Array.isArray(summary.testCases) ? summary.testCases : [],
+      finalRuns: Array.isArray(summary.finalRuns) ? summary.finalRuns : [],
+      openRuns: Array.isArray(summary.openRuns) ? summary.openRuns : [],
+      passedRuns: Array.isArray(summary.passedRuns) ? summary.passedRuns : [],
+      failedRuns: Array.isArray(summary.failedRuns) ? summary.failedRuns : [],
+      blockedRuns: Array.isArray(summary.blockedRuns) ? summary.blockedRuns : [],
+      skippedRuns: Array.isArray(summary.skippedRuns) ? summary.skippedRuns : [],
+      openBlockerBugs: Array.isArray(summary.openBlockerBugs) ? summary.openBlockerBugs : [],
+      openCriticalBugs: Array.isArray(summary.openCriticalBugs) ? summary.openCriticalBugs : [],
+    },
+  };
+};
+
 export const SecurityReviewPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const { defaultApplicationId, scopeApplicationIds, isAppLevel, isMultiSystem } = useDataScope();
@@ -109,6 +139,8 @@ export const SecurityReviewPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [uploadLoading, setUploadLoading] = useState(false);
+  const [downloadingAttachmentId, setDownloadingAttachmentId] = useState('');
+  const [qaLeadDecisionMode, setQaLeadDecisionMode] = useState<'ASSIGN_QA' | 'RETURN_SECURITY' | null>(null);
   const [showDetail, setShowDetail] = useState(false);
 
   const shouldSelectApplication = isAppLevel || isMultiSystem;
@@ -165,10 +197,11 @@ export const SecurityReviewPage: React.FC = () => {
         activeContext.userId,
         activeContext.role
       );
-      setReviews(data as SecurityReview[]);
+      const normalizedData = (data as SecurityReview[]).map(normalizeSecurityReview);
+      setReviews(normalizedData);
       setSelectedReview(current => {
         if (!current) return null;
-        return (data as SecurityReview[]).find(item => item.id === current.id) || current;
+        return normalizedData.find(item => item.id === current.id) || current;
       });
     } catch {
       setReviews([]);
@@ -179,10 +212,12 @@ export const SecurityReviewPage: React.FC = () => {
   };
 
   const openReview = (review: SecurityReview) => {
-    setSelectedReview(review);
-    setQaSpecialistId(review.assignedQASpecialistId || review.requestSummary.qaSpecialistId || '');
-    setDeveloperId(review.requestSummary.developerId || '');
+    const normalizedReview = normalizeSecurityReview(review);
+    setSelectedReview(normalizedReview);
+    setQaSpecialistId(normalizedReview.assignedQASpecialistId || normalizedReview.requestSummary.qaSpecialistId || '');
+    setDeveloperId(normalizedReview.requestSummary.developerId || '');
     setNotes('');
+    setQaLeadDecisionMode(null);
     setShowDetail(true);
   };
 
@@ -191,7 +226,7 @@ export const SecurityReviewPage: React.FC = () => {
       toast.error('این اقدام در وضعیت فعلی مجاز نیست.');
       return;
     }
-    setSelectedReview(updated);
+    setSelectedReview(normalizeSecurityReview(updated));
     toast.success(successMessage);
     await loadData(selectedAppId);
   };
@@ -224,6 +259,7 @@ export const SecurityReviewPage: React.FC = () => {
           : 'بررسی برای اصلاح به تیم امنیت بازگردانده شد.'
       );
       setNotes('');
+      setQaLeadDecisionMode(null);
     } catch {
       toast.error('ثبت تصمیم سرپرست QA ناموفق بود.');
     } finally {
@@ -310,6 +346,35 @@ export const SecurityReviewPage: React.FC = () => {
     }
   };
 
+  const handleAttachmentDownload = async (file: Attachment) => {
+    if (!selectedReview || !activeContext) return;
+    setDownloadingAttachmentId(file.id);
+    try {
+      const download = file.storagePath
+        ? file
+        : await securityChecklistApi.getAttachmentDownload(
+            selectedReview.id,
+            file.id,
+            activeContext.userId,
+            activeContext.role
+          );
+      if (!download?.storagePath) {
+        toast.error('محتوای فایل برای دانلود پیدا نشد.');
+        return;
+      }
+      const anchor = document.createElement('a');
+      anchor.href = download.storagePath;
+      anchor.download = download.fileName || file.fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch {
+      toast.error('دانلود فایل ناموفق بود.');
+    } finally {
+      setDownloadingAttachmentId('');
+    }
+  };
+
   const handleSubmitQaReport = async () => {
     if (!selectedReview || !activeContext || !requireNotes()) return;
     if (!selectedReview.qaReportAttachmentIds.length) {
@@ -368,7 +433,7 @@ export const SecurityReviewPage: React.FC = () => {
         item?.notes || '',
         activeContext.userId
       );
-      if (updated) setSelectedReview(updated as SecurityReview);
+      if (updated) setSelectedReview(normalizeSecurityReview(updated as SecurityReview));
     } catch {
       toast.error('ثبت نتیجه چک‌لیست ناموفق بود.');
     } finally {
@@ -612,13 +677,15 @@ export const SecurityReviewPage: React.FC = () => {
                     <div key={file.id} className="mb-2 rounded bg-gray-50 p-2 text-sm">
                       <p className="font-medium">{file.fileName}</p>
                       <p className="text-xs text-gray-500">{formatFileSize(file.fileSize)} · {file.uploadedBy?.fullName || '-'}</p>
-                      <a
-                        href={file.storagePath}
-                        download={file.fileName}
-                        className="mt-1 inline-block text-xs font-medium text-blue-700 hover:underline"
+                      <Button
+                        className="mt-1"
+                        size="sm"
+                        variant="ghost"
+                        loading={downloadingAttachmentId === file.id}
+                        onClick={() => void handleAttachmentDownload(file)}
                       >
                         دانلود فایل
-                      </a>
+                      </Button>
                     </div>
                   )) : <p className="text-sm text-gray-500">فایلی ثبت نشده است.</p>}
                 </div>
@@ -628,13 +695,15 @@ export const SecurityReviewPage: React.FC = () => {
                     <div key={file.id} className="mb-2 rounded bg-gray-50 p-2 text-sm">
                       <p className="font-medium">{file.fileName}</p>
                       <p className="text-xs text-gray-500">{formatFileSize(file.fileSize)} · {file.uploadedBy?.fullName || '-'}</p>
-                      <a
-                        href={file.storagePath}
-                        download={file.fileName}
-                        className="mt-1 inline-block text-xs font-medium text-blue-700 hover:underline"
+                      <Button
+                        className="mt-1"
+                        size="sm"
+                        variant="ghost"
+                        loading={downloadingAttachmentId === file.id}
+                        onClick={() => void handleAttachmentDownload(file)}
                       >
                         دانلود فایل
-                      </a>
+                      </Button>
                     </div>
                   )) : <p className="text-sm text-gray-500">فایلی ثبت نشده است.</p>}
                 </div>
@@ -695,36 +764,65 @@ export const SecurityReviewPage: React.FC = () => {
             {role === 'QA_LEAD' && selectedReview.status === 'NEEDS_QA_REVIEW' && (
               <section className="rounded-xl border border-blue-200 bg-blue-50 p-4">
                 <h3 className="mb-3 font-semibold text-blue-900">تصمیم سرپرست QA</h3>
-                <Select
-                  label="متخصص QA"
-                  value={qaSpecialistId}
-                  onChange={event => setQaSpecialistId(event.target.value)}
-                  options={qaSpecialists.map(user => ({ value: user.id, label: user.fullName }))}
-                  placeholder="انتخاب متخصص QA"
-                />
-                <Textarea
-                  className="mt-3"
-                  label="توضیح اجباری"
-                  value={notes}
-                  onChange={event => setNotes(event.target.value)}
-                />
-                <div className="mt-3 flex flex-wrap justify-end gap-2">
+                <p className="mb-3 text-sm text-blue-800">ابتدا نوع اقدام را انتخاب کنید.</p>
+                <div className="flex flex-wrap gap-2">
                   <Button
                     variant="danger"
                     icon={<XCircle className="h-4 w-4" />}
-                    loading={actionLoading}
-                    onClick={() => void handleQaLeadDecision('RETURN_SECURITY')}
+                    disabled={actionLoading}
+                    onClick={() => {
+                      setQaLeadDecisionMode('RETURN_SECURITY');
+                      setNotes('');
+                    }}
                   >
                     رد و بازگشت به تیم امنیت
                   </Button>
                   <Button
                     icon={<UserCheck className="h-4 w-4" />}
-                    loading={actionLoading}
-                    onClick={() => void handleQaLeadDecision('ASSIGN_QA')}
+                    disabled={actionLoading}
+                    onClick={() => {
+                      setQaLeadDecisionMode('ASSIGN_QA');
+                      setNotes('');
+                    }}
                   >
                     ارجاع به متخصص QA
                   </Button>
                 </div>
+                {qaLeadDecisionMode && (
+                  <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3">
+                    {qaLeadDecisionMode === 'ASSIGN_QA' && (
+                      <Select
+                        label="متخصص QA"
+                        value={qaSpecialistId}
+                        onChange={event => setQaSpecialistId(event.target.value)}
+                        options={qaSpecialists.map(user => ({ value: user.id, label: user.fullName }))}
+                        placeholder="انتخاب متخصص QA"
+                      />
+                    )}
+                    <Textarea
+                      className={qaLeadDecisionMode === 'ASSIGN_QA' ? 'mt-3' : undefined}
+                      label="توضیح اجباری"
+                      value={notes}
+                      onChange={event => setNotes(event.target.value)}
+                    />
+                    <div className="mt-3 flex justify-end">
+                      <Button
+                        variant={qaLeadDecisionMode === 'RETURN_SECURITY' ? 'danger' : 'primary'}
+                        loading={actionLoading}
+                        disabled={
+                          actionLoading ||
+                          !notes.trim() ||
+                          (qaLeadDecisionMode === 'ASSIGN_QA' && !qaSpecialistId)
+                        }
+                        onClick={() => void handleQaLeadDecision(qaLeadDecisionMode)}
+                      >
+                        {qaLeadDecisionMode === 'ASSIGN_QA'
+                          ? 'تأیید ارجاع به متخصص QA'
+                          : 'تأیید بازگشت به تیم امنیت'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </section>
             )}
 

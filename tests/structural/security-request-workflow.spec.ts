@@ -364,6 +364,15 @@ test('security review is request-scoped, explicitly selected, and hands off to T
   expect(requestAfterRetest.qaQualityStatus).toBe('IN_PROGRESS');
   expect(requestAfterRetest.qaQualityNotes).toContain('اجرای مستقل دیگر');
 
+  const versionAfterRetest = await domainRpc(
+    request,
+    'releasePublishApi',
+    'getById',
+    [versionHistory.id]
+  );
+  expect(versionAfterRetest.status).toBe('QA_REVIEW');
+  expect(versionAfterRetest.qaQualityStatus).toBe('IN_PROGRESS');
+
   const config = createEmptySecurityTestConfiguration();
   config.requestType = 'NEW_VERSION';
   fillTechnicalSecurityRequestInfo(config);
@@ -451,7 +460,7 @@ test('security review is request-scoped, explicitly selected, and hands off to T
   expect((await oversizedUploadResponse.json()).error.message)
     .toContain('SECURITY_REVIEW_FILE_TOO_LARGE');
 
-  await domainRpc(request, 'securityChecklistApi', 'uploadEvidence', [
+  const reviewWithEvidence = await domainRpc(request, 'securityChecklistApi', 'uploadEvidence', [
     review.id,
     {
       name: 'security-evidence.pdf',
@@ -462,6 +471,21 @@ test('security review is request-scoped, explicitly selected, and hands off to T
     'SECURITY_EVIDENCE',
     'user-5',
   ]);
+  const securityEvidenceAttachment = reviewWithEvidence.attachments.find(
+    (attachment: { id: string }) =>
+      reviewWithEvidence.securityEvidenceAttachmentIds.includes(attachment.id)
+  );
+  expect(securityEvidenceAttachment).toBeTruthy();
+  expect(securityEvidenceAttachment.storagePath).toBe('');
+
+  const securityEvidenceDownload = await domainRpc(
+    request,
+    'securityChecklistApi',
+    'getAttachmentDownload',
+    [review.id, securityEvidenceAttachment.id, 'user-2', 'QA_LEAD']
+  );
+  expect(securityEvidenceDownload.fileName).toBe('security-evidence.pdf');
+  expect(securityEvidenceDownload.storagePath).toMatch(/^data:application\/pdf;base64,/);
 
   const reviewWithFindings = await domainRpc(
     request,
@@ -608,4 +632,57 @@ test('security review is request-scoped, explicitly selected, and hands off to T
   ]);
   expect(completedRequest.status).toBe('COMPLETED');
   expect(completedRequest.releaseDecision).toBe('APPROVED');
+
+  const requestHistory = await domainRpc(
+    request,
+    'auditLogApi',
+    'getTestRequestHistory',
+    [testRequest.id]
+  );
+  expect(requestHistory.length).toBeGreaterThan(10);
+  expect(requestHistory.every((event: { actorId?: string; createdAt?: string }) =>
+    Boolean(event.actorId && event.createdAt)
+  )).toBeTruthy();
+  expect(requestHistory.some((event: {
+    entityType?: string;
+    status?: string;
+    actorRole?: string;
+  }) =>
+    event.entityType === 'TEST_RUN' &&
+    event.status === 'PASSED' &&
+    event.actorRole === 'QA_SPECIALIST'
+  )).toBeTruthy();
+  expect(requestHistory.some((event: {
+    entityType?: string;
+    action?: string;
+    targetUserId?: string;
+    targetRole?: string;
+  }) =>
+    event.entityType === 'TEST_REQUEST' &&
+    event.action === 'ASSIGN' &&
+    event.targetUserId === 'user-3' &&
+    event.targetRole === 'QA_SPECIALIST'
+  )).toBeTruthy();
+  expect(requestHistory.some((event: {
+    entityType?: string;
+    previousQualityStatus?: string;
+    qualityStatus?: string;
+  }) =>
+    event.entityType === 'VERSION_HISTORY' &&
+    event.previousQualityStatus === 'RETEST_REQUIRED' &&
+    event.qualityStatus === 'IN_PROGRESS'
+  )).toBeTruthy();
+  expect(requestHistory.some((event: {
+    entityType?: string;
+    decision?: string;
+    actorRole?: string;
+  }) =>
+    event.entityType === 'VERSION_HISTORY' &&
+    event.decision === 'APPROVED' &&
+    event.actorRole === 'TECH_LEAD'
+  )).toBeTruthy();
+  const historyTimestamps = requestHistory.map((event: { createdAt: string }) =>
+    new Date(event.createdAt).getTime()
+  );
+  expect(historyTimestamps).toEqual([...historyTimestamps].sort((left, right) => left - right));
 });

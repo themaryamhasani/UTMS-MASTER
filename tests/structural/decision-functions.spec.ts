@@ -13,7 +13,9 @@ import {
 import { isSemVer } from '../../apps/web/src/utils/semver';
 import {
   filterByRequestApplication,
+  filterTestCasesLinkedToRequests,
   filterTestCasesForExecution,
+  getLinkedRequirementIdsForRequests,
   haveSameApplication,
 } from '../../apps/web/src/utils/testManagementScope';
 import {
@@ -193,6 +195,35 @@ test('UTMS-RUN-SCOPE-015 @data-flow cascades request system into requirements an
   expect(filterByRequestApplication(requirements, request).map(item => item.id)).toEqual(['req-2']);
   expect(filterTestCasesForExecution(testCases, request, 'req-2').map(item => item.id)).toEqual(['tc-2']);
   expect(filterTestCasesForExecution(testCases, request)).toEqual([]);
+});
+
+test('UTMS-REL-DATA-016 @data-flow resolves request test cases through selected requirements', async ({}, testInfo) => {
+  annotateTest(testInfo, metadata('UTMS-REL-DATA-016', {
+    requirement: 'VersionHistory request traceability', feature: 'Automatic QA review queue', level: 'structural',
+    type: 'data-integrity', technique: 'Data Flow Testing', role: 'QA_LEAD,QA_SPECIALIST', scope: 'APP', risk: 'critical',
+    data: 'A Test Case owned by a Requirement selected on a different Test Request', expected: 'The Test Case remains part of the selected request evidence and readiness calculation',
+  }));
+  const requests = [
+    { id: 'request-current', applicationId: 'app-1', selectedRequirementIds: ['requirement-shared'] },
+  ];
+  const requirements = [
+    { id: 'requirement-shared', applicationId: 'app-1', testRequestId: 'request-origin' },
+    { id: 'requirement-generated', applicationId: 'app-1', testRequestId: 'request-current' },
+  ];
+  const testCases = [
+    { id: 'case-shared', applicationId: 'app-1', requirementId: 'requirement-shared', testRequestId: 'request-origin' },
+    { id: 'case-generated', applicationId: 'app-1', requirementId: 'requirement-generated', testRequestId: 'request-current' },
+    { id: 'case-unrelated', applicationId: 'app-1', requirementId: 'requirement-other', testRequestId: 'request-other' },
+  ];
+
+  expect(getLinkedRequirementIdsForRequests(requests, requirements).sort()).toEqual([
+    'requirement-generated',
+    'requirement-shared',
+  ]);
+  expect(filterTestCasesLinkedToRequests(testCases, requests, requirements).map(item => item.id).sort()).toEqual([
+    'case-generated',
+    'case-shared',
+  ]);
 });
 
 test('UTMS-RUN-SCOPE-016 @negative rejects cross-application execution links', async ({}, testInfo) => {

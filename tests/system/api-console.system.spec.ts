@@ -69,3 +69,21 @@ test('UTMS-API-SCOPE-003 @system rejects collection and request application spoo
   expect(mismatchedRequest.status()).toBe(422);
   await expect(mismatchedRequest.json()).resolves.toMatchObject({ error: { category: 'CORE_VALIDATION_ERROR' } });
 });
+
+test.describe('System Admin API review cartable', () => {
+  test.use({ storageState: roleStatePath('SYSTEM_ADMIN') });
+
+  test('UTMS-API-SYS-004 @system shows the API review tab with a stable counter', async ({ page }, testInfo) => {
+    annotateTest(testInfo, metadata('UTMS-API-SYS-004', {
+      requirement: 'System Admin access to API share reviews', feature: 'API Console', level: 'system', type: 'authorization-ui',
+      technique: 'Role-based UI testing', role: 'SYSTEM_ADMIN', scope: 'APP', risk: 'high',
+      data: 'System Admin opens Online API Console', expected: 'API review tab and its nested counter are visible and loadable',
+    }));
+    await page.goto('/api-console');
+    const reviewTab = page.getByRole('button', { name: /بررسی APIها/ });
+    await expect(reviewTab).toBeVisible();
+    await expect(reviewTab.locator('span')).toHaveCount(2);
+    await reviewTab.click();
+    await expect(reviewTab).toHaveClass(/bg-blue-600/);
+  });
+});

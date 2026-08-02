@@ -24,6 +24,7 @@ import type {
   PlaywrightTestFolder,
   ReleasePublish,
   AuditLog,
+  TestRequestHistoryEvent,
   Comment,
   Notification,
   NotificationChannel,
@@ -105,7 +106,11 @@ import {
 } from './workflowPolicyStore';
 import { isSemVer } from '../utils/semver';
 import { DESCRIPTION_MAX_LENGTH, hasInvalidBuildNumber, isValidSystemUrl, validateRequestTitle } from '../utils/inputRules';
-import { haveSameApplication } from '../utils/testManagementScope';
+import {
+  filterTestCasesLinkedToRequests,
+  getLinkedRequirementIdsForRequests,
+  haveSameApplication,
+} from '../utils/testManagementScope';
 import { validateSecurityTestConfiguration } from '../utils/securityTest';
 // UserRoleAssignment type is available via mockUserRoleAssignments
 
@@ -732,6 +737,114 @@ function commandRecordMetadata(metadata: ResolvedCommandMetadata): CommandMetada
   };
 }
 
+const USER_ROLES: UserRole[] = [
+  'SYSTEM_ADMIN',
+  'DEVELOPER',
+  'QA_LEAD',
+  'QA_SPECIALIST',
+  'BA',
+  'SECURITY_REVIEWER',
+  'TECH_LEAD',
+  'PRODUCT_OWNER',
+];
+const QA_QUALITY_STATUSES: QAQualityStatus[] = [
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'READY',
+  'NOT_READY',
+  'CONDITIONAL',
+  'RETEST_REQUIRED',
+];
+const VERSION_HISTORY_DECISIONS: VersionHistoryDecision[] = [
+  'APPROVED',
+  'CONDITIONAL',
+  'REJECTED',
+  'BLOCKED',
+];
+
+function isUserRole(value: unknown): value is UserRole {
+  return typeof value === 'string' && USER_ROLES.includes(value as UserRole);
+}
+
+function isQAQualityStatus(value: unknown): value is QAQualityStatus {
+  return typeof value === 'string' && QA_QUALITY_STATUSES.includes(value as QAQualityStatus);
+}
+
+function isVersionHistoryDecision(value: unknown): value is VersionHistoryDecision {
+  return typeof value === 'string' && VERSION_HISTORY_DECISIONS.includes(value as VersionHistoryDecision);
+}
+
+function inferHistoryTargetRole(
+  userId: string,
+  applicationId: string,
+  entityType: string,
+  targetField: string | undefined
+): UserRole | undefined {
+  const roles = mockUserRoleAssignments
+    .filter(assignment =>
+      assignment.userId === userId &&
+      assignment.isActive &&
+      (assignment.applicationIds || [assignment.applicationId]).includes(applicationId)
+    )
+    .map(assignment => assignment.role);
+  const preferredRoles: UserRole[] = targetField === 'developerId' || entityType === 'BUG'
+    ? ['DEVELOPER']
+    : targetField === 'qaSpecialistId' || entityType === 'TEST_REQUEST'
+      ? ['QA_SPECIALIST', 'QA_LEAD']
+      : ['QA_SPECIALIST', 'DEVELOPER', 'QA_LEAD', 'SECURITY_REVIEWER'];
+  return preferredRoles.find(role => roles.includes(role)) || roles[0];
+}
+
+function inferAuditActorRole(
+  userId: string,
+  applicationId: string | undefined,
+  entityType: string,
+  action: string,
+  metadata?: Record<string, unknown>
+): UserRole | undefined {
+  if (isUserRole(metadata?.actorRole)) return metadata.actorRole;
+
+  const roles = Array.from(new Set(
+    mockUserRoleAssignments
+      .filter(assignment =>
+        assignment.userId === userId &&
+        assignment.isActive &&
+        (
+          !applicationId ||
+          (assignment.applicationIds || [assignment.applicationId]).includes(applicationId)
+        )
+      )
+      .map(assignment => assignment.role)
+  ));
+  if (roles.length === 0) return undefined;
+  if (roles.length === 1) return roles[0];
+
+  let preferred: UserRole[] = [];
+  if (entityType === 'TEST_REQUEST') {
+    preferred = ['CREATE', 'UPDATE', 'SUBMIT', 'CANCEL'].includes(action)
+      ? ['DEVELOPER', 'QA_LEAD', 'SYSTEM_ADMIN']
+      : ['QA_LEAD', 'SYSTEM_ADMIN', 'QA_SPECIALIST'];
+  } else if (['REQUIREMENT', 'FLOW'].includes(entityType)) {
+    preferred = action === 'APPROVE'
+      ? ['QA_LEAD', 'SYSTEM_ADMIN', 'BA']
+      : ['BA', 'QA_LEAD', 'SYSTEM_ADMIN'];
+  } else if (['TEST_CASE', 'TEST_RUN', 'RETEST_TASK', 'RUN_ISSUE'].includes(entityType)) {
+    preferred = ['QA_SPECIALIST', 'QA_LEAD', 'SYSTEM_ADMIN'];
+  } else if (entityType === 'BUG') {
+    preferred = ['DEVELOPER', 'QA_SPECIALIST', 'QA_LEAD', 'SYSTEM_ADMIN'];
+  } else if (['VERSION_HISTORY', 'RELEASE_PUBLISH'].includes(entityType)) {
+    preferred = action === 'REVIEW' || action === 'CREATE'
+      ? ['QA_LEAD', 'SYSTEM_ADMIN', 'TECH_LEAD']
+      : ['TECH_LEAD', 'QA_LEAD', 'PRODUCT_OWNER', 'SYSTEM_ADMIN'];
+  } else if (entityType === 'CHECKLIST') {
+    preferred = ['SECURITY_REVIEWER', 'QA_LEAD', 'QA_SPECIALIST', 'DEVELOPER', 'SYSTEM_ADMIN'];
+  } else if (entityType === 'PLAYWRIGHT_RUN') {
+    preferred = ['QA_SPECIALIST', 'QA_LEAD', 'SYSTEM_ADMIN'];
+  }
+
+  return preferred.find(role => roles.includes(role)) || roles[0];
+}
+
 // Create audit log helper
 function createAuditLog(
   userId: string,
@@ -743,6 +856,10 @@ function createAuditLog(
   newValue?: unknown,
   metadata?: Record<string, unknown>
 ) {
+  const actorRole = inferAuditActorRole(userId, applicationId, entityType, action, metadata);
+  const enrichedMetadata = actorRole
+    ? { ...(metadata || {}), actorRole }
+    : metadata;
   const log: AuditLog = {
     id: uuidv4(),
     userId,
@@ -754,7 +871,7 @@ function createAuditLog(
     action: ensureAuditAction(action),
     previousValue: previousValue ? JSON.stringify(previousValue) : undefined,
     newValue: newValue ? JSON.stringify(newValue) : undefined,
-    metadata,
+    metadata: enrichedMetadata,
     createdAt: new Date().toISOString(),
   };
   auditLogs.unshift(log);
@@ -1081,16 +1198,18 @@ function getVisibleTestRunsForRole(data: TestRun[], userId: string, role: UserRo
 function getVisibleTestCasesForRole(data: TestCase[], userId: string, role: UserRole): TestCase[] {
   if (role === 'QA_SPECIALIST') {
     const assignedRequestIds = getAssignedTestRequestIdsForUser(userId);
-    return data.filter(tc => assignedRequestIds.includes(tc.testRequestId));
+    const assignedTestCaseIds = new Set(getTestCasesForRequestIds(assignedRequestIds).map(tc => tc.id));
+    return data.filter(tc => assignedTestCaseIds.has(tc.id));
   }
   if (role !== 'DEVELOPER') return data;
   const ownRequestIds = testRequests.filter(tr => tr.requesterId === userId).map(tr => tr.id);
+  const ownRequestTestCaseIds = new Set(getTestCasesForRequestIds(ownRequestIds).map(tc => tc.id));
   const assignedBugRunIds = bugs.filter(b => b.assigneeId === userId).map(b => b.testRunId);
   const assignedBugTestCaseIds = testRuns
     .filter(tr => assignedBugRunIds.includes(tr.id))
     .map(tr => tr.testCaseId);
   return data.filter(tc =>
-    ownRequestIds.includes(tc.testRequestId) || assignedBugTestCaseIds.includes(tc.id)
+    ownRequestTestCaseIds.has(tc.id) || assignedBugTestCaseIds.includes(tc.id)
   );
 }
 
@@ -1545,6 +1664,7 @@ const localTestRequestApi = {
     createAuditLog(userId, tr.applicationId, 'TEST_REQUEST', id, 'ASSIGN', previous, {
       assigneeId,
       assigneeName: tr.assignee?.fullName || assigneeId,
+      status: 'IN_PROGRESS',
     });
     createNotification(
       assigneeId,
@@ -1810,7 +1930,7 @@ const localTestCaseApi = {
 
   async getByTestRequest(testRequestId: string): Promise<TestCase[]> {
     await delay();
-    return testCases.filter(tc => tc.testRequestId === testRequestId).map(hydrateTestCase);
+    return getTestCasesForRequestIds([testRequestId]).map(hydrateTestCase);
   },
 
   async create(data: Partial<TestCase>, userId: string, applicationId: string): Promise<TestCase> {
@@ -1964,7 +2084,7 @@ const localTestCaseApi = {
 // ============================================
 
 function markQaRetestExecutionRegistered(run: TestRun, userId: string): void {
-  if (!FINAL_RUN_STATUSES.includes(run.status)) return;
+  if (run.status !== 'PASSED') return;
   const request = testRequests.find(item => item.id === run.testRequestId);
   if (!request || request.qaQualityStatus !== 'RETEST_REQUIRED') return;
 
@@ -1980,8 +2100,13 @@ function markQaRetestExecutionRegistered(run: TestRun, userId: string): void {
   if (finalRunCount <= (versionHistory.qaRetestBaselineRunCount || 0)) return;
 
   const now = new Date().toISOString();
+  const previousVersionQualityStatus = versionHistory.qaQualityStatus;
   request.qaQualityStatus = 'IN_PROGRESS';
   request.updatedAt = now;
+  versionHistory.qaQualityStatus = 'IN_PROGRESS';
+  versionHistory.status = 'QA_REVIEW';
+  versionHistory.snapshot = buildVersionSnapshot(versionHistory);
+  versionHistory.updatedAt = now;
   createAuditLog(
     userId,
     request.applicationId,
@@ -1996,12 +2121,30 @@ function markQaRetestExecutionRegistered(run: TestRun, userId: string): void {
       waitingForQaLeadReview: true,
     }
   );
+  createAuditLog(
+    userId,
+    versionHistory.applicationId,
+    'VERSION_HISTORY',
+    versionHistory.id,
+    'STATUS_CHANGE',
+    {
+      status: 'QA_REVIEW',
+      qaQualityStatus: previousVersionQualityStatus,
+    },
+    {
+      status: 'QA_REVIEW',
+      qaQualityStatus: 'IN_PROGRESS',
+      retestRunId: run.id,
+      retestRunStatus: run.status,
+      waitingForQaLeadReview: true,
+    }
+  );
   notifyRoles(
     request.applicationId,
     ['QA_LEAD'],
-    'اجرای مجدد ثبت شد',
-    `متخصص QA نتیجه اجرای مجدد درخواست "${request.title}" را ثبت کرد. وضعیت کیفیت باید دوباره بررسی شود.`,
-    'INFO',
+    'اجرای مجدد موفق؛ در انتظار بررسی QA',
+    `متخصص QA اجرای مجدد موفق درخواست "${request.title}" را ثبت کرد. درخواست برای اعلام نظر مجدد به کارتابل سرپرست QA بازگشت.`,
+    'SUCCESS',
     'VERSION_HISTORY',
     versionHistory.id,
     undefined,
@@ -4046,6 +4189,11 @@ function getRunsForRequestIds(requestIds: string[]): TestRun[] {
   return testRuns.filter(tr => requestIds.includes(tr.testRequestId));
 }
 
+function getTestCasesForRequestIds(requestIds: string[]): TestCase[] {
+  const linkedRequests = testRequests.filter(testRequest => requestIds.includes(testRequest.id));
+  return filterTestCasesLinkedToRequests(testCases, linkedRequests, requirements);
+}
+
 function getBugsForRequestIds(requestIds: string[]): Bug[] {
   const runIds = getRunsForRequestIds(requestIds).map(tr => tr.id);
   return bugs.filter(b => runIds.includes(b.testRunId));
@@ -4116,7 +4264,7 @@ function buildVersionSnapshot(rp: ReleasePublish): VersionSnapshot {
   const playwright = getPlaywrightPassRateForRequestIds(requestIds);
 
   return {
-    totalTestCases: testCases.filter(tc => requestIds.includes(tc.testRequestId)).length,
+    totalTestCases: getTestCasesForRequestIds(requestIds).length,
     executedTestRuns: runs.filter(tr => FINAL_RUN_STATUSES.includes(tr.status)).length,
     pendingTestRuns: runs.filter(tr => ['PENDING', 'IN_PROGRESS'].includes(tr.status)).length,
     passedTestRuns: runs.filter(tr => tr.status === 'PASSED').length,
@@ -4156,13 +4304,8 @@ function refreshVersionHistoryDerivedFields(rp: ReleasePublish): ReleasePublish 
 }
 
 function hasIncompleteLinkedRequirement(requestIds: string[]): boolean {
-  const selectedReqIds = testRequests
-    .filter(tr => requestIds.includes(tr.id))
-    .flatMap(tr => tr.selectedRequirementIds || []);
-  const linkedReqIds = uniqueIds([
-    ...selectedReqIds,
-    ...requirements.filter(r => r.testRequestId && requestIds.includes(r.testRequestId)).map(r => r.id),
-  ]);
+  const linkedRequests = testRequests.filter(testRequest => requestIds.includes(testRequest.id));
+  const linkedReqIds = getLinkedRequirementIdsForRequests(linkedRequests, requirements);
   const linkedReqs = requirements.filter(r => linkedReqIds.includes(r.id));
   return linkedReqs.some(r => !['COMPLETED', 'APPROVED'].includes(r.status));
 }
@@ -4340,8 +4483,7 @@ function getLatestRunForTestCaseInRequest(testRequestId: string, testCaseId: str
 }
 
 function getActiveReadyTestCasesForRequest(testRequestId: string): TestCase[] {
-  return testCases
-    .filter(tc => tc.testRequestId === testRequestId)
+  return getTestCasesForRequestIds([testRequestId])
     .map(applyTestCaseReadiness)
     .filter(tc => tc.status === 'READY' && tc.isActive !== false);
 }
@@ -4617,9 +4759,7 @@ const localReleasePublishApi = {
       linkedRequests: testRequests
         .filter(tr => requestIds.includes(tr.id))
         .map(hydrateTestRequest),
-      testCases: testCases
-        .filter(tc => requestIds.includes(tc.testRequestId))
-        .map(hydrateTestCase),
+      testCases: getTestCasesForRequestIds(requestIds).map(hydrateTestCase),
       testRuns: getRunsForRequestIds(requestIds).map(hydrateTestRun),
       bugs: getBugsForRequestIds(requestIds).map(hydrateBug),
       retestTasks: retestTasks
@@ -4995,8 +5135,14 @@ const localReleasePublishApi = {
       id,
       'REVIEW',
       null,
-      { qualityStatus, notes, snapshot },
-      commandAuditMetadata(command)
+      {
+        status: rp.status,
+        qaQualityStatus: qualityStatus,
+        qualityStatus,
+        notes,
+        snapshot,
+      },
+      { ...commandAuditMetadata(command), actorRole }
     );
     createCommandTrace(command, 'COMPLETED', userId, rp.applicationId, 'VERSION_HISTORY', id);
     if (qualityStatus === 'RETEST_REQUIRED') {
@@ -5065,10 +5211,11 @@ const localReleasePublishApi = {
     reflectVersionHistoryOnPrimaryRequest(rp);
     
     createAuditLog(userId, rp.applicationId, 'VERSION_HISTORY', id, 'APPROVE', null, {
+      status: rp.status,
       decision,
       reason,
       snapshot: rp.decisionSnapshot,
-    }, commandAuditMetadata(command));
+    }, { ...commandAuditMetadata(command), actorRole });
     notifyVersionHistoryDecision(rp, decision, command);
     createCommandTrace(command, 'COMPLETED', userId, rp.applicationId, 'VERSION_HISTORY', id);
     return rememberIdempotentResult(command, rp);
@@ -5144,7 +5291,7 @@ const localReleasePublishApi = {
       emergencyReason,
       riskDescription,
       riskAccepted: true,
-    }, commandAuditMetadata(command));
+    }, { ...commandAuditMetadata(command), actorRole });
     notifyVersionHistoryRiskAccepted(rp, command);
     createCommandTrace(command, 'COMPLETED', userId, rp.applicationId, 'VERSION_HISTORY', id);
     return rememberIdempotentResult(command, rp);
@@ -5200,6 +5347,178 @@ const localCommandTraceApi = {
 // Audit Log API
 // ============================================
 
+function parseAuditObject(value?: string): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function firstAuditText(value: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const candidate = value[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return undefined;
+}
+
+function buildTestRequestHistory(testRequestId: string): TestRequestHistoryEvent[] {
+  const request = testRequests.find(item => item.id === testRequestId);
+  if (!request) return [];
+
+  const linkedRequirements = requirements.filter(requirement =>
+    getLinkedRequirementIdsForRequests([request], requirements).includes(requirement.id)
+  );
+  const linkedRequirementIds = new Set(linkedRequirements.map(requirement => requirement.id));
+  const linkedFlows = flows.filter(flow => linkedRequirementIds.has(flow.requirementId));
+  const linkedTestCases = getTestCasesForRequestIds([request.id]);
+  const linkedRuns = getRunsForRequestIds([request.id]);
+  const linkedRunIds = new Set(linkedRuns.map(run => run.id));
+  const linkedBugs = bugs.filter(bug => linkedRunIds.has(bug.testRunId));
+  const linkedRetestTasks = retestTasks.filter(task => task.testRequestId === request.id);
+  const linkedRunIssues = runIssues.filter(issue => linkedRunIds.has(issue.testRunId));
+  const linkedChecklists = checklists.filter(checklist => checklist.testRequestId === request.id);
+  const linkedPlaywrightRuns = playwrightRuns.filter(run => run.testRequestId === request.id);
+  const linkedVersionHistories = releasePublishes.filter(versionHistory =>
+    getVersionHistoryRequestIds(versionHistory).includes(request.id)
+  );
+  const linkedSecurityReviews = securityReviews.filter(review => review.testRequestId === request.id);
+  const securityReviewIds = new Set(linkedSecurityReviews.map(review => review.id));
+
+  const entities = new Map<string, { type: AuditLog['entityType']; id: string; title: string }>();
+  const addEntity = (type: AuditLog['entityType'], id: string, title: string) => {
+    entities.set(`${type}:${id}`, { type, id, title });
+  };
+  addEntity('TEST_REQUEST', request.id, request.title);
+  linkedRequirements.forEach(requirement => addEntity('REQUIREMENT', requirement.id, requirement.title));
+  linkedFlows.forEach(flow => addEntity('FLOW', flow.id, flow.title));
+  linkedTestCases.forEach(testCase => addEntity('TEST_CASE', testCase.id, testCase.title));
+  linkedRuns.forEach(run => {
+    const testCaseTitle = linkedTestCases.find(testCase => testCase.id === run.testCaseId)?.title;
+    addEntity('TEST_RUN', run.id, testCaseTitle || `Run ${run.version}`);
+  });
+  linkedBugs.forEach(bug => addEntity('BUG', bug.id, bug.title));
+  linkedRetestTasks.forEach(task => {
+    const testCaseTitle = linkedTestCases.find(testCase => testCase.id === task.testCaseId)?.title;
+    addEntity('RETEST_TASK', task.id, testCaseTitle || 'اجرای مجدد');
+  });
+  linkedRunIssues.forEach(issue => addEntity('RUN_ISSUE', issue.id, issue.title));
+  linkedChecklists.forEach(checklist => addEntity('CHECKLIST', checklist.id, `چک‌لیست ${checklist.type}`));
+  linkedSecurityReviews.forEach(review => addEntity('CHECKLIST', review.id, 'بررسی امنیت درخواست'));
+  linkedPlaywrightRuns.forEach(run => addEntity('PLAYWRIGHT_RUN', run.id, run.testFilePath));
+  linkedVersionHistories.forEach(versionHistory => {
+    const title = `نسخه ${versionHistory.version}${versionHistory.buildNumber ? ` / بیلد ${versionHistory.buildNumber}` : ''}`;
+    addEntity('VERSION_HISTORY', versionHistory.id, title);
+    addEntity('RELEASE_PUBLISH', versionHistory.id, title);
+  });
+
+  const auditEvents = auditLogs
+    .filter(log => {
+      if (log.entityType === 'CHECKLIST' && securityReviewIds.has(log.entityId)) return false;
+      return entities.has(`${log.entityType}:${log.entityId}`);
+    })
+    .map((log): TestRequestHistoryEvent => {
+      const previousValue = parseAuditObject(log.previousValue);
+      const newValue = parseAuditObject(log.newValue);
+      const entity = entities.get(`${log.entityType}:${log.entityId}`)!;
+      const rawPreviousQualityStatus = firstAuditText(previousValue, ['qaQualityStatus', 'qualityStatus']);
+      const rawQualityStatus = firstAuditText(newValue, ['qaQualityStatus', 'qualityStatus']);
+      const rawDecision = firstAuditText(newValue, ['decision', 'releaseDecision']);
+      const targetField = ['assigneeId', 'assignedToId', 'qaSpecialistId', 'developerId']
+        .find(key => typeof newValue[key] === 'string' && Boolean((newValue[key] as string).trim()));
+      const targetUserId = targetField ? firstAuditText(newValue, [targetField]) : undefined;
+      let status = firstAuditText(newValue, ['status', 'result']);
+      if (!status && log.entityType === 'TEST_REQUEST' && log.action === 'ASSIGN') status = 'IN_PROGRESS';
+      if (!status && log.action === 'PUBLISH') status = 'PUBLISHED';
+      const details = firstAuditText(newValue, [
+        'reason',
+        'notes',
+        'reviewNotes',
+        'resolution',
+        'fixNotes',
+        'actualResult',
+        'description',
+        'message',
+      ]);
+      const metadataRole = log.metadata?.actorRole;
+      return {
+        id: log.id,
+        testRequestId: request.id,
+        entityType: log.entityType,
+        entityId: log.entityId,
+        entityTitle: entity.title,
+        action: log.action,
+        actorId: log.userId,
+        actor: log.user || getUserById(log.userId),
+        actorRole: isUserRole(metadataRole)
+          ? metadataRole
+          : inferAuditActorRole(log.userId, log.applicationId || request.applicationId, log.entityType, log.action),
+        targetUserId,
+        targetUser: targetUserId ? getUserById(targetUserId) : undefined,
+        targetRole: targetUserId
+          ? inferHistoryTargetRole(targetUserId, log.applicationId || request.applicationId, log.entityType, targetField)
+          : undefined,
+        previousStatus: firstAuditText(previousValue, ['status', 'result']),
+        status,
+        previousQualityStatus: isQAQualityStatus(rawPreviousQualityStatus) ? rawPreviousQualityStatus : undefined,
+        qualityStatus: isQAQualityStatus(rawQualityStatus) ? rawQualityStatus : undefined,
+        decision: isVersionHistoryDecision(rawDecision) ? rawDecision : undefined,
+        details,
+        createdAt: log.createdAt,
+      };
+    });
+
+  const securityEvents = linkedSecurityReviews.flatMap(review =>
+    (review.history || []).map((entry): TestRequestHistoryEvent => {
+      const targetUserId = entry.action === 'ASSIGNED_TO_QA_SPECIALIST'
+        ? review.assignedQASpecialistId
+        : entry.action === 'SECURITY_EXECUTION_CREATED'
+          ? review.securityExecutions.find(execution => execution.createdAt === entry.createdAt)?.developerId
+          : undefined;
+      const targetField = entry.action === 'ASSIGNED_TO_QA_SPECIALIST'
+        ? 'qaSpecialistId'
+        : entry.action === 'SECURITY_EXECUTION_CREATED'
+          ? 'developerId'
+          : undefined;
+      return {
+        id: `security-review:${review.id}:${entry.id}`,
+        testRequestId: request.id,
+        entityType: 'CHECKLIST',
+        entityId: review.id,
+        entityTitle: 'بررسی امنیت درخواست',
+        action: entry.action,
+        actorId: entry.actorId,
+        actor: getUserById(entry.actorId),
+        actorRole: inferAuditActorRole(
+          entry.actorId,
+          review.applicationId,
+          'CHECKLIST',
+          entry.action
+        ),
+        targetUserId,
+        targetUser: targetUserId ? getUserById(targetUserId) : undefined,
+        targetRole: targetUserId
+          ? inferHistoryTargetRole(targetUserId, review.applicationId, 'CHECKLIST', targetField)
+          : undefined,
+        previousStatus: entry.fromStatus,
+        status: entry.toStatus,
+        details: entry.notes,
+        createdAt: entry.createdAt,
+      };
+    })
+  );
+
+  return [...auditEvents, ...securityEvents].sort((left, right) => {
+    const timeDifference = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+    return timeDifference || left.id.localeCompare(right.id);
+  });
+}
+
 const localAuditLogApi = {
   async getAll(filters: Omit<CartableFilterParams, 'applicationId'> & { applicationId?: ApplicationScopeFilter }): Promise<PaginatedResponse<AuditLog>> {
     await delay();
@@ -5213,6 +5532,11 @@ const localAuditLogApi = {
   async getByEntity(entityType: string, entityId: string): Promise<AuditLog[]> {
     await delay();
     return auditLogs.filter(a => a.entityType === entityType && a.entityId === entityId);
+  },
+
+  async getTestRequestHistory(testRequestId: string): Promise<TestRequestHistoryEvent[]> {
+    await delay();
+    return buildTestRequestHistory(testRequestId);
   },
 };
 
@@ -6085,7 +6409,7 @@ function securityReviewDetail(
 }
 
 function buildSecurityReviewRequestSummary(testRequest: TestRequest): SecurityReviewRequestSummary {
-  const requestTestCases = testCases.filter(testCase => testCase.testRequestId === testRequest.id);
+  const requestTestCases = getTestCasesForRequestIds([testRequest.id]);
   const requestRuns = testRuns.filter(run => run.testRequestId === testRequest.id);
   const runIds = requestRuns.map(run => run.id);
   const requestBugs = bugs.filter(bug => runIds.includes(bug.testRunId));
@@ -6167,6 +6491,10 @@ function hydrateSecurityReview(review: SecurityReview): SecurityReview {
       .filter(item => attachmentIds.has(item.id) && item.status !== 'DELETED')
       .map(item => ({
         ...item,
+        // Binary data is fetched only when the user clicks download. Keeping a
+        // multi-megabyte data URL in every cartable/modal response can freeze
+        // the browser after an evidence upload.
+        storagePath: item.storagePath.startsWith('data:') ? '' : item.storagePath,
         uploadedBy: item.uploadedBy || getUserById(item.uploadedById),
       })),
     securityExecutions: review.securityExecutions || [],
@@ -6282,6 +6610,51 @@ const localSecurityChecklistApi = {
     await delay();
     const review = securityReviews.find(item => item.id === id);
     return review ? hydrateSecurityReview(review) : null;
+  },
+
+  async getAttachmentDownload(
+    reviewId: string,
+    attachmentId: string,
+    userId: string,
+    role: UserRole
+  ): Promise<Attachment | null> {
+    await delay();
+    const review = securityReviews.find(item => item.id === reviewId);
+    if (!review) return null;
+    const allowedRoles: UserRole[] = [
+      'SYSTEM_ADMIN',
+      'QA_LEAD',
+      'QA_SPECIALIST',
+      'DEVELOPER',
+      'SECURITY_REVIEWER',
+    ];
+    if (!allowedRoles.includes(role) || !userHasRole(userId, [role], review.applicationId)) {
+      throw new Error('SECURITY_REVIEW_FORBIDDEN');
+    }
+    if (role === 'QA_SPECIALIST' && review.assignedQASpecialistId !== userId) {
+      throw new Error('SECURITY_REVIEW_FORBIDDEN');
+    }
+    if (
+      role === 'DEVELOPER' &&
+      !review.securityExecutions?.some(execution => execution.developerId === userId)
+    ) {
+      throw new Error('SECURITY_REVIEW_FORBIDDEN');
+    }
+    const linkedAttachmentIds = new Set([
+      ...(review.securityEvidenceAttachmentIds || []),
+      ...(review.qaReportAttachmentIds || []),
+    ]);
+    if (!linkedAttachmentIds.has(attachmentId)) return null;
+    const attachment = attachments.find(item =>
+      item.id === attachmentId &&
+      item.entityId === review.id &&
+      item.entityType === 'CHECKLIST' &&
+      item.status !== 'DELETED'
+    );
+    return attachment ? {
+      ...attachment,
+      uploadedBy: attachment.uploadedBy || getUserById(attachment.uploadedById),
+    } : null;
   },
 
   async updateItem(

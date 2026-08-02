@@ -1179,6 +1179,7 @@ export const OnlineApiConsolePage: React.FC = () => {
   const canDocument = !!role && (role === 'SYSTEM_ADMIN' || policy.canGenerateDocumentation.includes(role));
   const canDelete = !!role && (role === 'SYSTEM_ADMIN' || policy.canDelete.includes(role));
   const canManageGeneralSettings = role === 'SYSTEM_ADMIN';
+  const canReviewShares = role === 'QA_LEAD' || role === 'SYSTEM_ADMIN';
 
   const visibleTabs = useMemo(
     () => TAB_LABELS.filter(tab => tab.id !== 'settings' || canManageGeneralSettings),
@@ -1209,7 +1210,7 @@ export const OnlineApiConsolePage: React.FC = () => {
   }, [activeContext, appId, workspaceView, repositoryFilters.page, repositoryFilters.limit]);
 
   useEffect(() => {
-    if (activeContext && workspaceView === 'reviews' && activeContext.role === 'QA_LEAD') {
+    if (activeContext && workspaceView === 'reviews' && canReviewShares) {
       loadShareReviews();
     }
   }, [activeContext, appId, workspaceView, reviewFilters.page, reviewFilters.limit, reviewFilters.status]);
@@ -1245,7 +1246,7 @@ export const OnlineApiConsolePage: React.FC = () => {
         apiConsoleApi
           .getRepository({ ...repositoryFilters, applicationId: appId }, activeContext)
           .catch(() => null),
-        activeContext.role === 'QA_LEAD'
+        canReviewShares
           ? apiConsoleApi
               .getShareReviews({ ...reviewFilters, applicationId: appId }, activeContext)
               .catch(() => null)
@@ -1297,7 +1298,7 @@ export const OnlineApiConsolePage: React.FC = () => {
   };
 
   const loadShareReviews = async () => {
-    if (!activeContext || activeContext.role !== 'QA_LEAD') return;
+    if (!activeContext || !canReviewShares) return;
     const reviewSeq = ++reviewSeqRef.current;
     setReviewsLoading(true);
     try {
@@ -2214,7 +2215,7 @@ export const OnlineApiConsolePage: React.FC = () => {
           <StatCard title="Core Query" value={stats.coreQuery} icon={<FileText className="h-6 w-6" />} variant="primary" />
           <StatCard title="Core Command" value={stats.coreCommand} icon={<AlertTriangle className="h-6 w-6" />} variant="danger" />
           <StatCard title="منتشرشده در Repository" value={stats.approved} icon={<ShieldCheck className="h-6 w-6" />} variant="success" />
-          <StatCard title="بررسی QA" value={stats.pendingReview} icon={<Clock className="h-6 w-6" />} variant="warning" />
+          <StatCard title="بررسی APIها" value={stats.pendingReview} icon={<Clock className="h-6 w-6" />} variant="warning" />
           <StatCard title="History همین Request" value={stats.history} icon={<History className="h-6 w-6" />} />
         </div>
 
@@ -2225,18 +2226,18 @@ export const OnlineApiConsolePage: React.FC = () => {
                 {[
                   { id: 'requests' as const, label: 'Requestهای من', count: requests?.total || 0 },
                   { id: 'repository' as const, label: 'Repository APIها', count: repositoryRows?.total || 0 },
-                  { id: 'reviews' as const, label: 'بررسی QA', count: shareReviews?.total || 0, hidden: activeContext.role !== 'QA_LEAD' },
+                  { id: 'reviews' as const, label: 'بررسی APIها', count: shareReviews?.total || 0, hidden: !canReviewShares },
                 ].filter(item => !item.hidden).map(item => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => setWorkspaceView(item.id)}
-                    className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+                    className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
                       workspaceView === item.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
                   >
-                    {item.label}
-                    <span className={`mr-2 rounded-full px-2 py-0.5 text-xs ${workspaceView === item.id ? 'bg-white/20' : 'bg-white'}`}>
+                    <span>{item.label}</span>
+                    <span className={`min-w-6 rounded-full px-2 py-0.5 text-center text-xs ${workspaceView === item.id ? 'bg-white/20' : 'bg-white'}`}>
                       {item.count}
                     </span>
                   </button>
@@ -2358,7 +2359,7 @@ export const OnlineApiConsolePage: React.FC = () => {
               />
             )}
 
-            {workspaceView === 'reviews' && activeContext.role === 'QA_LEAD' && (
+            {workspaceView === 'reviews' && canReviewShares && (
               <ShareReviewSection
                 rows={shareReviews}
                 loading={reviewsLoading}

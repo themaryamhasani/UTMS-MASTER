@@ -24,8 +24,22 @@ import {
   SYSTEM_URL_INPUT_HINT,
   validateRequestTitle,
 } from '../utils/inputRules';
-import type { TestRequest, User, Requirement, Flow, CartableFilterParams, PaginatedResponse, Priority, AuditLog } from '../types';
-import { TEST_REQUEST_STATUS_LABELS, PRIORITY_LABELS, REQUIREMENT_STATUS_LABELS, QA_QUALITY_STATUS_LABELS, RELEASE_PUBLISH_STATUS_LABELS } from '../types';
+import type { TestRequest, User, Requirement, Flow, CartableFilterParams, PaginatedResponse, Priority, TestRequestHistoryEvent } from '../types';
+import {
+  BUG_STATUS_LABELS,
+  CHECKLIST_STATUS_LABELS,
+  PLAYWRIGHT_RUN_STATUS_LABELS,
+  PRIORITY_LABELS,
+  QA_QUALITY_STATUS_LABELS,
+  RELEASE_PUBLISH_STATUS_LABELS,
+  REQUIREMENT_STATUS_LABELS,
+  RETEST_TASK_STATUS_LABELS,
+  ROLE_LABELS,
+  RUN_ISSUE_STATUS_LABELS,
+  TEST_CASE_STATUS_LABELS,
+  TEST_REQUEST_STATUS_LABELS,
+  TEST_RUN_STATUS_LABELS,
+} from '../types';
 
 interface OtherReqEntry {
   id: number;
@@ -53,8 +67,7 @@ export const TestRequestsPage: React.FC = () => {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ action: string; message: string } | null>(null);
   const [detailTab, setDetailTab] = useState<'info' | 'history'>('info');
-  const [requestAuditLogs, setRequestAuditLogs] = useState<AuditLog[]>([]);
-  const [auditUsersById, setAuditUsersById] = useState<Record<string, string>>({});
+  const [requestHistory, setRequestHistory] = useState<TestRequestHistoryEvent[]>([]);
 
   // Form — separate state per field to avoid focus loss
   const [fTitle, setFTitle] = useState('');
@@ -93,20 +106,15 @@ export const TestRequestsPage: React.FC = () => {
   useEffect(() => { if (activeContext && (showAssignModal || showAcceptAssignModal)) loadQASpecialists(); }, [activeContext, showAssignModal, showAcceptAssignModal]);
   useEffect(() => {
     if (!selectedRequest || !showDetailModal) {
-      setRequestAuditLogs([]);
+      setRequestHistory([]);
       return;
     }
-    Promise.all([
-      auditLogApi.getByEntity('TEST_REQUEST', selectedRequest.id),
-      userApi.getAll(),
-    ])
-      .then(([logs, users]) => {
-        setRequestAuditLogs(logs);
-        setAuditUsersById(Object.fromEntries(users.map(user => [user.id, user.fullName])));
-      })
+    auditLogApi
+      .getTestRequestHistory(selectedRequest.id)
+      .then(setRequestHistory)
       .catch(() => {
-        setRequestAuditLogs([]);
-        setAuditUsersById({});
+        setRequestHistory([]);
+        toast.error('خطا در بارگذاری تاریخچه کامل درخواست.');
       });
   }, [selectedRequest?.id, showDetailModal]);
   useEffect(() => {
@@ -290,15 +298,6 @@ export const TestRequestsPage: React.FC = () => {
   const selectedRequirementList = selectedRequest?.selectedRequirementIds
     ? availableReqs.filter(req => selectedRequest.selectedRequirementIds!.includes(req.id))
     : [];
-  const auditActionLabels: Record<string, string> = {
-    CREATE: 'ایجاد',
-    UPDATE: 'ویرایش',
-    SUBMIT: 'ارسال',
-    REVIEW: 'بررسی',
-    STATUS_CHANGE: 'تغییر وضعیت',
-    ASSIGN: 'ارجاع',
-    CANCEL: 'لغو',
-  };
   const requestTestTypeLabels: Record<string, string> = {
     INITIAL: 'تست اولیه',
     RETEST_REGRESSION: 'بازآزمون + رگرسیون',
@@ -310,31 +309,74 @@ export const TestRequestsPage: React.FC = () => {
     testTypes?.length
       ? testTypes.map(testType => requestTestTypeLabels[testType] || testType).join('، ')
       : '-';
-  const parseAuditValue = (value?: string): Record<string, unknown> => {
-    if (!value) return {};
-    try {
-      return JSON.parse(value) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
+  const historyEntityLabels: Record<string, string> = {
+    TEST_REQUEST: 'درخواست تست',
+    REQUIREMENT: 'نیازمندی',
+    FLOW: 'جریان',
+    TEST_CASE: 'تست‌کیس',
+    TEST_RUN: 'اجرای تست',
+    BUG: 'باگ',
+    RETEST_TASK: 'ماموریت اجرای مجدد',
+    RUN_ISSUE: 'مشکل اجرا',
+    CHECKLIST: 'بررسی امنیت/چک‌لیست',
+    PLAYWRIGHT_RUN: 'اجرای Playwright',
+    VERSION_HISTORY: 'تصمیم و ثبت انتشار',
+    RELEASE_PUBLISH: 'تصمیم و ثبت انتشار',
   };
-  const getAuditAssigneeName = (log: AuditLog) => {
-    const nextValue = parseAuditValue(log.newValue);
-    if (typeof nextValue.assigneeName === 'string' && nextValue.assigneeName.trim()) {
-      return nextValue.assigneeName;
-    }
-    if (typeof nextValue.assigneeId === 'string') {
-      return auditUsersById[nextValue.assigneeId] || nextValue.assigneeId;
-    }
-    return '-';
+  const historyActionLabels: Record<string, string> = {
+    CREATE: 'ایجاد شد',
+    UPDATE: 'ویرایش شد',
+    SUBMIT: 'ارسال شد',
+    REVIEW: 'بررسی شد',
+    STATUS_CHANGE: 'تغییر وضعیت یافت',
+    ASSIGN: 'ارجاع داده شد',
+    CANCEL: 'لغو شد',
+    FINALIZE: 'نهایی شد',
+    APPROVE: 'تصمیم نهایی ثبت شد',
+    REJECT: 'رد شد',
+    PUBLISH: 'منتشر شد',
+    EMERGENCY_PUBLISH: 'پذیرش ریسک اضطراری ثبت شد',
+    CREATED: 'بررسی امنیت ایجاد شد',
+    ITEM_UPDATED: 'آیتم امنیت به‌روزرسانی شد',
+    FILE_UPLOADED: 'مستند امنیت بارگذاری شد',
+    SUBMITTED_TO_TECH_LEAD: 'برای سرپرست فنی ارسال شد',
+    SUBMITTED_TO_QA_LEAD: 'برای سرپرست QA ارسال شد',
+    ASSIGNED_TO_QA_SPECIALIST: 'به کارشناس QA ارجاع شد',
+    RETURNED_TO_SECURITY: 'به کارشناس امنیت بازگردانده شد',
+    SECURITY_EXECUTION_CREATED: 'اجرای امنیت ثبت شد',
+    DEVELOPER_FIXED: 'رفع مشکل توسط توسعه‌دهنده ثبت شد',
+    QA_REPORT_SUBMITTED: 'گزارش QA ارسال شد',
+    QA_REPORT_APPROVED: 'گزارش QA تایید شد',
+    QA_REPORT_REJECTED: 'گزارش QA بازگردانده شد',
   };
-  const renderAuditSummary = (log: AuditLog) => {
-    if (log.action === 'UPDATE') return 'ویرایش اطلاعات درخواست';
-    if (log.action === 'SUBMIT') return 'ارسال درخواست';
-    if (log.action === 'REVIEW') return 'بررسی درخواست';
-    if (log.action === 'ASSIGN') return `ارجاع درخواست به ${getAuditAssigneeName(log)}`;
-    if (log.action === 'CANCEL') return 'لغو درخواست';
-    return auditActionLabels[log.action] || log.action;
+  const historyStatusLabelsByEntity: Record<string, Record<string, string>> = {
+    TEST_REQUEST: TEST_REQUEST_STATUS_LABELS,
+    REQUIREMENT: REQUIREMENT_STATUS_LABELS,
+    TEST_CASE: TEST_CASE_STATUS_LABELS,
+    TEST_RUN: TEST_RUN_STATUS_LABELS,
+    RETEST_TASK: RETEST_TASK_STATUS_LABELS,
+    BUG: BUG_STATUS_LABELS,
+    RUN_ISSUE: RUN_ISSUE_STATUS_LABELS,
+    PLAYWRIGHT_RUN: PLAYWRIGHT_RUN_STATUS_LABELS,
+    VERSION_HISTORY: RELEASE_PUBLISH_STATUS_LABELS,
+    RELEASE_PUBLISH: RELEASE_PUBLISH_STATUS_LABELS,
+    CHECKLIST: {
+      ...CHECKLIST_STATUS_LABELS,
+      NEEDS_QA_REVIEW: 'در انتظار بررسی سرپرست QA',
+      ASSIGNED_TO_QA: 'ارجاع‌شده به متخصص QA',
+      RETURNED_TO_SECURITY: 'بازگشت به کارشناس امنیت',
+      DEVELOPER_FIX: 'در حال رفع توسط توسعه‌دهنده',
+      FIXED_PENDING_QA: 'در انتظار گزارش متخصص QA',
+      QA_REPORT_REVIEW: 'در انتظار تایید گزارش QA',
+    },
+  };
+  const formatHistoryStatus = (event: TestRequestHistoryEvent, status?: string) =>
+    status ? historyStatusLabelsByEntity[event.entityType]?.[status] || status : '';
+  const renderHistorySummary = (event: TestRequestHistoryEvent) => {
+    if (event.entityType === 'VERSION_HISTORY' && event.action === 'REVIEW') return 'اعلام نظر کیفیت توسط سرپرست QA';
+    if (event.entityType === 'VERSION_HISTORY' && event.qualityStatus === 'IN_PROGRESS') return 'اجرای مجدد موفق و ارجاع برای بررسی دوباره QA';
+    if (event.entityType === 'VERSION_HISTORY' && event.action === 'PUBLISH') return 'انتشار نهایی نسخه';
+    return `${historyEntityLabels[event.entityType] || event.entityType} ${historyActionLabels[event.action] || event.action}`;
   };
 
   const columns = [
@@ -665,19 +707,73 @@ export const TestRequestsPage: React.FC = () => {
             {selectedRequest.requirement && <div><p className="text-sm font-medium text-gray-700 mb-2">نیازمندی ایجاد شده:</p>{renderReqAccordion(selectedRequest.requirement)}</div>}
             {selectedRequest.reviewNotes && <div className="p-3 bg-gray-50 rounded-lg"><p className="text-xs text-gray-500 mb-1">یادداشت بررسی</p><p className="text-sm">{selectedRequest.reviewNotes}</p></div>}
           </>}
-          {detailTab === 'history' && <div className="space-y-2">
-            {requestAuditLogs.length === 0 && (
+          {detailTab === 'history' && <div className="space-y-4">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              این خط زمانی تمام رویدادهای مرتبط با درخواست، نیازمندی‌ها، اجرای تست، بازآزمایی، امنیت و انتشار را به ترتیب وقوع نمایش می‌دهد.
+            </div>
+            {requestHistory.length === 0 && (
               <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-500">تاریخچه‌ای ثبت نشده است.</div>
             )}
-            {requestAuditLogs.map(log => (
-              <div key={log.id} className="p-3 bg-gray-50 rounded-lg text-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium text-gray-900">{renderAuditSummary(log)}</span>
-                  <span className="text-gray-500">{new Date(log.createdAt).toLocaleString('fa-IR')}</span>
+            <div className="space-y-0">
+              {requestHistory.map((event, index) => (
+                <div key={event.id} className="relative pr-8 pb-5 last:pb-0">
+                  {index < requestHistory.length - 1 && <span className="absolute right-[7px] top-4 h-full w-px bg-blue-200" />}
+                  <span className="absolute right-0 top-1.5 h-4 w-4 rounded-full border-4 border-blue-100 bg-blue-600" />
+                  <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-gray-900">{renderHistorySummary(event)}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {historyEntityLabels[event.entityType] || event.entityType}: {event.entityTitle}
+                        </p>
+                      </div>
+                      <time className="text-xs text-gray-500" dateTime={event.createdAt}>
+                        {new Date(event.createdAt).toLocaleString('fa-IR')}
+                      </time>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                      <span className="rounded bg-gray-100 px-2 py-1 text-gray-700">
+                        اقدام‌کننده: {event.actor?.fullName || event.actorId}
+                      </span>
+                      <span className="rounded bg-indigo-50 px-2 py-1 text-indigo-700">
+                        نقش: {event.actorRole ? ROLE_LABELS[event.actorRole] : 'نامشخص'}
+                      </span>
+                    </div>
+                    {event.targetUserId && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="rounded bg-amber-50 px-2 py-1 text-amber-800">
+                          تحویل‌گیرنده: {event.targetUser?.fullName || event.targetUserId}
+                        </span>
+                        <span className="rounded bg-purple-50 px-2 py-1 text-purple-700">
+                          نقش تحویل‌گیرنده: {event.targetRole ? ROLE_LABELS[event.targetRole] : 'نامشخص'}
+                        </span>
+                      </div>
+                    )}
+                    {(event.previousStatus || event.status) && (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                        {event.previousStatus && <span className="rounded bg-gray-100 px-2 py-1 text-gray-600">از: {formatHistoryStatus(event, event.previousStatus)}</span>}
+                        {event.previousStatus && event.status && <span className="text-gray-400">←</span>}
+                        {event.status && <span className="rounded bg-emerald-50 px-2 py-1 font-medium text-emerald-700">به: {formatHistoryStatus(event, event.status)}</span>}
+                      </div>
+                    )}
+                    {(event.previousQualityStatus || event.qualityStatus) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-medium text-blue-700">
+                        <span>وضعیت کیفیت:</span>
+                        {event.previousQualityStatus && <span className="rounded bg-gray-100 px-2 py-1 text-gray-600">{QA_QUALITY_STATUS_LABELS[event.previousQualityStatus]}</span>}
+                        {event.previousQualityStatus && event.qualityStatus && <span className="text-gray-400">←</span>}
+                        {event.qualityStatus && <span className="rounded bg-blue-50 px-2 py-1">{QA_QUALITY_STATUS_LABELS[event.qualityStatus]}</span>}
+                      </div>
+                    )}
+                    {event.decision && (
+                      <p className="mt-2 text-xs font-medium text-purple-700">
+                        تصمیم انتشار: {RELEASE_PUBLISH_STATUS_LABELS[event.decision]}
+                      </p>
+                    )}
+                    {event.details && <p className="mt-2 whitespace-pre-wrap text-xs text-gray-600">توضیحات: {event.details}</p>}
+                  </div>
                 </div>
-                <p className="mt-1 text-xs text-gray-500">کاربر: {log.user?.fullName || log.userId}</p>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>}
           <div className="flex flex-wrap gap-3 pt-4 border-t">
             {selectedRequest.status === 'DRAFT' && selectedRequest.requesterId === activeContext?.userId && <Button onClick={() => handleSubmit(selectedRequest)} loading={actionLoading}>ارسال</Button>}
