@@ -261,6 +261,8 @@ enum SecurityExecutionStatus {
 }
 
 enum PlaywrightRunStatus {
+  PREPARING
+  QUEUED
   PENDING
   RUNNING
   PASSED
@@ -286,11 +288,35 @@ enum PlaywrightCdeRootKind {
   FRONT
   DATASERVICE
   GATEWAY
+  MESSAGE_CONSUMER
+  TESTS
 }
 
 enum PlaywrightTestFileSource {
   DISCOVERED
   MANAGED
+  CDE
+}
+
+enum CdeRepositoryType {
+  WEB_UI
+  DATA_SERVICE
+  API_MODULE
+  MESSAGE_CONSUMER
+  TESTS
+}
+
+enum CdeBranchKind {
+  PUBLIC
+  PERSONAL
+}
+
+enum CdeSnapshotStatus {
+  PENDING
+  MATERIALIZING
+  READY
+  FAILED
+  PURGED
 }
 
 enum VersionHistoryStatus {
@@ -537,6 +563,8 @@ model User {
   credential              UserCredential?
   passwordResetOtps       PasswordResetOtp[]
   sessions                UserSession[]
+  cdeBranchSelections     CdeBranchSelection[]
+  cdeSourceSnapshots      CdeSourceSnapshot[]       @relation("CdeSnapshotRequester")
   requestedTestRequests   TestRequest[]             @relation("TestRequestRequester")
   assignedTestRequests    TestRequest[]             @relation("TestRequestAssignee")
   reviewedTestRequests    TestRequest[]             @relation("TestRequestReviewer")
@@ -641,45 +669,49 @@ model WorkflowPolicy {
 }
 
 model Application {
-  id                    String                           @id @default(cuid())
-  name                  String                           @db.VarChar(255)
-  code                  String                           @unique @db.VarChar(80)
-  description           String?                          @db.Text
-  cdeFrontUrl           String?                          @map("cde_front_url") @db.Text
-  cdeDataServiceUrl     String?                          @map("cde_data_service_url") @db.Text
-  cdeGatewayUrl         String?                          @map("cde_gateway_url") @db.Text
-  workflowPolicyId      String?                          @map("workflow_policy_id")
-  workflowPolicy        WorkflowPolicy?                  @relation(fields: [workflowPolicyId], references: [id], onDelete: SetNull)
-  isActive              Boolean                          @default(true) @map("is_active")
-  createdAt             DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  roleAssignments       UserRoleAssignment[]             @relation("AssignmentDefaultApplication")
-  assignmentScopes      UserRoleAssignmentApplication[]
-  sessions              UserSession[]
-  testRequests          TestRequest[]
-  requirements          Requirement[]
-  testCases             TestCase[]
-  testRuns              TestRun[]
-  bugs                  Bug[]
-  retestTasks           RetestTask[]
-  runIssues             RunIssue[]
-  checklists            Checklist[]
-  securityReviews       SecurityReview[]
-  playwrightRuns        PlaywrightRun[]
-  playwrightTestFolders PlaywrightTestFolder[]
-  playwrightTestFiles   PlaywrightTestFile[]
-  hiddenPlaywrightPaths PlaywrightHiddenDiscoveredPath[]
-  versionHistories      VersionHistory[]
-  auditLogs             AuditLog[]
-  commandTraces         CommandTrace[]
-  apiCollections        ApiConsoleCollection[]
-  apiRequests           ApiConsoleRequest[]
-  apiShareRequests      ApiShareRequest[]
-  apiConsumers          ApiVersionConsumer[]
-  apiReferences         ApiConsoleReference[]
-  apiUsageEvents        ApiUsageEvent[]
-  scheduledReports      ScheduledReport[]
-  reportAlerts          ReportAlert[]
+  id                      String                           @id @default(cuid())
+  name                    String                           @db.VarChar(255)
+  code                    String                           @unique @db.VarChar(80)
+  description             String?                          @db.Text
+  cdeFrontUrl             String?                          @map("cde_front_url") @db.Text
+  cdeDataServiceUrl       String?                          @map("cde_data_service_url") @db.Text
+  cdeGatewayUrl           String?                          @map("cde_gateway_url") @db.Text
+  workflowPolicyId        String?                          @map("workflow_policy_id")
+  workflowPolicy          WorkflowPolicy?                  @relation(fields: [workflowPolicyId], references: [id], onDelete: SetNull)
+  isActive                Boolean                          @default(true) @map("is_active")
+  createdAt               DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  roleAssignments         UserRoleAssignment[]             @relation("AssignmentDefaultApplication")
+  assignmentScopes        UserRoleAssignmentApplication[]
+  sessions                UserSession[]
+  cdeMapping              CdeApplicationMapping?
+  cdeBranchSelections     CdeBranchSelection[]
+  cdeSourceSnapshots      CdeSourceSnapshot[]
+  applicationEnvironments ApplicationEnvironment[]
+  testRequests            TestRequest[]
+  requirements            Requirement[]
+  testCases               TestCase[]
+  testRuns                TestRun[]
+  bugs                    Bug[]
+  retestTasks             RetestTask[]
+  runIssues               RunIssue[]
+  checklists              Checklist[]
+  securityReviews         SecurityReview[]
+  playwrightRuns          PlaywrightRun[]
+  playwrightTestFolders   PlaywrightTestFolder[]
+  playwrightTestFiles     PlaywrightTestFile[]
+  hiddenPlaywrightPaths   PlaywrightHiddenDiscoveredPath[]
+  versionHistories        VersionHistory[]
+  auditLogs               AuditLog[]
+  commandTraces           CommandTrace[]
+  apiCollections          ApiConsoleCollection[]
+  apiRequests             ApiConsoleRequest[]
+  apiShareRequests        ApiShareRequest[]
+  apiConsumers            ApiVersionConsumer[]
+  apiReferences           ApiConsoleReference[]
+  apiUsageEvents          ApiUsageEvent[]
+  scheduledReports        ScheduledReport[]
+  reportAlerts            ReportAlert[]
 
   @@index([isActive])
   @@map("applications")
@@ -718,56 +750,56 @@ model UserRoleAssignmentApplication {
 }
 
 model TestRequest {
-  id                      String                   @id @default(cuid())
-  applicationId           String                   @map("application_id")
-  application             Application              @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  title                   String                   @db.VarChar(500)
-  description             String                   @db.Text
-  version                 String                   @db.VarChar(64)
-  buildNumber             String?                  @map("build_number") @db.VarChar(64)
-  environment             String                   @db.VarChar(120)
-  priority                Priority
-  riskLevel               Priority                 @map("risk_level")
-  status                  TestRequestStatus
-  systemUrl               String?                  @map("system_url") @db.Text
-  testTypes               String[]                 @default([]) @map("test_types")
-  requesterId             String                   @map("requester_id")
-  requester               User                     @relation("TestRequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
-  assigneeId              String?                  @map("assignee_id")
-  assignee                User?                    @relation("TestRequestAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  requirementId           String?                  @map("requirement_id")
-  requirement             Requirement?             @relation("TestRequestPrimaryRequirement", fields: [requirementId], references: [id], onDelete: SetNull)
-  reviewedAt              DateTime?                @map("reviewed_at") @db.Timestamptz(6)
-  reviewedById            String?                  @map("reviewed_by_id")
-  reviewedBy              User?                    @relation("TestRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
-  reviewNotes             String?                  @map("review_notes") @db.Text
-  submittedAt             DateTime?                @map("submitted_at") @db.Timestamptz(6)
-  versionHistoryId        String?                  @map("version_history_id")
-  versionHistory          VersionHistory?          @relation("TestRequestCurrentVersionHistory", fields: [versionHistoryId], references: [id], onDelete: SetNull)
-  qaQualityStatus         QAQualityStatus?         @map("qa_quality_status")
-  qaQualityNotes          String?                  @map("qa_quality_notes") @db.Text
-  securityTestRequired    Boolean                  @default(false) @map("security_test_required")
-  securityTestConfiguration Json?                  @map("security_test_configuration")
-  securityRequestedById   String?                  @map("security_requested_by_id")
-  securityRequestedBy     User?                    @relation("TestRequestSecurityRequestedBy", fields: [securityRequestedById], references: [id], onDelete: SetNull)
-  securityRequestedAt     DateTime?                @map("security_requested_at") @db.Timestamptz(6)
-  releaseDecision         VersionHistoryDecision?  @map("release_decision")
-  releaseDecisionReason   String?                  @map("release_decision_reason") @db.Text
-  releaseDecisionById     String?                  @map("release_decision_by_id")
-  releaseDecisionBy       User?                    @relation("TestRequestReleaseDecisionBy", fields: [releaseDecisionById], references: [id], onDelete: SetNull)
-  releaseDecisionAt       DateTime?                @map("release_decision_at") @db.Timestamptz(6)
-  createdAt               DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
-  selectedRequirements    TestRequestRequirement[]
-  originatedRequirements  Requirement[]            @relation("RequirementOriginRequest")
-  testCases               TestCase[]
-  testRuns                TestRun[]
-  retestTasks             RetestTask[]
-  checklists              Checklist[]
-  securityReview          SecurityReview?
-  playwrightRuns          PlaywrightRun[]
-  primaryVersionHistories VersionHistory[]         @relation("VersionHistoryPrimaryRequest")
-  versionHistoryLinks     VersionHistoryRequest[]
+  id                        String                   @id @default(cuid())
+  applicationId             String                   @map("application_id")
+  application               Application              @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  title                     String                   @db.VarChar(500)
+  description               String                   @db.Text
+  version                   String                   @db.VarChar(64)
+  buildNumber               String?                  @map("build_number") @db.VarChar(64)
+  environment               String                   @db.VarChar(120)
+  priority                  Priority
+  riskLevel                 Priority                 @map("risk_level")
+  status                    TestRequestStatus
+  systemUrl                 String?                  @map("system_url") @db.Text
+  testTypes                 String[]                 @default([]) @map("test_types")
+  requesterId               String                   @map("requester_id")
+  requester                 User                     @relation("TestRequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  assigneeId                String?                  @map("assignee_id")
+  assignee                  User?                    @relation("TestRequestAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  requirementId             String?                  @map("requirement_id")
+  requirement               Requirement?             @relation("TestRequestPrimaryRequirement", fields: [requirementId], references: [id], onDelete: SetNull)
+  reviewedAt                DateTime?                @map("reviewed_at") @db.Timestamptz(6)
+  reviewedById              String?                  @map("reviewed_by_id")
+  reviewedBy                User?                    @relation("TestRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewNotes               String?                  @map("review_notes") @db.Text
+  submittedAt               DateTime?                @map("submitted_at") @db.Timestamptz(6)
+  versionHistoryId          String?                  @map("version_history_id")
+  versionHistory            VersionHistory?          @relation("TestRequestCurrentVersionHistory", fields: [versionHistoryId], references: [id], onDelete: SetNull)
+  qaQualityStatus           QAQualityStatus?         @map("qa_quality_status")
+  qaQualityNotes            String?                  @map("qa_quality_notes") @db.Text
+  securityTestRequired      Boolean                  @default(false) @map("security_test_required")
+  securityTestConfiguration Json?                    @map("security_test_configuration")
+  securityRequestedById     String?                  @map("security_requested_by_id")
+  securityRequestedBy       User?                    @relation("TestRequestSecurityRequestedBy", fields: [securityRequestedById], references: [id], onDelete: SetNull)
+  securityRequestedAt       DateTime?                @map("security_requested_at") @db.Timestamptz(6)
+  releaseDecision           VersionHistoryDecision?  @map("release_decision")
+  releaseDecisionReason     String?                  @map("release_decision_reason") @db.Text
+  releaseDecisionById       String?                  @map("release_decision_by_id")
+  releaseDecisionBy         User?                    @relation("TestRequestReleaseDecisionBy", fields: [releaseDecisionById], references: [id], onDelete: SetNull)
+  releaseDecisionAt         DateTime?                @map("release_decision_at") @db.Timestamptz(6)
+  createdAt                 DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  selectedRequirements      TestRequestRequirement[]
+  originatedRequirements    Requirement[]            @relation("RequirementOriginRequest")
+  testCases                 TestCase[]
+  testRuns                  TestRun[]
+  retestTasks               RetestTask[]
+  checklists                Checklist[]
+  securityReview            SecurityReview?
+  playwrightRuns            PlaywrightRun[]
+  primaryVersionHistories   VersionHistory[]         @relation("VersionHistoryPrimaryRequest")
+  versionHistoryLinks       VersionHistoryRequest[]
 
   @@index([applicationId, status])
   @@index([requesterId])
@@ -1089,26 +1121,26 @@ model SecurityChecklistTemplateItem {
 }
 
 model SecurityReview {
-  id               String               @id @default(cuid())
-  testRequestId    String               @unique @map("test_request_id")
-  testRequest      TestRequest          @relation(fields: [testRequestId], references: [id], onDelete: Cascade)
-  testRequestTitle String               @map("test_request_title") @db.VarChar(500)
-  applicationId    String               @map("application_id")
-  application      Application          @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  status           SecurityReviewStatus
-  reviewedById     String?              @map("reviewed_by_id")
-  reviewedBy       User?                @relation("SecurityReviewReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
-  reviewedAt       DateTime?            @map("reviewed_at") @db.Timestamptz(6)
-  assignedQASpecialistId       String?   @map("assigned_qa_specialist_id")
-  securityEvidenceAttachmentIds String[] @default([]) @map("security_evidence_attachment_ids")
-  qaReportAttachmentIds         String[] @default([]) @map("qa_report_attachment_ids")
-  followUpStartedAt             DateTime? @map("follow_up_started_at") @db.Timestamptz(6)
-  lastActionNotes               String?   @map("last_action_notes") @db.Text
-  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
-  items            SecurityReviewItem[]
-  executions       SecurityExecution[]
-  transitions      SecurityReviewTransition[]
+  id                            String                     @id @default(cuid())
+  testRequestId                 String                     @unique @map("test_request_id")
+  testRequest                   TestRequest                @relation(fields: [testRequestId], references: [id], onDelete: Cascade)
+  testRequestTitle              String                     @map("test_request_title") @db.VarChar(500)
+  applicationId                 String                     @map("application_id")
+  application                   Application                @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  status                        SecurityReviewStatus
+  reviewedById                  String?                    @map("reviewed_by_id")
+  reviewedBy                    User?                      @relation("SecurityReviewReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt                    DateTime?                  @map("reviewed_at") @db.Timestamptz(6)
+  assignedQASpecialistId        String?                    @map("assigned_qa_specialist_id")
+  securityEvidenceAttachmentIds String[]                   @default([]) @map("security_evidence_attachment_ids")
+  qaReportAttachmentIds         String[]                   @default([]) @map("qa_report_attachment_ids")
+  followUpStartedAt             DateTime?                  @map("follow_up_started_at") @db.Timestamptz(6)
+  lastActionNotes               String?                    @map("last_action_notes") @db.Text
+  createdAt                     DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                     DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  items                         SecurityReviewItem[]
+  executions                    SecurityExecution[]
+  transitions                   SecurityReviewTransition[]
 
   @@index([applicationId, status])
   @@map("security_reviews")
@@ -1133,16 +1165,16 @@ model SecurityExecution {
 }
 
 model SecurityReviewTransition {
-  id            String               @id @default(cuid())
-  reviewId      String               @map("review_id")
-  review        SecurityReview       @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-  action        String               @db.VarChar(100)
-  actorId       String               @map("actor_id")
+  id            String                @id @default(cuid())
+  reviewId      String                @map("review_id")
+  review        SecurityReview        @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  action        String                @db.VarChar(100)
+  actorId       String                @map("actor_id")
   fromStatus    SecurityReviewStatus? @map("from_status")
   toStatus      SecurityReviewStatus  @map("to_status")
-  notes         String?              @db.Text
-  attachmentIds String[]             @default([]) @map("attachment_ids")
-  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  notes         String?               @db.Text
+  attachmentIds String[]              @default([]) @map("attachment_ids")
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([reviewId, createdAt])
   @@index([actorId, createdAt])
@@ -1164,51 +1196,60 @@ model SecurityReviewItem {
 }
 
 model PlaywrightRun {
-  id               String                 @id @default(cuid())
-  applicationId    String                 @map("application_id")
-  application      Application            @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  testRequestId    String?                @map("test_request_id")
-  testRequest      TestRequest?           @relation(fields: [testRequestId], references: [id], onDelete: SetNull)
-  testCaseIds      String[]               @default([]) @map("test_case_ids")
-  testFilePath     String                 @map("test_file_path") @db.Text
-  environment      String                 @db.VarChar(120)
-  projects         PlaywrightProject[]    @default([])
-  headed           Boolean                @default(false)
-  workers          String?                @db.VarChar(32)
-  retries          Int?
-  maxFailures      String?                @map("max_failures") @db.VarChar(32)
-  trace            String?                @db.VarChar(64)
-  reporter         String?                @db.VarChar(32)
-  status           PlaywrightRunStatus
-  queueStatus      PlaywrightQueueStatus? @map("queue_status")
-  runnerId         String?                @map("runner_id") @db.VarChar(255)
-  command          String?                @db.Text
-  workingDirectory String?                @map("working_directory") @db.Text
-  timeoutSeconds   Int?                   @map("timeout_seconds")
-  artifactIds      String[]               @default([]) @map("artifact_ids")
-  artifactPaths    String[]               @default([]) @map("artifact_paths")
-  report           Json?
-  manualPath       Boolean                @default(false) @map("manual_path")
-  idempotencyKey   String?                @map("idempotency_key") @db.VarChar(255)
-  correlationId    String?                @map("correlation_id") @db.VarChar(255)
-  requestedAt      DateTime?              @map("requested_at") @db.Timestamptz(6)
-  dispatchedAt     DateTime?              @map("dispatched_at") @db.Timestamptz(6)
-  lastHeartbeatAt  DateTime?              @map("last_heartbeat_at") @db.Timestamptz(6)
-  startedAt        DateTime?              @map("started_at") @db.Timestamptz(6)
-  completedAt      DateTime?              @map("completed_at") @db.Timestamptz(6)
-  duration         Int?
-  totalTests       Int?                   @map("total_tests")
-  passedTests      Int?                   @map("passed_tests")
-  failedTests      Int?                   @map("failed_tests")
-  skippedTests     Int?                   @map("skipped_tests")
-  cancelledTests   Int?                   @map("cancelled_tests")
-  logs             String?                @db.Text
-  triggeredById    String                 @map("triggered_by_id")
-  triggeredBy      User                   @relation("PlaywrightRunTrigger", fields: [triggeredById], references: [id], onDelete: Restrict)
-  createdAt        DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                   String                  @id @default(cuid())
+  applicationId        String                  @map("application_id")
+  application          Application             @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  environmentProfileId String?                 @map("environment_profile_id")
+  environmentProfile   ApplicationEnvironment? @relation(fields: [environmentProfileId], references: [id], onDelete: SetNull)
+  snapshotId           String?                 @map("snapshot_id")
+  snapshot             CdeSourceSnapshot?      @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  testFileId           String?                 @map("test_file_id")
+  testFile             PlaywrightTestFile?     @relation(fields: [testFileId], references: [id], onDelete: SetNull)
+  testRequestId        String?                 @map("test_request_id")
+  testRequest          TestRequest?            @relation(fields: [testRequestId], references: [id], onDelete: SetNull)
+  testCaseIds          String[]                @default([]) @map("test_case_ids")
+  testFilePath         String                  @map("test_file_path") @db.Text
+  environment          String                  @db.VarChar(120)
+  projects             PlaywrightProject[]     @default([])
+  headed               Boolean                 @default(false)
+  workers              String?                 @db.VarChar(32)
+  retries              Int?
+  maxFailures          String?                 @map("max_failures") @db.VarChar(32)
+  trace                String?                 @db.VarChar(64)
+  reporter             String?                 @db.VarChar(32)
+  status               PlaywrightRunStatus
+  queueStatus          PlaywrightQueueStatus?  @map("queue_status")
+  runnerId             String?                 @map("runner_id") @db.VarChar(255)
+  command              String?                 @db.Text
+  workingDirectory     String?                 @map("working_directory") @db.Text
+  timeoutSeconds       Int?                    @map("timeout_seconds")
+  artifactIds          String[]                @default([]) @map("artifact_ids")
+  artifactPaths        String[]                @default([]) @map("artifact_paths")
+  report               Json?
+  manualPath           Boolean                 @default(false) @map("manual_path")
+  idempotencyKey       String?                 @map("idempotency_key") @db.VarChar(255)
+  correlationId        String?                 @map("correlation_id") @db.VarChar(255)
+  requestedAt          DateTime?               @map("requested_at") @db.Timestamptz(6)
+  dispatchedAt         DateTime?               @map("dispatched_at") @db.Timestamptz(6)
+  lastHeartbeatAt      DateTime?               @map("last_heartbeat_at") @db.Timestamptz(6)
+  startedAt            DateTime?               @map("started_at") @db.Timestamptz(6)
+  completedAt          DateTime?               @map("completed_at") @db.Timestamptz(6)
+  duration             Int?
+  totalTests           Int?                    @map("total_tests")
+  passedTests          Int?                    @map("passed_tests")
+  failedTests          Int?                    @map("failed_tests")
+  skippedTests         Int?                    @map("skipped_tests")
+  cancelledTests       Int?                    @map("cancelled_tests")
+  logs                 String?                 @db.Text
+  triggeredById        String                  @map("triggered_by_id")
+  triggeredBy          User                    @relation("PlaywrightRunTrigger", fields: [triggeredById], references: [id], onDelete: Restrict)
+  createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([applicationId, status])
+  @@index([environmentProfileId])
+  @@index([snapshotId])
+  @@index([testFileId])
   @@index([testRequestId])
   @@index([correlationId])
   @@map("playwright_runs")
@@ -1240,15 +1281,114 @@ model PlaywrightTestFile {
   fileName           String                   @map("file_name") @db.VarChar(255)
   fullPath           String                   @map("full_path") @db.Text
   script             String                   @db.Text
+  remoteRepoName     String?                  @map("remote_repo_name") @db.Text
+  remotePackId       String?                  @map("remote_pack_id") @db.Text
+  remoteBranchKind   CdeBranchKind?           @map("remote_branch_kind")
+  remoteBranchRandId String?                  @map("remote_branch_rand_id") @db.VarChar(255)
+  remoteBranchIndex  Int?                     @map("remote_branch_index")
+  remoteVersionId    String?                  @map("remote_version_id") @db.VarChar(255)
+  remotePath         String?                  @map("remote_path") @db.Text
+  sourceHash         String?                  @map("source_hash") @db.VarChar(64)
+  syncedAt           DateTime?                @map("synced_at") @db.Timestamptz(6)
   description        String?                  @db.Text
   createdById        String                   @map("created_by_id")
   createdBy          User                     @relation("PlaywrightFileCreator", fields: [createdById], references: [id], onDelete: Restrict)
   createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  runs               PlaywrightRun[]
 
   @@unique([applicationId, fullPath])
   @@index([applicationId, source])
+  @@index([applicationId, remoteRepoName, remotePackId])
   @@map("playwright_test_files")
+}
+
+model CdeApplicationMapping {
+  id                      String      @id @default(cuid())
+  applicationId           String      @unique @map("application_id")
+  application             Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  serviceId               String      @default("cde.edus.ir") @map("service_id") @db.VarChar(255)
+  projectKey              String      @map("project_key") @db.VarChar(255)
+  webUiRepoName           String?     @map("web_ui_repo_name") @db.Text
+  dataServiceRepoName     String?     @map("data_service_repo_name") @db.Text
+  apiModuleRepoName       String?     @map("api_module_repo_name") @db.Text
+  messageConsumerRepoName String?     @map("message_consumer_repo_name") @db.Text
+  testRepoName            String      @map("test_repo_name") @db.Text
+  testPackId              String      @map("test_pack_id") @db.Text
+  testBranchRandId        String?     @map("test_branch_rand_id") @db.VarChar(255)
+  testBranchIndex         Int?        @map("test_branch_index")
+  enabled                 Boolean     @default(true)
+  lastValidationStatus    String?     @map("last_validation_status") @db.VarChar(64)
+  lastValidatedAt         DateTime?   @map("last_validated_at") @db.Timestamptz(6)
+  createdAt               DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([projectKey, enabled])
+  @@map("cde_application_mappings")
+}
+
+model CdeBranchSelection {
+  id                String            @id @default(cuid())
+  userId            String            @map("user_id")
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId     String            @map("application_id")
+  application       Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  repositoryType    CdeRepositoryType @map("repository_type")
+  repoName          String            @map("repo_name") @db.Text
+  packId            String            @map("pack_id") @db.Text
+  branchKind        CdeBranchKind     @map("branch_kind")
+  branchRandId      String?           @map("branch_rand_id") @db.VarChar(255)
+  branchIndex       Int?              @map("branch_index")
+  lastSeenVersionId String?           @map("last_seen_version_id") @db.VarChar(255)
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([userId, applicationId, repositoryType, repoName, packId])
+  @@index([applicationId, repositoryType])
+  @@map("cde_branch_selections")
+}
+
+model ApplicationEnvironment {
+  id               String          @id @default(cuid())
+  applicationId    String          @map("application_id")
+  application      Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  name             String          @db.VarChar(120)
+  webBaseUrl       String          @map("web_base_url") @db.Text
+  apiBaseUrl       String?         @map("api_base_url") @db.Text
+  gatewayBaseUrl   String?         @map("gateway_base_url") @db.Text
+  secretReferences Json            @default("{}") @map("secret_references")
+  enabled          Boolean         @default(true)
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  playwrightRuns   PlaywrightRun[]
+
+  @@unique([applicationId, name])
+  @@index([applicationId, enabled])
+  @@map("application_environments")
+}
+
+model CdeSourceSnapshot {
+  id                  String            @id @default(cuid())
+  applicationId       String            @map("application_id")
+  application         Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  requestedById       String            @map("requested_by_id")
+  requestedBy         User              @relation("CdeSnapshotRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  initiatingSessionId String?           @map("initiating_session_id") @db.VarChar(255)
+  status              CdeSnapshotStatus @default(PENDING)
+  manifest            Json              @default("{}")
+  objectKey           String?           @map("object_key") @db.Text
+  contentHash         String?           @map("content_hash") @db.VarChar(64)
+  errorCode           String?           @map("error_code") @db.VarChar(120)
+  errorMessage        String?           @map("error_message") @db.Text
+  expiresAt           DateTime          @map("expires_at") @db.Timestamptz(6)
+  purgedAt            DateTime?         @map("purged_at") @db.Timestamptz(6)
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  playwrightRuns      PlaywrightRun[]
+
+  @@index([applicationId, status])
+  @@index([expiresAt, purgedAt])
+  @@map("cde_source_snapshots")
 }
 
 model PlaywrightHiddenDiscoveredPath {
@@ -1263,46 +1403,46 @@ model PlaywrightHiddenDiscoveredPath {
 }
 
 model VersionHistory {
-  id                   String                   @id @default(cuid())
-  applicationId        String                   @map("application_id")
-  application          Application              @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  version              String                   @db.VarChar(64)
-  buildNumber          String?                  @map("build_number") @db.VarChar(64)
-  status               VersionHistoryStatus
-  primaryTestRequestId String                   @map("primary_test_request_id")
-  primaryTestRequest   TestRequest              @relation("VersionHistoryPrimaryRequest", fields: [primaryTestRequestId], references: [id], onDelete: Restrict)
-  isEmergency          Boolean                  @default(false) @map("is_emergency")
-  emergencyReason      String?                  @map("emergency_reason") @db.Text
-  riskDescription      String?                  @map("risk_description") @db.Text
-  riskAccepted         Boolean?                 @map("risk_accepted")
-  qaQualityStatus      QAQualityStatus?         @map("qa_quality_status")
-  qaQualityNotes       String?                  @map("qa_quality_notes") @db.Text
-  qaReviewedById       String?                  @map("qa_reviewed_by_id")
-  qaReviewedBy         User?                    @relation("VersionHistoryQaReviewer", fields: [qaReviewedById], references: [id], onDelete: SetNull)
-  qaReviewedAt         DateTime?                @map("qa_reviewed_at") @db.Timestamptz(6)
-  qaRetestRequestedAt  DateTime?                @map("qa_retest_requested_at") @db.Timestamptz(6)
-  qaRetestRequestedById String?                 @map("qa_retest_requested_by_id")
-  qaRetestRequestedBy  User?                    @relation("VersionHistoryQaRetestRequester", fields: [qaRetestRequestedById], references: [id], onDelete: SetNull)
-  qaRetestBaselineRunCount Int?                 @map("qa_retest_baseline_run_count")
-  decision             VersionHistoryDecision?
-  decisionReason       String?                  @map("decision_reason") @db.Text
-  decisionById         String?                  @map("decision_by_id")
-  decisionBy           User?                    @relation("VersionHistoryDecisionBy", fields: [decisionById], references: [id], onDelete: SetNull)
-  decisionAt           DateTime?                @map("decision_at") @db.Timestamptz(6)
-  snapshot             Json?
-  decisionSnapshot     Json?                    @map("decision_snapshot")
-  creationCommand      Json?                    @map("creation_command")
-  lastCommand          Json?                    @map("last_command")
-  createdById          String                   @map("created_by_id")
-  createdBy            User                     @relation("VersionHistoryCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  publishedAt          DateTime?                @map("published_at") @db.Timestamptz(6)
-  createdAt            DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
-  linkedRequests       VersionHistoryRequest[]
-  revisions            VersionHistoryRevision[]
-  currentTestRequests  TestRequest[]            @relation("TestRequestCurrentVersionHistory")
-  lockedRuns           TestRun[]                @relation("VersionHistoryLockedRuns")
-  lockedBugs           Bug[]                    @relation("VersionHistoryLockedBugs")
+  id                       String                   @id @default(cuid())
+  applicationId            String                   @map("application_id")
+  application              Application              @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  version                  String                   @db.VarChar(64)
+  buildNumber              String?                  @map("build_number") @db.VarChar(64)
+  status                   VersionHistoryStatus
+  primaryTestRequestId     String                   @map("primary_test_request_id")
+  primaryTestRequest       TestRequest              @relation("VersionHistoryPrimaryRequest", fields: [primaryTestRequestId], references: [id], onDelete: Restrict)
+  isEmergency              Boolean                  @default(false) @map("is_emergency")
+  emergencyReason          String?                  @map("emergency_reason") @db.Text
+  riskDescription          String?                  @map("risk_description") @db.Text
+  riskAccepted             Boolean?                 @map("risk_accepted")
+  qaQualityStatus          QAQualityStatus?         @map("qa_quality_status")
+  qaQualityNotes           String?                  @map("qa_quality_notes") @db.Text
+  qaReviewedById           String?                  @map("qa_reviewed_by_id")
+  qaReviewedBy             User?                    @relation("VersionHistoryQaReviewer", fields: [qaReviewedById], references: [id], onDelete: SetNull)
+  qaReviewedAt             DateTime?                @map("qa_reviewed_at") @db.Timestamptz(6)
+  qaRetestRequestedAt      DateTime?                @map("qa_retest_requested_at") @db.Timestamptz(6)
+  qaRetestRequestedById    String?                  @map("qa_retest_requested_by_id")
+  qaRetestRequestedBy      User?                    @relation("VersionHistoryQaRetestRequester", fields: [qaRetestRequestedById], references: [id], onDelete: SetNull)
+  qaRetestBaselineRunCount Int?                     @map("qa_retest_baseline_run_count")
+  decision                 VersionHistoryDecision?
+  decisionReason           String?                  @map("decision_reason") @db.Text
+  decisionById             String?                  @map("decision_by_id")
+  decisionBy               User?                    @relation("VersionHistoryDecisionBy", fields: [decisionById], references: [id], onDelete: SetNull)
+  decisionAt               DateTime?                @map("decision_at") @db.Timestamptz(6)
+  snapshot                 Json?
+  decisionSnapshot         Json?                    @map("decision_snapshot")
+  creationCommand          Json?                    @map("creation_command")
+  lastCommand              Json?                    @map("last_command")
+  createdById              String                   @map("created_by_id")
+  createdBy                User                     @relation("VersionHistoryCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  publishedAt              DateTime?                @map("published_at") @db.Timestamptz(6)
+  createdAt                DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  linkedRequests           VersionHistoryRequest[]
+  revisions                VersionHistoryRevision[]
+  currentTestRequests      TestRequest[]            @relation("TestRequestCurrentVersionHistory")
+  lockedRuns               TestRun[]                @relation("VersionHistoryLockedRuns")
+  lockedBugs               Bug[]                    @relation("VersionHistoryLockedBugs")
 
   @@unique([applicationId, version, buildNumber])
   @@index([applicationId, status])

@@ -8,9 +8,22 @@
     "build": "tsc -p tsconfig.json --noEmit && node -e \"const s=require('./src/modules/api-console/infrastructure/http/api-console-server.cjs'); if (!s.createServer) process.exit(1);\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "self-check": "node -e \"const s=require('./src/modules/api-console/infrastructure/http/api-console-server.cjs'); s.runSelfCheck().then(r=>{console.log(JSON.stringify(r,null,2)); process.exit(r.failed?1:0);}).catch(e=>{console.error(e); process.exit(1);})\"",
-    "test": "npm run self-check",
-    "test:unit": "npm run self-check",
+    "test": "node --test test/*.test.cjs && npm run self-check",
+    "test:unit": "node --test test/*.test.cjs && npm run self-check",
     "lint": "node ../../scripts/verification/workspace-lint.cjs apps/api",
     "format:check": "node ../../scripts/verification/format-check.cjs apps/api"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1101.0",
+    "@aws-sdk/s3-request-presigner": "^3.1101.0",
+    "@babel/core": "^8.0.1",
+    "@babel/preset-env": "^8.0.2",
+    "@babel/preset-react": "^8.0.1",
+    "@babel/preset-typescript": "^8.0.1",
+    "argon2": "^0.44.0",
+    "bullmq": "^6.0.6",
+    "crypto-js": "^4.2.0",
+    "ioredis": "^5.8.2",
+    "tough-cookie": "^6.0.0"
   }
 }

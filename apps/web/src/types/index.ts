@@ -680,8 +680,10 @@ export interface ChecklistItem {
     order: number;
 }
 // Playwright Run Status
-export type PlaywrightRunStatus = 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'ERROR' | 'CANCELLED';
+export type PlaywrightRunStatus = 'PREPARING' | 'QUEUED' | 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'ERROR' | 'CANCELLED';
 export const PLAYWRIGHT_RUN_STATUS_LABELS: Record<PlaywrightRunStatus, string> = {
+    PREPARING: 'Preparing snapshot',
+    QUEUED: 'Queued',
     PENDING: 'در انتظار',
     RUNNING: 'در حال اجرا',
     PASSED: 'موفق',
@@ -769,6 +771,17 @@ export interface PlaywrightReport {
 export interface PlaywrightRun {
     id: string;
     applicationId: string;
+    environmentProfileId?: string | undefined;
+    snapshotId?: string | undefined;
+    snapshot?: {
+        id: string;
+        status: 'PENDING' | 'MATERIALIZING' | 'READY' | 'FAILED' | 'PURGED';
+        contentHash?: string | null | undefined;
+        errorCode?: string | null | undefined;
+        errorMessage?: string | null | undefined;
+        expiresAt: string;
+    } | undefined;
+    testFileId?: string | undefined;
     testRequestId?: string | undefined;
     testCaseIds?: string[] | undefined;
     testFilePath: string;
@@ -809,11 +822,13 @@ export interface PlaywrightRun {
     createdAt: string;
     updatedAt: string;
 }
-export type PlaywrightCdeRootKind = 'FRONT' | 'DATASERVICE' | 'GATEWAY';
+export type PlaywrightCdeRootKind = 'FRONT' | 'DATASERVICE' | 'GATEWAY' | 'MESSAGE_CONSUMER' | 'TESTS';
 export const PLAYWRIGHT_CDE_ROOT_LABELS: Record<PlaywrightCdeRootKind, string> = {
     FRONT: 'Front',
     DATASERVICE: 'Back NodeJS / DataService',
     GATEWAY: 'Gateway',
+    MESSAGE_CONSUMER: 'Message Consumer',
+    TESTS: 'CDE Playwright Tests',
 };
 export interface PlaywrightTestFolder {
     id: string;
@@ -828,12 +843,21 @@ export interface PlaywrightTestFile {
     applicationId: string;
     rootKind: PlaywrightCdeRootKind;
     rootUrl: string;
-    source: 'DISCOVERED' | 'MANAGED';
+    source: 'DISCOVERED' | 'MANAGED' | 'CDE';
     folderPath: string;
     relativeFolderPath: string;
     fileName: string;
     fullPath: string;
     script: string;
+    remoteRepoName?: string | undefined;
+    remotePackId?: string | undefined;
+    remoteBranchKind?: 'PUBLIC' | 'PERSONAL' | undefined;
+    remoteBranchRandId?: string | undefined;
+    remoteBranchIndex?: number | undefined;
+    remoteVersionId?: string | undefined;
+    remotePath?: string | undefined;
+    sourceHash?: string | undefined;
+    syncedAt?: string | undefined;
     description?: string | undefined;
     createdById: string;
     createdBy?: User | undefined;

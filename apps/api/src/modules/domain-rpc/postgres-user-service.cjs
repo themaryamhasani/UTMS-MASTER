@@ -1,4 +1,5 @@
 const { createHash, randomInt, randomUUID } = require('crypto');
+const argon2 = require('argon2');
 const { getPrismaClient } = require('../../database/prisma-client.cjs');
 
 const MIN_USER_PASSWORD_LENGTH = 6;
@@ -6,6 +7,17 @@ const PASSWORD_RESET_OTP_TTL_MS = 10 * 60 * 1000;
 
 function passwordHash(password) {
   return createHash('sha256').update(String(password)).digest('hex');
+}
+
+async function securePasswordHash(password) {
+  return argon2.hash(String(password), { type: argon2.argon2id });
+}
+
+async function verifyPasswordHash(storedHash, password) {
+  if (String(storedHash || '').startsWith('$argon2')) {
+    return argon2.verify(storedHash, String(password));
+  }
+  return storedHash === passwordHash(password);
 }
 
 function assertPasswordIsUsable(password) {
@@ -118,7 +130,15 @@ async function authenticate(phoneNumber, password) {
     include: { credential: true },
   });
   if (!row?.isActive || !row.credential) return null;
-  return row.credential.passwordHash === passwordHash(password) ? toUser(row) : null;
+  const valid = await verifyPasswordHash(row.credential.passwordHash, password);
+  if (!valid) return null;
+  if (!row.credential.passwordHash.startsWith('$argon2')) {
+    await prisma.userCredential.update({
+      where: { userId: row.id },
+      data: { passwordHash: await securePasswordHash(password) },
+    });
+  }
+  return toUser(row);
 }
 
 async function requestPasswordResetOtp(phoneNumber) {
@@ -166,6 +186,7 @@ async function resetPasswordWithOtp(phoneNumber, code, newPassword) {
   });
   if (!otp) return false;
 
+  const nextPasswordHash = await securePasswordHash(newPassword);
   await prisma.$transaction([
     prisma.passwordResetOtp.update({
       where: { id: otp.id },
@@ -173,8 +194,8 @@ async function resetPasswordWithOtp(phoneNumber, code, newPassword) {
     }),
     prisma.userCredential.upsert({
       where: { userId: user.id },
-      update: { passwordHash: passwordHash(newPassword) },
-      create: { userId: user.id, passwordHash: passwordHash(newPassword) },
+      update: { passwordHash: nextPasswordHash },
+      create: { userId: user.id, passwordHash: nextPasswordHash },
     }),
   ]);
   return true;
@@ -204,6 +225,7 @@ async function create(data = {}) {
   const prisma = getPrismaClient();
   assertPasswordIsUsable(data.password || '123456');
   await assertUniqueUserFields(prisma, data);
+  const initialPasswordHash = await securePasswordHash(data.password || '123456');
 
   const row = await prisma.$transaction(async transaction => {
     const user = await transaction.user.create({
@@ -219,7 +241,7 @@ async function create(data = {}) {
     await transaction.userCredential.create({
       data: {
         userId: user.id,
-        passwordHash: passwordHash(data.password || '123456'),
+        passwordHash: initialPasswordHash,
       },
     });
     return user;
@@ -268,10 +290,11 @@ async function setPassword(id, password) {
   const userId = String(id);
   const existing = await prisma.user.findUnique({ where: { id: userId } });
   if (!existing) return null;
+  const nextPasswordHash = await securePasswordHash(password);
   await prisma.userCredential.upsert({
     where: { userId },
-    update: { passwordHash: passwordHash(password) },
-    create: { userId, passwordHash: passwordHash(password) },
+    update: { passwordHash: nextPasswordHash },
+    create: { userId, passwordHash: nextPasswordHash },
   });
   return toUser(await prisma.user.findUnique({ where: { id: userId } }));
 }

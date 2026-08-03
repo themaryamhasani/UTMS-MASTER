@@ -3708,6 +3708,8 @@ const CDE_ROOT_FOLDERS: Record<PlaywrightCdeRootKind, string[]> = {
   FRONT: ['tests/e2e', 'tests/e2e/auth', 'tests/e2e/smoke', 'tests/e2e/regression'],
   DATASERVICE: ['tests/api', 'tests/api/contracts', 'tests/api/data-service', 'tests/api/regression'],
   GATEWAY: ['tests/api', 'tests/api/gateway', 'tests/api/gateway/auth', 'tests/api/gateway/routing'],
+  MESSAGE_CONSUMER: [],
+  TESTS: [],
 };
 
 const CDE_TEST_FILE_TEMPLATES: Record<PlaywrightCdeRootKind, Array<{ folder: string; fileName: string }>> = {
@@ -3725,6 +3727,8 @@ const CDE_TEST_FILE_TEMPLATES: Record<PlaywrightCdeRootKind, Array<{ folder: str
     { folder: 'tests/api/gateway', fileName: 'routing.spec.ts' },
     { folder: 'tests/api/gateway', fileName: 'auth.spec.ts' },
   ],
+  MESSAGE_CONSUMER: [],
+  TESTS: [],
 };
 
 function cdeRootsForApplication(app: Application): Array<{ kind: PlaywrightCdeRootKind; root: string }> {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle, Edit, Eye, FileText, FolderOpen, Plus, Save, Terminal } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Edit, Eye, FileCode2, FileText, FolderOpen, Link2, LogOut, Plus, Save, Terminal } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, StatCard } from '../components/ui/Card';
@@ -11,7 +11,14 @@ import { Input, Select } from '../components/ui/Input';
 import { toast } from '../components/ui/Toast';
 import { useAuthStore, canPerformAction, canUseAutomatedTests } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
-import { playwrightApi } from '../services/api';
+import {
+  cdeApi,
+  PlatformApiError,
+  type CdeCatalog,
+  type CdeConnectionStatus,
+  type CdePackageContent,
+  type CdeVisibleApplication,
+} from '../services/platformApi';
 import type {
   Application,
   CartableFilterParams,
@@ -23,6 +30,12 @@ import { PLAYWRIGHT_CDE_ROOT_LABELS } from '../types';
 
 const DESCRIPTION_MAX_LENGTH = 700;
 const PLAYWRIGHT_FILE_NAME_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*\.spec\.ts$/;
+
+interface CdeTestFilesResponse {
+  files: PaginatedResponse<PlaywrightTestFile>;
+  folders: PlaywrightTestFolder[];
+  branch: { versionId?: string | null; editable: boolean };
+}
 
 const DEFAULT_SCRIPT = `import { test, expect } from '@playwright/test';
 
@@ -42,10 +55,36 @@ interface FormState {
   script: string;
 }
 
+interface PendingBranchSelection {
+  repositoryType: CdeCatalog['repositories'][number]['type'];
+  repoName: string;
+  packId: string;
+  branches: Array<{
+    selector: CdePackageContent['branch']['selector'];
+    versionId?: string | null;
+    editable?: boolean;
+    meta?: Record<string, unknown>;
+  }>;
+}
+
 export const PlaywrightFilesPage: React.FC = () => {
   const { activeContext } = useAuthStore();
-  const { appId, defaultApplicationId, scopeApplicationIds, isAppLevel } = useDataScope();
+  const { defaultApplicationId, scopeApplicationIds, isAppLevel } = useDataScope();
   const [applications, setApplications] = useState<Application[]>([]);
+  const [cdeApplications, setCdeApplications] = useState<CdeVisibleApplication[]>([]);
+  const [cdeStatus, setCdeStatus] = useState<CdeConnectionStatus>({ connected: false });
+  const [catalog, setCatalog] = useState<CdeCatalog | null>(null);
+  const [packageContent, setPackageContent] = useState<CdePackageContent | null>(null);
+  const [selectedSource, setSelectedSource] = useState<{ path: string; code: string } | null>(null);
+  const [pendingBranchSelection, setPendingBranchSelection] = useState<PendingBranchSelection | null>(null);
+  const [showCdeLogin, setShowCdeLogin] = useState(false);
+  const [cdeLoginName, setCdeLoginName] = useState('');
+  const [cdePassword, setCdePassword] = useState('');
+  const [cdeChallenge, setCdeChallenge] = useState('');
+  const [cdeLoginStep, setCdeLoginStep] = useState<'phone' | 'password'>('phone');
+  const [cdeError, setCdeError] = useState('');
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [testBranchVersion, setTestBranchVersion] = useState('');
   const [folders, setFolders] = useState<PlaywrightTestFolder[]>([]);
   const [data, setData] = useState<PaginatedResponse<PlaywrightTestFile> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -73,69 +112,189 @@ export const PlaywrightFilesPage: React.FC = () => {
 
   useEffect(() => {
     if (activeContext) {
-      loadApplications();
+      void loadCdeSession();
     }
   }, [activeContext]);
 
   useEffect(() => {
-    if (activeContext) {
-      loadFiles();
+    if (activeContext && cdeStatus.connected && formData.applicationId) {
+      void loadFiles();
     }
-  }, [activeContext, filters]);
+  }, [activeContext, cdeStatus.connected, formData.applicationId, filters]);
 
   useEffect(() => {
-    if (formData.applicationId) {
-      loadFolders(formData.applicationId);
-    } else {
-      setFolders([]);
-    }
+    if (formData.applicationId && cdeStatus.connected) void loadCatalog(formData.applicationId);
   }, [formData.applicationId]);
+
+  const loadCdeSession = async () => {
+    if (!activeContext) return;
+    try {
+      const status = await cdeApi.status();
+      setCdeStatus(status);
+      if (status.connected) await loadApplications();
+      else {
+        setApplications([]);
+        setCdeApplications([]);
+        setCatalog(null);
+        setData(null);
+        setFolders([]);
+        setLoading(false);
+      }
+    } catch {
+      setCdeStatus({ connected: false });
+      setLoading(false);
+    }
+  };
 
   const loadApplications = async () => {
     if (!activeContext) return;
+    const visible = await cdeApi.applications();
+    setCdeApplications(visible);
+    const visibleIds = new Set(visible.map(application => application.id));
     const contextApplications = activeContext.applications?.length
       ? activeContext.applications
       : activeContext.application
         ? [activeContext.application]
         : [];
     const allowed = isAppLevel
-      ? contextApplications.filter(app => app.isActive)
-      : contextApplications.filter(app => app.isActive && scopeApplicationIds.includes(app.id));
+      ? contextApplications.filter(app => app.isActive && visibleIds.has(app.id))
+      : contextApplications.filter(app => app.isActive && scopeApplicationIds.includes(app.id) && visibleIds.has(app.id));
     setApplications(allowed);
     setFormData(prev => ({
       ...prev,
-      applicationId: prev.applicationId || defaultApplicationId || allowed[0]?.id || '',
+      applicationId: allowed.some(application => application.id === prev.applicationId)
+        ? prev.applicationId
+        : allowed.find(application => application.id === defaultApplicationId)?.id || allowed[0]?.id || '',
     }));
   };
 
-  const loadFolders = async (applicationId: string) => {
+  const loadCatalog = async (applicationId: string) => {
+    setCatalogLoading(true);
     try {
-      const response = await playwrightApi.discoverFolders(applicationId);
-      setFolders(response);
-      setFormData(prev => ({
-        ...prev,
-        folderPath: response.some(folder => folder.fullPath === prev.folderPath) ? prev.folderPath : '',
-      }));
+      setCatalog(await cdeApi.catalog(applicationId));
+      setPackageContent(null);
     } catch {
-      toast.error('خطا در خواندن پوشه‌های CDE.');
+      setCatalog(null);
+      toast.error('خطا در خواندن فهرست پروژه از CDE.');
+    } finally {
+      setCatalogLoading(false);
     }
   };
 
   const loadFiles = async () => {
-    if (!activeContext) return;
+    if (!activeContext || !formData.applicationId) return;
     setLoading(true);
     try {
-      const response = await playwrightApi.getTestFiles(appId, filters);
-      setData(response);
-    } catch {
+      const response = await cdeApi.testFiles<CdeTestFilesResponse>(formData.applicationId, {
+        page: filters.page,
+        limit: filters.limit,
+        ...(filters.search ? { search: filters.search } : {}),
+      });
+      setData(response.files);
+      setFolders(response.folders.map(folder => ({ ...folder, applicationId: formData.applicationId })));
+      setTestBranchVersion(response.branch.versionId || '');
+      setFormData(prev => ({
+        ...prev,
+        folderPath: response.folders.some(folder => folder.fullPath === prev.folderPath) ? prev.folderPath : 'tests',
+      }));
+    } catch (error) {
       setData(null);
-      toast.error('خطا در بارگذاری فایل‌های تست.');
+      if (error instanceof PlatformApiError && ['CDE_RECONNECT_REQUIRED', 'CDE_NOT_CONNECTED'].includes(error.code)) {
+        setCdeStatus({ connected: false, reconnectRequired: true });
+      }
+      toast.error('خطا در بارگذاری فایل‌های تست CDE.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleCdeLogin = async () => {
+    setActionLoading(true);
+    setCdeError('');
+    try {
+      if (cdeLoginStep === 'phone') {
+        const response = await cdeApi.startLogin(cdeLoginName.trim());
+        if (response.connected) {
+          setCdeStatus(response);
+          setShowCdeLogin(false);
+          await loadApplications();
+        } else {
+          setCdeChallenge(response.challenge || '');
+          setCdeLoginStep('password');
+        }
+      } else {
+        const response = await cdeApi.finishPassword(cdeChallenge, cdePassword);
+        setCdeStatus(response);
+        setCdePassword('');
+        setShowCdeLogin(false);
+        await loadApplications();
+      }
+    } catch (error) {
+      setCdeError(error instanceof PlatformApiError ? error.message : 'ارتباط با CDE ناموفق بود.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const disconnectCde = async () => {
+    await cdeApi.disconnect();
+    setCdeStatus({ connected: false });
+    setApplications([]);
+    setCdeApplications([]);
+    setCatalog(null);
+    setPackageContent(null);
+    setData(null);
+  };
+
+  const openPackage = async (
+    repositoryType: CdeCatalog['repositories'][number]['type'],
+    repoName: string,
+    packId: string,
+    branch?: CdePackageContent['branch']['selector']
+  ) => {
+    if (!formData.applicationId) return;
+    setCatalogLoading(true);
+    try {
+      setPackageContent(await cdeApi.packageContent(formData.applicationId, {
+        repositoryType,
+        repoName,
+        packId,
+        ...(branch ? { branch } : {}),
+      }));
+    } catch (error) {
+      if (error instanceof PlatformApiError && error.code === 'BRANCH_SELECTION_REQUIRED') {
+        const branches = (error.details as { branches?: PendingBranchSelection['branches'] } | undefined)?.branches || [];
+        setPendingBranchSelection({ repositoryType, repoName, packId, branches });
+      } else {
+        toast.error('خطا در خواندن محتوای بسته CDE.');
+      }
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
+  const selectPackageBranch = async (branch: PendingBranchSelection['branches'][number]) => {
+    if (!pendingBranchSelection || !formData.applicationId) return;
+    setCatalogLoading(true);
+    try {
+      const request = {
+        repositoryType: pendingBranchSelection.repositoryType,
+        repoName: pendingBranchSelection.repoName,
+        packId: pendingBranchSelection.packId,
+        branch: branch.selector,
+      };
+      await cdeApi.selectBranch(formData.applicationId, request);
+      setPackageContent(await cdeApi.packageContent(formData.applicationId, request));
+      setPendingBranchSelection(null);
+    } catch {
+      toast.error('شاخه CDE دیگر قابل دسترسی نیست؛ فهرست را دوباره بارگذاری کنید.');
+    } finally {
+      setCatalogLoading(false);
+    }
+  };
+
   const selectedApplication = applications.find(app => app.id === formData.applicationId);
+  const selectedCdeApplication = cdeApplications.find(app => app.id === formData.applicationId);
   const selectedFolder = folders.find(folder => folder.fullPath === formData.folderPath);
   const finalPath = selectedFolder && formData.fileName
     ? `${selectedFolder.fullPath}/${formData.fileName}`
@@ -151,7 +310,7 @@ export const PlaywrightFilesPage: React.FC = () => {
   const resetForm = (applicationId = formData.applicationId || defaultApplicationId || applications[0]?.id || '') => {
     setFormData({
       applicationId,
-      folderPath: '',
+      folderPath: folders.some(folder => folder.fullPath === 'tests') ? 'tests' : folders[0]?.fullPath || '',
       fileName: '',
       description: '',
       script: DEFAULT_SCRIPT,
@@ -167,6 +326,10 @@ export const PlaywrightFilesPage: React.FC = () => {
   };
 
   const openEditForm = (file: PlaywrightTestFile) => {
+    if (file.source !== 'CDE') {
+      toast.error('فایل‌های قدیمی فقط خواندنی هستند؛ ابتدا آن‌ها را به بسته CDE منتقل کنید.');
+      return;
+    }
     setFormMode('edit');
     setEditingFileId(file.id);
     setFormData({
@@ -210,30 +373,33 @@ export const PlaywrightFilesPage: React.FC = () => {
     setActionLoading(true);
     try {
       const payload = {
-        applicationId: formData.applicationId,
-        folderPath: formData.folderPath,
-        fileName: formData.fileName.trim(),
+        path: finalPath,
         script: formData.script,
         description: formData.description.trim(),
+        expectedVersionId: testBranchVersion,
+        commitDesc: `UTMS: ${formMode === 'edit' ? 'update' : 'create'} ${finalPath}`,
       };
       if (formMode === 'edit' && editingFileId) {
-        await playwrightApi.updateTestFile(editingFileId, payload, activeContext.userId);
+        await cdeApi.updateTestFile(formData.applicationId, editingFileId, payload);
         toast.success('فایل تست Playwright بروزرسانی شد.');
       } else {
-        await playwrightApi.createTestFile(payload, activeContext.userId);
+        await cdeApi.createTestFile(formData.applicationId, payload);
         toast.success('فایل تست Playwright ایجاد شد.');
       }
       setShowFormModal(false);
       resetForm();
-      loadFiles();
+      await loadFiles();
     } catch (error) {
-      const message = error instanceof Error ? error.message : '';
+      const message = error instanceof PlatformApiError ? error.code : error instanceof Error ? error.message : '';
       if (message === 'INVALID_PLAYWRIGHT_TEST_FILE_NAME') {
         setFormErrors({ fileName: 'فرمت نام فایل معتبر نیست. نمونه درست: login-flow.spec.ts' });
       } else if (message === 'PLAYWRIGHT_TEST_FILE_ALREADY_EXISTS') {
         setFormErrors({ fileName: 'در این مسیر فایلی با همین نام وجود دارد.' });
       } else if (message === 'PLAYWRIGHT_SCRIPT_REQUIRED') {
         setFormErrors({ script: 'اسکریپت تست الزامی است.' });
+      } else if (message === 'CDE_WRITE_CONFLICT') {
+        toast.error('نسخه CDE تغییر کرده است. فایل‌ها دوباره بارگذاری شدند؛ تغییر را روی نسخه جدید اعمال کنید.');
+        await loadFiles();
       } else {
         toast.error('خطا در ذخیره فایل تست Playwright.');
       }
@@ -275,8 +441,8 @@ export const PlaywrightFilesPage: React.FC = () => {
       key: 'source',
       title: 'منبع',
       render: (item: PlaywrightTestFile) => (
-        <Badge variant={item.source === 'DISCOVERED' ? 'secondary' : 'success'}>
-          {item.source === 'DISCOVERED' ? 'کشف‌شده از CDE' : 'مدیریت‌شده'}
+        <Badge variant={item.source === 'CDE' ? 'success' : 'secondary'}>
+          {item.source === 'CDE' ? 'CDE' : 'قدیمی - فقط خواندنی'}
         </Badge>
       ),
     },
@@ -316,7 +482,7 @@ export const PlaywrightFilesPage: React.FC = () => {
           >
             مشاهده
           </Button>
-          {canManageFile && (
+          {canManageFile && item.source === 'CDE' && (
             <Button
               size="sm"
               variant="ghost"
@@ -339,11 +505,11 @@ export const PlaywrightFilesPage: React.FC = () => {
       <Header
         title="فایل‌های تست Playwright"
         onRefresh={() => {
-          loadFiles();
-          if (formData.applicationId) loadFolders(formData.applicationId);
+          void loadCdeSession();
+          if (formData.applicationId && cdeStatus.connected) void loadCatalog(formData.applicationId);
         }}
         refreshing={loading}
-        actions={canManageFile && (
+        actions={canManageFile && cdeStatus.connected && (
           <Button icon={<Plus className="w-4 h-4" />} onClick={openCreateForm}>
             ایجاد فایل
           </Button>
@@ -351,6 +517,39 @@ export const PlaywrightFilesPage: React.FC = () => {
       />
 
       <main className="p-4 sm:p-6 space-y-6">
+        <div className={`rounded-xl border p-4 flex flex-wrap items-center justify-between gap-3 ${
+          cdeStatus.connected ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'
+        }`}>
+          <div className="flex items-center gap-3">
+            {cdeStatus.connected
+              ? <CheckCircle className="w-5 h-5 text-emerald-600" />
+              : <AlertTriangle className="w-5 h-5 text-amber-600" />}
+            <div>
+              <p className="font-semibold text-gray-900">
+                {cdeStatus.connected ? `CDE connected${cdeStatus.user?.displayName ? `: ${cdeStatus.user.displayName}` : ''}` : 'CDE connection required'}
+              </p>
+              <p className="text-xs text-gray-600 mt-1">
+                {cdeStatus.connected
+                  ? 'Repository reads and writes use the server-side CDE session.'
+                  : 'Connect your own CDE account; the password is sent once and is never stored.'}
+              </p>
+            </div>
+          </div>
+          {cdeStatus.connected ? (
+            <Button variant="secondary" icon={<LogOut className="w-4 h-4" />} onClick={() => void disconnectCde()}>
+              Disconnect CDE
+            </Button>
+          ) : (
+            <Button icon={<Link2 className="w-4 h-4" />} onClick={() => {
+              setCdeLoginStep('phone');
+              setCdeError('');
+              setShowCdeLogin(true);
+            }}>
+              Connect CDE
+            </Button>
+          )}
+        </div>
+
         {!canManageFile && (
           <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-start gap-2">
             <AlertTriangle className="w-5 h-5 flex-shrink-0" />
@@ -364,6 +563,83 @@ export const PlaywrightFilesPage: React.FC = () => {
           <StatCard title="ریشه‌های فعال CDE" value={stats.roots} icon={<Terminal className="w-6 h-6" />} variant="success" />
           <StatCard title="سامانه‌های مجاز" value={stats.applications} icon={<CheckCircle className="w-6 h-6" />} variant="warning" />
         </div>
+
+        {cdeStatus.connected && (
+          <Card>
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold text-gray-900">Live CDE project source</h2>
+                  <p className="text-xs text-gray-500 mt-1">All source is read as text through POST get-data-source.</p>
+                </div>
+                <Select
+                  value={formData.applicationId}
+                  onChange={(event) => setFormData(previous => ({ ...previous, applicationId: event.target.value, folderPath: '' }))}
+                  options={applications.map(application => ({ value: application.id, label: `${application.name} (${application.code})` }))}
+                  placeholder="Select mapped Application"
+                />
+              </div>
+
+              {applications.length === 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  No mapped Application is shared by the active UTMS context and this CDE account.
+                </div>
+              )}
+
+              <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+                {catalog?.repositories.map(repository => (
+                  <div key={`${repository.type}:${repository.repoName}`} className="rounded-lg border border-gray-200 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <Badge variant="info">{repository.type}</Badge>
+                      <span className="truncate font-mono text-[11px] text-gray-500" dir="ltr">{repository.repoName}</span>
+                    </div>
+                    <div className="max-h-44 space-y-1 overflow-auto">
+                      {repository.packages.map(pack => (
+                        <button
+                          key={pack.id}
+                          type="button"
+                          onClick={() => void openPackage(repository.type, repository.repoName, pack.id)}
+                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700"
+                          dir="ltr"
+                        >
+                          <FileCode2 className="h-3.5 w-3.5 flex-shrink-0" />
+                          <span className="truncate">{pack.id}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {packageContent && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-mono text-xs font-semibold text-gray-900" dir="ltr">{packageContent.packId}</p>
+                      <p className="mt-1 text-xs text-gray-500">Version {packageContent.branch.versionId || 'unknown'} · {packageContent.branch.editable ? 'editable' : 'read-only'}</p>
+                    </div>
+                    <Badge variant="secondary">{packageContent.files.length} files</Badge>
+                  </div>
+                  <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+                    {packageContent.files.map(file => (
+                      <button
+                        key={file.path}
+                        type="button"
+                        onClick={() => setSelectedSource(file)}
+                        className="truncate rounded bg-white px-2 py-2 text-left font-mono text-xs text-gray-700 shadow-sm hover:text-blue-700"
+                        dir="ltr"
+                      >
+                        {file.path}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {catalogLoading && <p className="text-sm text-gray-500">Loading CDE package data…</p>}
+            </div>
+          </Card>
+        )}
 
         <Card padding="sm">
           <div className="flex flex-wrap gap-4 items-center">
@@ -426,13 +702,14 @@ export const PlaywrightFilesPage: React.FC = () => {
               options={applications.map(app => ({ value: app.id, label: `${app.name} (${app.code})` }))}
               placeholder="سامانه را انتخاب کنید"
               error={formErrors.applicationId}
+              disabled={formMode === 'edit'}
             />
 
             {selectedApplication && (
               <div className="grid grid-cols-1 gap-2 text-xs">
-                <PathBadge label="Front" value={selectedApplication.cdeFrontUrl} />
-                <PathBadge label="DataService" value={selectedApplication.cdeDataServiceUrl} />
-                <PathBadge label="Gateway" value={selectedApplication.cdeGatewayUrl} />
+                <PathBadge label="CDE project" value={selectedCdeApplication?.projectKey} />
+                <PathBadge label="Test repository" value={selectedCdeApplication?.repositories.tests || undefined} />
+                <PathBadge label="Branch version" value={testBranchVersion || undefined} />
               </div>
             )}
 
@@ -522,8 +799,8 @@ export const PlaywrightFilesPage: React.FC = () => {
                 <p className="text-xs text-gray-500 font-mono break-all mt-1" dir="ltr">{selectedFile.fullPath}</p>
               </div>
               <div className="flex flex-wrap gap-2 justify-end">
-                <Badge variant={selectedFile.source === 'DISCOVERED' ? 'secondary' : 'success'}>
-                  {selectedFile.source === 'DISCOVERED' ? 'کشف‌شده از CDE' : 'مدیریت‌شده'}
+                <Badge variant={selectedFile.source === 'CDE' ? 'success' : 'secondary'}>
+                  {selectedFile.source === 'CDE' ? `CDE · ${selectedFile.remoteVersionId || 'unknown version'}` : 'قدیمی - فقط خواندنی'}
                 </Badge>
                 <Badge variant="info">{PLAYWRIGHT_CDE_ROOT_LABELS[selectedFile.rootKind]}</Badge>
               </div>
@@ -535,7 +812,7 @@ export const PlaywrightFilesPage: React.FC = () => {
             )}
             <CodePreview fileName={selectedFile.fileName} value={selectedFile.script} />
             <div className="flex justify-end gap-3">
-              {canManageFile && (
+              {canManageFile && selectedFile.source === 'CDE' && (
                 <Button icon={<Edit className="w-4 h-4" />} onClick={() => openEditForm(selectedFile)}>
                   ویرایش
                 </Button>
@@ -544,6 +821,101 @@ export const PlaywrightFilesPage: React.FC = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={showCdeLogin}
+        onClose={() => !actionLoading && setShowCdeLogin(false)}
+        title="Connect CDE account"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+            UTMS keeps only the encrypted CDE cookie jar. Your password is forwarded once through Core's POST form endpoint and is not stored.
+          </div>
+          {cdeLoginStep === 'phone' ? (
+            <Input
+              label="CDE cellphone"
+              value={cdeLoginName}
+              onChange={(event) => setCdeLoginName(event.target.value.replace(/\D/g, '').slice(0, 13))}
+              placeholder="9020000000"
+              dir="ltr"
+            />
+          ) : (
+            <Input
+              label="CDE password"
+              type="password"
+              value={cdePassword}
+              onChange={(event) => setCdePassword(event.target.value)}
+              dir="ltr"
+            />
+          )}
+          {cdeError && <p className="text-sm text-red-600">{cdeError}</p>}
+          <div className="flex justify-end gap-2 border-t pt-4">
+            {cdeLoginStep === 'password' && (
+              <Button variant="secondary" onClick={() => {
+                setCdeLoginStep('phone');
+                setCdePassword('');
+                setCdeChallenge('');
+              }}>
+                Back
+              </Button>
+            )}
+            <Button
+              onClick={() => void handleCdeLogin()}
+              loading={actionLoading}
+              disabled={actionLoading || (cdeLoginStep === 'phone' ? cdeLoginName.length < 10 : !cdePassword)}
+            >
+              {cdeLoginStep === 'phone' ? 'Continue' : 'Connect'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(pendingBranchSelection)}
+        onClose={() => setPendingBranchSelection(null)}
+        title="انتخاب شاخه CDE"
+        size="lg"
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            این بسته چند شاخه خواندنی دارد. UTMS هیچ شاخه‌ای را حدس نمی‌زند؛ شاخه و نسخه دقیق را انتخاب کنید.
+          </p>
+          {pendingBranchSelection?.branches.map((branch, index) => (
+            <button
+              key={`${branch.selector.kind}-${branch.selector.kind === 'PERSONAL' ? branch.selector.randId || branch.selector.index : 'public'}-${index}`}
+              type="button"
+              onClick={() => void selectPackageBranch(branch)}
+              disabled={catalogLoading}
+              className="flex w-full items-center justify-between gap-4 rounded-lg border border-gray-200 bg-white p-4 text-right transition hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50"
+            >
+              <span>
+                <span className="block font-medium text-gray-900">
+                  {branch.selector.kind === 'PUBLIC'
+                    ? 'Public (read-only)'
+                    : `Personal · ${branch.selector.randId || `index ${branch.selector.index}`}`}
+                </span>
+                <span className="mt-1 block font-mono text-xs text-gray-500" dir="ltr">
+                  version: {branch.versionId || 'unknown'}
+                </span>
+              </span>
+              <Badge variant={branch.editable ? 'success' : 'secondary'}>{branch.editable ? 'editable' : 'read-only'}</Badge>
+            </button>
+          ))}
+          {!pendingBranchSelection?.branches.length && (
+            <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-700">هیچ شاخه قابل انتخابی در پاسخ CDE نبود.</p>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(selectedSource)}
+        onClose={() => setSelectedSource(null)}
+        title={selectedSource?.path || 'CDE source'}
+        size="xl"
+      >
+        {selectedSource && <CodePreview fileName={selectedSource.path} value={selectedSource.code} />}
       </Modal>
     </div>
   );

@@ -13,7 +13,8 @@ import { toast } from '../components/ui/Toast';
 import { useAuthStore, canPerformAction, canUseAutomatedTests } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
 import { useApplicationLookup } from '../utils/useApplicationLookup';
-import { playwrightApi, systemSettingsApi } from '../services/api';
+import { systemSettingsApi } from '../services/api';
+import { cdeApi, type ApplicationEnvironmentProfile } from '../services/platformApi';
 import type {
   PlaywrightRun,
   CartableFilterParams,
@@ -24,6 +25,7 @@ import type {
   PlaywrightMaxFailures,
   PlaywrightTraceMode,
   PlaywrightReporter,
+  PlaywrightTestFile,
 } from '../types';
 import {
   PLAYWRIGHT_RUN_STATUS_LABELS,
@@ -37,17 +39,19 @@ import {
 const PLAYWRIGHT_PROJECT_OPTIONS: PlaywrightProject[] = ['chromium', 'firefox', 'webkit'];
 
 const createDefaultPlaywrightForm = (timeoutSeconds = 120) => ({
+  testFileId: '',
   testFilePath: '',
+  environmentProfileId: '',
   environment: 'staging',
   timeoutSeconds,
   manualPath: false,
   projects: ['chromium'] as PlaywrightProject[],
   headed: false,
-  workers: 'auto' as PlaywrightWorkers,
+  workers: '1' as PlaywrightWorkers,
   retries: 0,
   maxFailures: 'unlimited' as PlaywrightMaxFailures,
   trace: 'retain-on-failure' as PlaywrightTraceMode,
-  reporter: 'html' as PlaywrightReporter,
+  reporter: 'json' as PlaywrightReporter,
 });
 
 type PlaywrightRunForm = ReturnType<typeof createDefaultPlaywrightForm>;
@@ -71,7 +75,8 @@ export const PlaywrightPage: React.FC = () => {
   const [showStartModal, setShowStartModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedRun, setSelectedRun] = useState<PlaywrightRun | null>(null);
-  const [discoveredFiles, setDiscoveredFiles] = useState<string[]>([]);
+  const [discoveredFiles, setDiscoveredFiles] = useState<PlaywrightTestFile[]>([]);
+  const [environments, setEnvironments] = useState<ApplicationEnvironmentProfile[]>([]);
   const [runnerConfig, setRunnerConfig] = useState<PlaywrightRunnerConfig | null>(null);
 
   // Form state
@@ -111,13 +116,13 @@ export const PlaywrightPage: React.FC = () => {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     // Check whether tests are running.
-    const hasRunning = data?.data?.some(r => ['PENDING', 'RUNNING'].includes(r.status)) ?? false;
+    const hasRunning = data?.data?.some(r => ['PREPARING', 'QUEUED', 'PENDING', 'RUNNING'].includes(r.status)) ?? false;
     
     if (hasRunning && !intervalRef.current) {
       // Start polling only when running tests exist and no interval is active
       intervalRef.current = setInterval(() => {
         if (activeContext) {
-          playwrightApi.getAll(appId, filters).then(setData).catch(() => {});
+          cdeApi.runs({ ...(typeof appId === 'string' ? { applicationId: appId } : {}), page: filters.page, limit: filters.limit }).then(setData).catch(() => {});
         }
       }, 5000);
     } else if (!hasRunning && intervalRef.current) {
@@ -138,7 +143,7 @@ export const PlaywrightPage: React.FC = () => {
     if (!activeContext) return;
     setLoading(true);
     try {
-      const response = await playwrightApi.getAll(appId, filters);
+      const response = await cdeApi.runs({ ...(typeof appId === 'string' ? { applicationId: appId } : {}), page: filters.page, limit: filters.limit });
       setData(response);
     } catch {
       setData(null);
@@ -169,8 +174,12 @@ export const PlaywrightPage: React.FC = () => {
       return;
     }
     try {
-      const files = await playwrightApi.discoverFiles(formApplicationId);
-      setDiscoveredFiles(files);
+      const [fileResponse, environmentResponse] = await Promise.all([
+        cdeApi.runnableFiles(formApplicationId),
+        cdeApi.environments(formApplicationId),
+      ]);
+      setDiscoveredFiles(fileResponse.files.data.filter(file => file.source === 'CDE'));
+      setEnvironments(environmentResponse);
     } catch {
       setDiscoveredFiles([]);
       toast.error('خطا در کشف فایل‌های تست.');
@@ -187,30 +196,23 @@ export const PlaywrightPage: React.FC = () => {
   };
 
   const handleStart = async () => {
-    if (!activeContext || !formApplicationId || !formData.testFilePath || formData.projects.length === 0) {
+    if (!activeContext || !formApplicationId || !formData.testFileId || !formData.environmentProfileId || formData.projects.length === 0) {
       toast.error('سامانه، فایل تست و حداقل یک مرورگر را انتخاب کنید.');
       return;
     }
     setActionLoading(true);
     try {
-      await playwrightApi.start(
-        {
-          testFilePath: formData.testFilePath,
-          environment: formData.environment,
-          projects: formData.projects,
-          headed: formData.headed,
-          workers: formData.workers,
-          retries: formData.retries,
-          maxFailures: formData.maxFailures,
-          trace: formData.trace,
-          reporter: formData.reporter,
-          timeoutSeconds: formData.timeoutSeconds,
-          manualPath: formData.manualPath,
-          workingDirectory: runnerConfig?.defaultWorkingDirectory,
-        },
-        activeContext.userId,
-        formApplicationId
-      );
+      await cdeApi.startRun({
+        applicationId: formApplicationId,
+        environmentProfileId: formData.environmentProfileId,
+        testFileId: formData.testFileId,
+        projects: formData.projects,
+        workers: formData.workers === 'auto' ? '1' : formData.workers,
+        retries: formData.retries,
+        maxFailures: formData.maxFailures,
+        trace: formData.trace,
+        timeoutSeconds: formData.timeoutSeconds,
+      });
       setShowStartModal(false);
       setFormData(createDefaultPlaywrightForm(runnerConfig?.defaultTimeoutSeconds || 120));
       setFormApplicationId(isAppLevel || isMultiSystem ? '' : defaultApplicationId);
@@ -226,7 +228,7 @@ export const PlaywrightPage: React.FC = () => {
     if (!activeContext) return;
     setActionLoading(true);
     try {
-      await playwrightApi.cancel(run.id, activeContext.userId);
+      await cdeApi.cancelRun(run.id);
       loadData();
     } catch {
       toast.error('خطا در لغو اجرای Playwright.');
@@ -268,6 +270,8 @@ export const PlaywrightPage: React.FC = () => {
       case 'PASSED': return <CheckCircle className="w-5 h-5 text-green-500" />;
       case 'FAILED': return <XCircle className="w-5 h-5 text-red-500" />;
       case 'PENDING':
+      case 'PREPARING':
+      case 'QUEUED':
       case 'RUNNING': return <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />;
       case 'ERROR': return <XCircle className="w-5 h-5 text-red-500" />;
       case 'CANCELLED': return <StopCircle className="w-5 h-5 text-gray-500" />;
@@ -280,7 +284,7 @@ export const PlaywrightPage: React.FC = () => {
     total: data?.total || 0,
     passed: data?.data.filter(r => r.status === 'PASSED').length || 0,
     failed: data?.data.filter(r => r.status === 'FAILED').length || 0,
-    running: data?.data.filter(r => ['PENDING', 'RUNNING'].includes(r.status)).length || 0,
+    running: data?.data.filter(r => ['PREPARING', 'QUEUED', 'PENDING', 'RUNNING'].includes(r.status)).length || 0,
   };
 
   const columns = [
@@ -373,7 +377,7 @@ export const PlaywrightPage: React.FC = () => {
           >
             مشاهده
           </Button>
-          {['PENDING', 'RUNNING'].includes(item.status) && canRun && (
+          {['PREPARING', 'QUEUED', 'PENDING', 'RUNNING'].includes(item.status) && canRun && (
             <Button
               size="sm"
               variant="danger"
@@ -524,8 +528,9 @@ export const PlaywrightPage: React.FC = () => {
             value={formApplicationId}
             onChange={(applicationId) => {
               setFormApplicationId(applicationId);
-              setFormData(prev => ({ ...prev, testFilePath: '', manualPath: false }));
+              setFormData(prev => ({ ...prev, testFileId: '', testFilePath: '', environmentProfileId: '', manualPath: false }));
               setDiscoveredFiles([]);
+              setEnvironments([]);
             }}
             hint="فایل‌های تست فقط از سامانه انتخاب‌شده بارگذاری می‌شوند."
           />
@@ -540,9 +545,12 @@ export const PlaywrightPage: React.FC = () => {
                   {discoveredFiles.length} فایل تست از ریشه‌های CDE و فایل‌های ساخته‌شده در UTMS قابل انتخاب است.
                 </p>
                 <Select
-                  value={formData.manualPath ? '' : formData.testFilePath}
-                  onChange={(e) => setFormData({ ...formData, testFilePath: e.target.value, manualPath: false })}
-                  options={discoveredFiles.map(f => ({ value: f, label: f }))}
+                  value={formData.testFileId}
+                  onChange={(e) => {
+                    const file = discoveredFiles.find(item => item.id === e.target.value);
+                    setFormData({ ...formData, testFileId: e.target.value, testFilePath: file?.remotePath || file?.fullPath || '', manualPath: false });
+                  }}
+                  options={discoveredFiles.map(file => ({ value: file.id, label: file.remotePath || file.fullPath }))}
                   placeholder="انتخاب فایل تست"
                 />
                 {formData.testFilePath && !formData.manualPath && (
@@ -550,29 +558,22 @@ export const PlaywrightPage: React.FC = () => {
                     {formData.testFilePath}
                   </p>
                 )}
-                <Input
-                  value={formData.manualPath ? formData.testFilePath : ''}
-                  onChange={(e) => setFormData({ ...formData, testFilePath: e.target.value, manualPath: true })}
-                  placeholder="یا مسیر دستی فایل تست"
-                />
               </div>
             ) : (
-              <Input
-                value={formData.testFilePath}
-                onChange={(e) => setFormData({ ...formData, testFilePath: e.target.value, manualPath: true })}
-                placeholder="مسیر فایل تست (مثال: tests/auth/login.spec.ts)"
-              />
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+                ابتدا CDE را متصل و یک فایل Playwright در بسته تست ایجاد کنید.
+              </p>
             )}
           </div>
           <Select
             label="محیط"
-            value={formData.environment}
-            onChange={(e) => setFormData({ ...formData, environment: e.target.value })}
-            options={[
-              { value: 'development', label: 'توسعه' },
-              { value: 'staging', label: 'آزمایشی' },
-              { value: 'production', label: 'تولید' },
-            ]}
+            value={formData.environmentProfileId}
+            onChange={(e) => {
+              const environment = environments.find(item => item.id === e.target.value);
+              setFormData({ ...formData, environmentProfileId: e.target.value, environment: environment?.name || '' });
+            }}
+            options={environments.map(environment => ({ value: environment.id, label: `${environment.name} — ${environment.webBaseUrl}` }))}
+            placeholder="انتخاب محیط استقرار یافته"
           />
           <Input
             label="Timeout Runner (ثانیه)"
@@ -706,7 +707,7 @@ export const PlaywrightPage: React.FC = () => {
               icon={<Play className="w-4 h-4" />}
               onClick={handleStart}
               loading={actionLoading}
-              disabled={!formApplicationId || !formData.testFilePath || formData.projects.length === 0}
+              disabled={!formApplicationId || !formData.testFileId || !formData.environmentProfileId || formData.projects.length === 0}
             >
               اجرا
             </Button>
@@ -802,6 +803,13 @@ export const PlaywrightPage: React.FC = () => {
                 <div>
                   <p className="text-gray-500">Runner</p>
                   <p className="font-medium">{selectedRun.runnerId || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Snapshot</p>
+                  <p className="font-medium">{selectedRun.snapshot?.status || '-'}</p>
+                  {selectedRun.snapshot?.contentHash && (
+                    <p className="mt-1 truncate font-mono text-[10px] text-gray-500" dir="ltr">{selectedRun.snapshot.contentHash}</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-gray-500">Timeout</p>
@@ -977,7 +985,7 @@ export const PlaywrightPage: React.FC = () => {
             )}
 
             {/* Running indicator */}
-            {['PENDING', 'RUNNING'].includes(selectedRun.status) && (
+            {['PREPARING', 'QUEUED', 'PENDING', 'RUNNING'].includes(selectedRun.status) && (
               <div className="flex items-center justify-center gap-2 p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
                 <span className="text-blue-700">در حال اجرا...</span>
@@ -986,7 +994,7 @@ export const PlaywrightPage: React.FC = () => {
 
             {/* Actions */}
             <div className="flex flex-wrap gap-3 pt-4 border-t">
-              {['PENDING', 'RUNNING'].includes(selectedRun.status) && canRun && (
+              {['PREPARING', 'QUEUED', 'PENDING', 'RUNNING'].includes(selectedRun.status) && canRun && (
                 <Button
                   variant="danger"
                   icon={<StopCircle className="w-4 h-4" />}

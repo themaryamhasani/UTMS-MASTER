@@ -7,6 +7,15 @@ const zlib = require('zlib');
 const { monitorEventLoopDelay } = require('perf_hooks');
 const { createCipheriv, createDecipheriv, randomBytes, randomUUID } = require('crypto');
 const { canHandleDomainRpc, handleDomainRpc } = require('../../../domain-rpc/domain-rpc-server.cjs');
+const {
+  LEGACY_CONTEXT_ENABLED,
+  assertCsrf,
+  attachUtmsSession,
+  canHandleAuth,
+  handleAuth,
+  requireUtmsSession,
+} = require('../../../auth/auth-session-server.cjs');
+const { canHandleCde, handleCde } = require('../../../cde/cde-server.cjs');
 
 const REPOSITORY_ROOT = path.resolve(__dirname, '../../../../../../..');
 const resolveRepositoryPath = value => path.isAbsolute(value) ? value : path.join(REPOSITORY_ROOT, value);
@@ -3951,6 +3960,8 @@ async function executeRequest(requestId, context, options = {}) {
 }
 
 function contextFromRequest(req, body) {
+  if (req.utmsContext) return req.utmsContext;
+  if (!LEGACY_CONTEXT_ENABLED) return null;
   if (body?.context) return body.context;
   const encoded = req.headers['x-utms-context'];
   if (!encoded) return null;
@@ -3982,10 +3993,17 @@ function sendJson(res, statusCode, payload) {
 
 function sendError(res, error) {
   const statusCode = error.statusCode || 500;
+  const details = error.details && typeof error.details === 'object'
+    ? JSON.parse(JSON.stringify(error.details, (key, value) => {
+      if (/password|cookie|token|secret/i.test(key)) return '[REDACTED]';
+      return typeof value === 'string' ? sanitizeText(value) : value;
+    }))
+    : undefined;
   sendJson(res, statusCode, {
     error: {
       category: error.category || 'INTERNAL_EXECUTION_ERROR',
       message: sanitizeText(error.message || 'Internal API Console error.'),
+      ...(details ? { details } : {}),
     },
   });
 }
@@ -5195,8 +5213,9 @@ function runSelfCheck() {
 function createServer() {
   return http.createServer(async (req, res) => {
     res.setHeader('access-control-allow-origin', process.env.API_CONSOLE_CORS_ORIGIN || 'http://localhost:5173');
-    res.setHeader('access-control-allow-methods', 'GET,POST,PUT,DELETE,OPTIONS');
-    res.setHeader('access-control-allow-headers', 'content-type,x-utms-context');
+    res.setHeader('access-control-allow-credentials', 'true');
+    res.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader('access-control-allow-headers', 'content-type,x-csrf-token,x-utms-context');
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
       res.end();
@@ -5204,12 +5223,13 @@ function createServer() {
     }
     try {
       const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      await attachUtmsSession(req);
       if (parsedUrl.pathname === '/api/health' && req.method === 'GET') {
         sendJson(res, 200, {
           status: 'ok',
           service: 'utms-api',
           checkedAt: nowIso(),
-          modules: ['api-console', 'domain-rpc'],
+          modules: ['api-console', 'domain-rpc', 'auth-session', 'cde-bridge'],
         });
         return;
       }
@@ -5220,7 +5240,23 @@ function createServer() {
         sendJson(res, 200, performanceMetricsSnapshot());
         return;
       }
+      if (canHandleAuth(parsedUrl.pathname)) {
+        const body = await readJsonBody(req, 1024 * 1024);
+        const result = await handleAuth(req, parsedUrl, body, res);
+        sendJson(res, 200, result);
+        return;
+      }
+      if (canHandleCde(parsedUrl.pathname)) {
+        const body = await readJsonBody(req, Number(process.env.CDE_MAX_BODY_BYTES || 32 * 1024 * 1024));
+        const result = await handleCde(req, parsedUrl, body);
+        sendJson(res, 200, result);
+        return;
+      }
       if (canHandleDomainRpc(parsedUrl.pathname)) {
+        if (parsedUrl.pathname === '/api/domain/rpc' && !LEGACY_CONTEXT_ENABLED) {
+          requireUtmsSession(req);
+          assertCsrf(req);
+        }
         const body = await readJsonBody(req, LIMITS.domainRpcRequestBodyBytes);
         const result = await handleDomainRpc(req, parsedUrl, body);
         sendJson(res, 200, result);

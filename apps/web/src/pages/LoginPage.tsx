@@ -68,8 +68,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
     }
   };
 
-  const handleSelectContext = (contextId: string) => {
-    if (switchContext(contextId)) {
+  const handleSelectContext = async (contextId: string) => {
+    if (await switchContext(contextId)) {
       onSuccess();
       return;
     }

@@ -3,6 +3,7 @@ const path = require('path');
 const { canHandleApplicationRpc, handleApplicationRpc } = require('./postgres-application-service.cjs');
 const { canHandleUserRpc, handleUserRpc } = require('./postgres-user-service.cjs');
 const { canHandleWorkflowPolicyRpc, handleWorkflowPolicyRpc } = require('./postgres-workflow-policy-service.cjs');
+const { LEGACY_CONTEXT_ENABLED } = require('../auth/auth-session-server.cjs');
 const {
   hasTestManagementData,
   isTestManagementPersistenceEnabled,
@@ -198,6 +199,8 @@ function safeHeaderValue(headers, name) {
 }
 
 function parseContextHeader(req) {
+  if (req.utmsContext) return req.utmsContext;
+  if (!LEGACY_CONTEXT_ENABLED) return {};
   const raw = safeHeaderValue(req.headers, 'x-utms-context');
   if (!raw) return {};
   try {

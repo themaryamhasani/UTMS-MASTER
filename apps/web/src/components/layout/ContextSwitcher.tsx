@@ -37,12 +37,12 @@ export function ContextSwitcher({ variant = 'header', onSwitched }: ContextSwitc
   if (!activeContext) return null;
 
   const applicationLabel = getContextApplicationLabel(activeContext);
-  const handleSwitch = (context: AvailableContext) => {
+  const handleSwitch = async (context: AvailableContext) => {
     if (context.contextId === activeContext.contextId) {
       setIsOpen(false);
       return;
     }
-    if (!switchContext(context.contextId)) return;
+    if (!await switchContext(context.contextId)) return;
 
     setIsOpen(false);
     navigate('/dashboard', { replace: true });

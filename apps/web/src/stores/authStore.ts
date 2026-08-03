@@ -19,6 +19,7 @@ import {
   getWorkflowPolicy,
   syncApplicationWorkflowPolicies,
 } from '../services/workflowPolicyStore';
+import { authSessionApi } from '../services/platformApi';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -29,7 +30,7 @@ interface AuthState {
   login: (phoneNumber: string, password: string) => Promise<boolean>;
   logout: () => void;
   refreshContexts: () => Promise<void>;
-  switchContext: (contextId: string) => boolean;
+  switchContext: (contextId: string) => Promise<boolean>;
   getAvailableContexts: () => AvailableContext[];
 }
 
@@ -194,9 +195,8 @@ export const useAuthStore = create<AuthState>()(
       availableContexts: [],
 
       login: async (phoneNumber: string, password: string) => {
-        const { userApi } = await import('../services/api');
-        const user = await userApi.authenticate(phoneNumber, password);
-        if (!user) return false;
+        const loginSession = await authSessionApi.login(phoneNumber, password);
+        const user = loginSession.user;
 
         const contexts = await loadAvailableContexts(user);
 
@@ -211,6 +211,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        void authSessionApi.logout().catch(() => undefined);
         set({
           isAuthenticated: false,
           user: null,
@@ -223,6 +224,12 @@ export const useAuthStore = create<AuthState>()(
         const { activeContext, availableContexts, isAuthenticated, user } = get();
         if (!isAuthenticated || !user) return;
 
+        try {
+          await authSessionApi.current();
+        } catch {
+          set({ isAuthenticated: false, user: null, activeContext: null, availableContexts: [] });
+          return;
+        }
         const contexts = await loadAvailableContexts(user);
         const selectedContext = findMatchingContext(contexts, activeContext);
         const nextActiveContext = selectedContext ? createActiveContext(user, selectedContext) : null;
@@ -240,7 +247,7 @@ export const useAuthStore = create<AuthState>()(
         });
       },
 
-      switchContext: (contextId: string) => {
+      switchContext: async (contextId: string) => {
         const { user, availableContexts: currentAvailableContexts } = get();
         if (!user?.isActive) return false;
 
@@ -259,6 +266,11 @@ export const useAuthStore = create<AuthState>()(
           return false;
         }
 
+        try {
+          await authSessionApi.selectContext(selectedContext.assignmentId);
+        } catch {
+          return false;
+        }
         const nextActiveContext = createActiveContext(user, selectedContext);
         const { availableContexts: latestAvailableContexts, activeContext } = get();
         if (

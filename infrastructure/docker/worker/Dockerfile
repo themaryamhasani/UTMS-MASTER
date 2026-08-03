@@ -14,4 +14,4 @@ RUN npm ci --ignore-scripts && chown -R node:node /app
 COPY --chown=node:node apps/worker apps/worker
 COPY --chown=node:node packages packages
 USER node
-CMD ["npm", "run", "dev:worker"]
+CMD ["node", "apps/worker/src/runtime.mjs"]

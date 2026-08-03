@@ -1,3 +1,5 @@
+import { getCsrfToken } from './platformApi';
+
 type ServiceObject = Record<string, unknown>;
 interface DomainRpcProxyOptions {
   backendOnly?: boolean;
@@ -264,9 +266,15 @@ function makeReadRequestKey(service: string, method: string, args: unknown[]): s
 }
 
 async function callDomainRpc<T>(service: string, method: string, args: unknown[]): Promise<T> {
+  const csrfToken = getCsrfToken();
   const response = await fetch(`${DOMAIN_RPC_BASE}/rpc`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...contextHeaders() },
+    headers: {
+      'content-type': 'application/json',
+      ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
+      ...contextHeaders(),
+    },
+    credentials: 'include',
     body: JSON.stringify({ service, method, args }),
   });
 

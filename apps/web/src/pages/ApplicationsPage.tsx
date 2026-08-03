@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Building2, Users, Plus, Edit, Power, Eye } from 'lucide-react';
+import { Search, Building2, Users, Plus, Edit, Power, Eye, Link2 } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
@@ -12,6 +12,7 @@ import { applicationApi, userApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
 import type { Application, CartableFilterParams, User as UserType, UserRoleAssignment } from '../types';
 import { ROLE_LABELS } from '../types';
+import { cdeApi, PlatformApiError } from '../services/platformApi';
 
 const CDE_BASE_URL = 'https://cde.edus.ir/';
 const CDE_ROOT_RULES = {
@@ -40,6 +41,23 @@ const emptyAppForm = {
   cdeGatewayUrl: '',
 };
 
+const emptyCdeMappingForm = {
+  projectKey: '',
+  webUiRepoName: '',
+  dataServiceRepoName: '',
+  apiModuleRepoName: '',
+  messageConsumerRepoName: '',
+  testRepoName: '',
+  testPackId: '',
+  testBranchRandId: '',
+  testBranchIndex: '',
+  enabled: true,
+  environmentName: '',
+  webBaseUrl: '',
+  apiBaseUrl: '',
+  gatewayBaseUrl: '',
+};
+
 export const ApplicationsPage: React.FC = () => {
   const { activeContext } = useAuthStore();
   const [applications, setApplications] = useState<Application[]>([]);
@@ -51,11 +69,13 @@ export const ApplicationsPage: React.FC = () => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showCdeMappingModal, setShowCdeMappingModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedApp, setSelectedApp] = useState<Application | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [appForm, setAppForm] = useState(emptyAppForm);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [cdeMappingForm, setCdeMappingForm] = useState(emptyCdeMappingForm);
 
   const role = activeContext?.role;
   const canManage = canPerformAction(role!, 'admin:manage-apps');
@@ -181,6 +201,105 @@ export const ApplicationsPage: React.FC = () => {
     finally { setActionLoading(false); }
   };
 
+  const openCdeMapping = async (application: Application) => {
+    setSelectedApp(application);
+    setActionLoading(true);
+    try {
+      const [mapping, environments] = await Promise.all([
+        cdeApi.mapping(application.id).catch(error => {
+          if (error instanceof PlatformApiError && error.status === 404) return null;
+          throw error;
+        }),
+        cdeApi.environments(application.id),
+      ]);
+      const environment = environments[0];
+      setCdeMappingForm(mapping ? {
+        projectKey: mapping.projectKey,
+        webUiRepoName: mapping.webUiRepoName || '',
+        dataServiceRepoName: mapping.dataServiceRepoName || '',
+        apiModuleRepoName: mapping.apiModuleRepoName || '',
+        messageConsumerRepoName: mapping.messageConsumerRepoName || '',
+        testRepoName: mapping.testRepoName,
+        testPackId: mapping.testPackId,
+        testBranchRandId: mapping.testBranchRandId || '',
+        testBranchIndex: mapping.testBranchIndex === null || mapping.testBranchIndex === undefined ? '' : String(mapping.testBranchIndex),
+        enabled: mapping.enabled,
+        environmentName: environment?.name || '',
+        webBaseUrl: environment?.webBaseUrl || '',
+        apiBaseUrl: environment?.apiBaseUrl || '',
+        gatewayBaseUrl: environment?.gatewayBaseUrl || '',
+      } : { ...emptyCdeMappingForm });
+      setShowCdeMappingModal(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'خطا در بارگذاری نگاشت CDE.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const updateProjectKey = (projectKey: string) => {
+    setCdeMappingForm(previous => {
+      const previousKey = previous.projectKey;
+      const derived = (value: string, suffix: string) => !value || value === `${previousKey}/${suffix}`;
+      const derivedPack = !previous.testPackId || previous.testPackId === `dservice/package/${previousKey}/utms-playwright`;
+      return {
+        ...previous,
+        projectKey,
+        webUiRepoName: derived(previous.webUiRepoName, 'web-ui') ? `${projectKey}/web-ui` : previous.webUiRepoName,
+        dataServiceRepoName: derived(previous.dataServiceRepoName, 'data-service') ? `${projectKey}/data-service` : previous.dataServiceRepoName,
+        apiModuleRepoName: derived(previous.apiModuleRepoName, 'api-module') ? `${projectKey}/api-module` : previous.apiModuleRepoName,
+        testRepoName: derived(previous.testRepoName, 'data-service') ? `${projectKey}/data-service` : previous.testRepoName,
+        testPackId: derivedPack ? `dservice/package/${projectKey}/utms-playwright` : previous.testPackId,
+      };
+    });
+  };
+
+  const saveCdeMapping = async () => {
+    if (!selectedApp) return;
+    setActionLoading(true);
+    try {
+      const branchIndex = cdeMappingForm.testBranchIndex.trim() === '' ? undefined : Number(cdeMappingForm.testBranchIndex);
+      await cdeApi.saveMapping(selectedApp.id, {
+        projectKey: cdeMappingForm.projectKey.trim(),
+        webUiRepoName: cdeMappingForm.webUiRepoName.trim() || null,
+        dataServiceRepoName: cdeMappingForm.dataServiceRepoName.trim() || null,
+        apiModuleRepoName: cdeMappingForm.apiModuleRepoName.trim() || null,
+        messageConsumerRepoName: cdeMappingForm.messageConsumerRepoName.trim() || null,
+        testRepoName: cdeMappingForm.testRepoName.trim(),
+        testPackId: cdeMappingForm.testPackId.trim(),
+        testBranchRandId: cdeMappingForm.testBranchRandId.trim() || null,
+        testBranchIndex: typeof branchIndex === 'number' && Number.isInteger(branchIndex) ? branchIndex : null,
+        enabled: cdeMappingForm.enabled,
+      });
+      if (cdeMappingForm.environmentName.trim() && cdeMappingForm.webBaseUrl.trim()) {
+        const existing = await cdeApi.environments(selectedApp.id);
+        const sameName = existing.find(item => item.name === cdeMappingForm.environmentName.trim());
+        const environmentData = {
+          name: cdeMappingForm.environmentName.trim(),
+          webBaseUrl: cdeMappingForm.webBaseUrl.trim(),
+          apiBaseUrl: cdeMappingForm.apiBaseUrl.trim() || null,
+          gatewayBaseUrl: cdeMappingForm.gatewayBaseUrl.trim() || null,
+          enabled: true,
+        };
+        if (sameName) await cdeApi.updateEnvironment(selectedApp.id, sameName.id, environmentData);
+        else await cdeApi.saveEnvironment(selectedApp.id, environmentData);
+      }
+      try {
+        await cdeApi.validateMapping(selectedApp.id);
+        toast.success('نگاشت CDE و شاخه قابل ویرایش با موفقیت تأیید شد.');
+      } catch (validationError) {
+        toast.warning(validationError instanceof Error
+          ? `نگاشت ذخیره شد، اما اعتبارسنجی زنده ناموفق بود: ${validationError.message}`
+          : 'نگاشت ذخیره شد، اما اعتبارسنجی زنده ناموفق بود.');
+      }
+      setShowCdeMappingModal(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'خطا در ذخیره نگاشت CDE.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // Filter
   let filteredApps = [...applications];
   if (filters.search) {
@@ -249,6 +368,14 @@ export const ApplicationsPage: React.FC = () => {
                   });
                   setShowEditModal(true);
                 }}>ویرایش</Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={<Link2 className="w-3.5 h-3.5" />}
+                onClick={(e) => { e.stopPropagation(); void openCdeMapping(item); }}
+              >
+                نگاشت CDE
+              </Button>
               <Button
                 size="sm"
                 variant="ghost"
@@ -450,6 +577,57 @@ export const ApplicationsPage: React.FC = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={showCdeMappingModal}
+        onClose={() => !actionLoading && setShowCdeMappingModal(false)}
+        title={`نگاشت زنده CDE${selectedApp ? ` — ${selectedApp.name}` : ''}`}
+        size="xl"
+      >
+        <div className="space-y-5">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+            این نگاشت نام پروژه و repository/package واقعی را ذخیره می‌کند. URLهای قدیمی Application در این مسیر استفاده نمی‌شوند.
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Input label="CDE project key *" value={cdeMappingForm.projectKey} onChange={(event) => updateProjectKey(event.target.value.trim())} dir="ltr" />
+            <Input label="Web UI repository" value={cdeMappingForm.webUiRepoName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, webUiRepoName: event.target.value })} dir="ltr" />
+            <Input label="Data Service repository" value={cdeMappingForm.dataServiceRepoName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, dataServiceRepoName: event.target.value })} dir="ltr" />
+            <Input label="API Module repository" value={cdeMappingForm.apiModuleRepoName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, apiModuleRepoName: event.target.value })} dir="ltr" />
+            <Input label="Message Consumer repository (optional)" value={cdeMappingForm.messageConsumerRepoName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, messageConsumerRepoName: event.target.value })} dir="ltr" />
+          </div>
+
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <h3 className="font-medium text-amber-900">Dedicated Playwright Data Service package</h3>
+            <p className="mt-1 text-xs text-amber-700">این بسته باید غیرتولیدی، نوع JS و شاخه personal آن editable باشد.</p>
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Input label="Test repository *" value={cdeMappingForm.testRepoName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, testRepoName: event.target.value })} dir="ltr" />
+              <Input label="Test package ID *" value={cdeMappingForm.testPackId} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, testPackId: event.target.value })} dir="ltr" />
+              <Input label="Personal rand_id" value={cdeMappingForm.testBranchRandId} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, testBranchRandId: event.target.value })} dir="ltr" />
+              <Input label="Personal index (if rand_id is absent)" type="number" min={0} value={cdeMappingForm.testBranchIndex} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, testBranchIndex: event.target.value })} dir="ltr" />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <h3 className="font-medium text-gray-900">Deployed environment profile</h3>
+            <p className="mt-1 text-xs text-gray-500">Runner tests this deployed target; it never starts Raya Core locally.</p>
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Input label="Environment name" value={cdeMappingForm.environmentName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, environmentName: event.target.value })} />
+              <Input label="Web base URL" value={cdeMappingForm.webBaseUrl} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, webBaseUrl: event.target.value })} dir="ltr" />
+              <Input label="API base URL" value={cdeMappingForm.apiBaseUrl} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, apiBaseUrl: event.target.value })} dir="ltr" />
+              <Input label="Gateway base URL" value={cdeMappingForm.gatewayBaseUrl} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, gatewayBaseUrl: event.target.value })} dir="ltr" />
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={cdeMappingForm.enabled} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, enabled: event.target.checked })} />
+            نگاشت فعال باشد
+          </label>
+          <div className="flex justify-end gap-3 border-t pt-4">
+            <Button variant="secondary" onClick={() => setShowCdeMappingModal(false)} disabled={actionLoading}>انصراف</Button>
+            <Button onClick={() => void saveCdeMapping()} loading={actionLoading} disabled={actionLoading}>ذخیره و اعتبارسنجی</Button>
+          </div>
+        </div>
       </Modal>
 
       <ConfirmModal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}
