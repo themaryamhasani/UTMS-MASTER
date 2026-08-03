@@ -61,6 +61,9 @@ if (commandExists('k6')) {
 
 if (dockerAvailable()) {
   const workdir = process.cwd();
+  const dockerUser = typeof process.getuid === 'function' && typeof process.getgid === 'function'
+    ? ['--user', `${process.getuid()}:${process.getgid()}`]
+    : [];
   const dockerRunEnv = { ...env };
   for (const key of ['PERF_BASE_URL', 'PERF_WEB_URL']) {
     dockerRunEnv[key] = String(dockerRunEnv[key] || '')
@@ -75,6 +78,7 @@ if (dockerAvailable()) {
     '--rm',
     '-i',
     '--add-host=host.docker.internal:host-gateway',
+    ...dockerUser,
     '-v',
     `${workdir.replace(/\\/g, '/')}:/workspace`,
     '-w',
@@ -83,6 +87,7 @@ if (dockerAvailable()) {
     K6_IMAGE,
     ...args,
   ], { env });
+  process.exit(0);
 }
 
 console.error('k6 is not installed and Docker is not available. Install k6 or start Docker Desktop, then rerun this command.');
