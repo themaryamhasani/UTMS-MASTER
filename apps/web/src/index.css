@@ -51,7 +51,7 @@ html.dark {
 html {
   direction: rtl;
   font-family: var(--utms-font-sans);
-  min-width: 320px;
+  min-width: 0;
   overflow-x: hidden;
   text-size-adjust: 100%;
 }
