@@ -131,7 +131,7 @@ export default defineConfig({
     {
       name: 'reliability',
       testMatch: ['tests/reliability/**/*.spec.ts'],
-      use: { ...commonUse, ...devices['Desktop Chrome'] },
+      use: { ...commonUse, ...devices['Desktop Chrome'], launchOptions: chromiumLaunchOptions },
     },
   ],
 });

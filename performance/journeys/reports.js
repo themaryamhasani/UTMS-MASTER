@@ -21,10 +21,13 @@ export function domainSystemOverview(config) {
 }
 
 export function apiUsageReport(config) {
-  const tags = operationTags('api_usage_report', 'api_console', { role: config.role });
+  const reportRole = ['SYSTEM_ADMIN', 'TECH_LEAD', 'QA_LEAD'].includes(config.role)
+    ? config.role
+    : 'QA_LEAD';
+  const tags = operationTags('api_usage_report', 'api_console', { role: reportRole });
   const started = Date.now();
   const response = http.get(`${config.baseUrl}/api/api-console/reports/api-usage`, {
-    headers: jsonHeaders(config),
+    headers: jsonHeaders(config, reportRole),
     tags,
   });
   report_generation_duration.add(Date.now() - started, tags);

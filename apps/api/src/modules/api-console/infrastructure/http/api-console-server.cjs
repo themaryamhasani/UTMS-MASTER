@@ -172,7 +172,8 @@ const AUTHENTICATION_DOCUMENTATION_PROFILES = [
 ];
 
 const LIMITS = {
-  requestBodyBytes: Number(process.env.API_CONSOLE_MAX_REQUEST_BODY || 16 * 1024 * 1024),
+  requestBodyBytes: Number(process.env.API_CONSOLE_MAX_REQUEST_BODY || 2 * 1024 * 1024),
+  domainRpcRequestBodyBytes: Number(process.env.DOMAIN_RPC_MAX_REQUEST_BODY || 16 * 1024 * 1024),
   responseBytes: Number(process.env.API_CONSOLE_MAX_RESPONSE_BODY || 1024 * 1024),
   maxRedirects: Number(process.env.API_CONSOLE_MAX_REDIRECTS || 5),
   connectTimeoutMs: Number(process.env.API_CONSOLE_CONNECT_TIMEOUT_MS || 30000),
@@ -3989,14 +3990,14 @@ function sendError(res, error) {
   });
 }
 
-async function readJsonBody(req) {
+async function readJsonBody(req, maxBytes = LIMITS.requestBodyBytes) {
   if (req.method === 'GET' || req.method === 'HEAD') return {};
   const chunks = [];
   let total = 0;
   for await (const chunk of req) {
     total += chunk.length;
-    if (total > LIMITS.requestBodyBytes) {
-      throw new ApiConsoleError('RESPONSE_TOO_LARGE', `Request body exceeded ${LIMITS.requestBodyBytes} bytes.`, 413);
+    if (total > maxBytes) {
+      throw new ApiConsoleError('REQUEST_TOO_LARGE', `Request body exceeded ${maxBytes} bytes.`, 413);
     }
     chunks.push(chunk);
   }
@@ -5220,7 +5221,7 @@ function createServer() {
         return;
       }
       if (canHandleDomainRpc(parsedUrl.pathname)) {
-        const body = await readJsonBody(req);
+        const body = await readJsonBody(req, LIMITS.domainRpcRequestBodyBytes);
         const result = await handleDomainRpc(req, parsedUrl, body);
         sendJson(res, 200, result);
         return;

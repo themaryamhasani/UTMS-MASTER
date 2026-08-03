@@ -79,6 +79,11 @@ Optional client tuning variables:
 - `VITE_DOMAIN_RPC_FALLBACK_COOLDOWN_MS`, default `5000`
 - `VITE_DOMAIN_RPC_READ_CACHE_TTL_MS`, default `750`
 
+The API server accepts Domain RPC JSON bodies up to 16 MiB by default so a
+10 MiB security-review attachment can be transported as a base64 data URL.
+Override the boundary with `DOMAIN_RPC_MAX_REQUEST_BODY`. The public API
+Console routes retain their separate 2 MiB default boundary.
+
 ## Query Handling
 
 Known read operations are listed explicitly in both client and server policy sets.
@@ -105,12 +110,10 @@ Before production exposure:
 4. Replace bundled frontend services with backend-owned modules and Prisma repositories.
 5. Version or replace the generic RPC contract with stable public APIs where needed.
 
-The current API Dockerfile copies `apps/api` and shared packages but not
-`apps/web/src`, which is the source of the transitional dynamic bundle.
-Consequently, transitional RPC service loading is not self-contained in that
-image. This must be corrected by producing a backend-owned build artifact or
-dedicated modules. The resulting server error is not an availability fallback
-case and is surfaced to the client.
+The API Docker image currently copies `apps/web` because the transitional
+Domain RPC bridge bundles those services at runtime. This keeps the container
+self-contained, but it is an interim packaging dependency; move the services
+to backend-owned modules before removing that source from the image.
 
 ## Source Map
 

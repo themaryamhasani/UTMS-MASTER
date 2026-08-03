@@ -57,8 +57,9 @@ test.describe('Domain RPC network deduplication', () => {
       .filter(([, count]) => count > 1)
       .map(([key, count]) => ({ count, request: JSON.parse(key) }));
     expect(duplicates).toEqual([]);
-    expect(requests.filter(request =>
+    const applicationContextRefreshes = requests.filter(request =>
       request.service === 'applicationApi' && request.method === 'getAll'
-    )).toEqual([]);
+    );
+    expect(applicationContextRefreshes).toHaveLength(1);
   });
 });

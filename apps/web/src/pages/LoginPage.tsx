@@ -277,7 +277,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
                       type="button"
                       aria-label={showResetPassword ? 'مخفی کردن رمز' : 'نمایش رمز'}
                       onClick={() => setShowResetPassword(prev => !prev)}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      className="absolute left-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-lg text-gray-400 hover:text-gray-600"
                     >
                       {showResetPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
@@ -398,7 +398,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess }) => {
                     type="button"
                     aria-label={showPassword ? 'مخفی کردن رمز' : 'نمایش رمز'}
                     onClick={() => setShowPassword(prev => !prev)}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute left-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-lg text-gray-400 hover:text-gray-600"
                   >
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>

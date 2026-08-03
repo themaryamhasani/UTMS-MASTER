@@ -342,7 +342,7 @@ export const AdminOperationsPage: React.FC = () => {
         onRefresh={loadData}
         refreshing={loading}
         actions={
-          <div className="flex gap-2">
+          <div className="flex min-w-0 flex-wrap gap-2">
             <Button variant="secondary" icon={<RefreshCw className="w-4 h-4" />} onClick={processOutbox}>
               پردازش صف اعلان
             </Button>

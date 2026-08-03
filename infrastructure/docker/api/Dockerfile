@@ -16,6 +16,10 @@ COPY database/prisma database/prisma
 COPY scripts/database scripts/database
 RUN npm run db:generate && mkdir -p runtime/api-console && chown -R node:node /app
 COPY --chown=node:node apps/api apps/api
+# The transitional Domain RPC server bundles the backend-facing services from
+# apps/web/src at runtime. Keep that source in the API image until those
+# services are moved into backend-owned modules.
+COPY --chown=node:node apps/web apps/web
 COPY --chown=node:node packages packages
 USER node
 EXPOSE 4174
