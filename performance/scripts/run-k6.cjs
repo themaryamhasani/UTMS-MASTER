@@ -17,7 +17,9 @@ const profiles = {
 };
 
 function commandExists(command) {
-  const result = spawnSync(process.platform === 'win32' ? 'where.exe' : 'command', process.platform === 'win32' ? [command] : ['-v', command], { stdio: 'ignore' });
+  const result = process.platform === 'win32'
+    ? spawnSync('where.exe', [command], { stdio: 'ignore' })
+    : spawnSync('/bin/sh', ['-c', 'command -v "$1" >/dev/null 2>&1', 'sh', command], { stdio: 'ignore' });
   return result.status === 0;
 }
 
