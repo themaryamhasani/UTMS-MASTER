@@ -13,7 +13,40 @@ import pg from 'pg';
 const { Pool } = pg;
 const MAGIC = Buffer.from('UTMSENC1');
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+
+function redisLabel(value) {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.protocol}//${parsed.hostname}:${parsed.port || (parsed.protocol === 'rediss:' ? '6380' : '6379')}`;
+  } catch {
+    return 'the configured Redis endpoint';
+  }
+}
+
+async function connectRedis() {
+  let startupComplete = false;
+  const client = new IORedis(redisUrl, {
+    maxRetriesPerRequest: null,
+    lazyConnect: true,
+    enableOfflineQueue: false,
+    connectTimeout: 1500,
+    retryStrategy: attempts => (startupComplete ? Math.min(attempts * 100, 2000) : null),
+  });
+  const ignoreInitialError = () => {};
+  client.on('error', ignoreInitialError);
+  try {
+    await client.connect();
+    await client.ping();
+    startupComplete = true;
+    client.off('error', ignoreInitialError);
+    return client;
+  } catch (error) {
+    client.disconnect();
+    throw new Error(`Playwright runner cannot reach Redis at ${redisLabel(redisUrl)}. Start Redis or run npm run dev:all.`, { cause: error });
+  }
+}
+
+const connection = await connectRedis();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 const s3 = new S3Client({
@@ -319,6 +352,9 @@ const worker = new Worker('utms-playwright-runs', executeRun, {
 
 worker.on('failed', (job, error) => {
   console.error(JSON.stringify({ event: 'playwright-run-failed', jobId: job?.id, message: error.message }));
+});
+worker.on('error', error => {
+  console.error(JSON.stringify({ event: 'playwright-runner-error', message: error.message }));
 });
 
 async function shutdown() {

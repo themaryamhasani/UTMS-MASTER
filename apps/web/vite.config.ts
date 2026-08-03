@@ -13,8 +13,8 @@ const apiProxyTarget = process.env.VITE_DEV_API_PROXY_TARGET || "http://localhos
 export default defineConfig({
   plugins: [react(), tailwindcss(), viteSingleFile()],
   server: {
-    // port:3000,
-    // open:true,
+    port: Number(process.env.WEB_PORT || 5173),
+    strictPort: true,
     proxy: {
       // Match API paths only. A broad "/api" prefix also captures the
       // client-side "/api-console" route and proxies it to the backend.

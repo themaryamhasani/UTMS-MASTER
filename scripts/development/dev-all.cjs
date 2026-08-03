@@ -1,20 +1,182 @@
-const { spawn } = require('child_process');
+'use strict';
 
-const commands = [
-  ['npm', ['run', 'dev:web']],
-  ['npm', ['run', 'dev:api']],
-  ['npm', ['run', 'dev:worker']],
-  ['npm', ['run', 'dev:runner']],
-];
+const { spawn } = require('node:child_process');
+const { existsSync } = require('node:fs');
+const net = require('node:net');
+const { tmpdir } = require('node:os');
+const path = require('node:path');
+const { RedisMemoryServer } = require('redis-memory-server');
 
-const children = commands.map(([command, args]) => {
-  const child = spawn(command, args, { stdio: 'inherit', shell: true });
-  child.on('exit', code => {
-    if (code && code !== 0) process.exitCode = code;
+const repositoryRoot = path.resolve(__dirname, '..', '..');
+const envFile = path.join(repositoryRoot, '.env');
+if (existsSync(envFile) && typeof process.loadEnvFile === 'function') process.loadEnvFile(envFile);
+
+const children = new Map();
+let embeddedRedis;
+let stopping = false;
+
+function positivePort(value, fallback) {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : fallback;
+}
+
+function configuredRedisUrl() {
+  if (process.env.REDIS_URL) return process.env.REDIS_URL;
+  const port = positivePort(process.env.REDIS_PORT, 6379);
+  const password = process.env.REDIS_PASSWORD;
+  return password
+    ? `redis://:${encodeURIComponent(password)}@127.0.0.1:${port}`
+    : `redis://127.0.0.1:${port}`;
+}
+
+function redisAddress(redisUrl) {
+  try {
+    const parsed = new URL(redisUrl);
+    return {
+      host: parsed.hostname || '127.0.0.1',
+      port: positivePort(parsed.port, parsed.protocol === 'rediss:' ? 6380 : 6379),
+      label: `${parsed.protocol}//${parsed.hostname}:${positivePort(parsed.port, parsed.protocol === 'rediss:' ? 6380 : 6379)}`,
+    };
+  } catch {
+    throw new Error('REDIS_URL must be a valid redis:// or rediss:// URL.');
+  }
+}
+
+function canConnect({ host, port }, timeoutMs = 750) {
+  return new Promise(resolve => {
+    const socket = net.createConnection({ host, port });
+    const finish = available => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(available);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
   });
-  return child;
-});
+}
 
-process.on('SIGINT', () => {
-  for (const child of children) child.kill('SIGINT');
+async function assertDevelopmentPortsAvailable() {
+  const ports = [
+    { name: 'web', host: 'localhost', port: positivePort(process.env.WEB_PORT, 5173) },
+    { name: 'API', host: '127.0.0.1', port: positivePort(process.env.API_CONSOLE_PORT, 4174) },
+  ];
+  const checks = await Promise.all(ports.map(async service => ({
+    ...service,
+    occupied: await canConnect(service),
+  })));
+  const occupied = checks.filter(service => service.occupied);
+  if (!occupied.length) return;
+  const labels = occupied.map(service => `${service.name} port ${service.port}`).join(', ');
+  throw new Error(
+    `${labels} ${occupied.length === 1 ? 'is' : 'are'} already in use. UTMS may already be running; stop the previous dev:all process before starting another one.`,
+  );
+}
+
+async function prepareRedis() {
+  const requestedUrl = configuredRedisUrl();
+  const requestedAddress = redisAddress(requestedUrl);
+  if (await canConnect(requestedAddress)) {
+    console.log(`[dev:all] Using Redis at ${requestedAddress.label}.`);
+    return requestedUrl;
+  }
+
+  if (process.env.REDIS_URL || process.env.UTMS_DEV_REDIS === 'external') {
+    throw new Error(
+      `Redis is unavailable at ${requestedAddress.label}. Start the configured Redis service or unset REDIS_URL to use the embedded development server.`,
+    );
+  }
+
+  embeddedRedis = new RedisMemoryServer({
+    binary: {
+      // Memurai cannot resolve its developer license from a path containing
+      // non-ASCII characters, so keep its downloaded runtime in Windows temp.
+      downloadDir: path.join(tmpdir(), 'utms-redis-memory-server'),
+    },
+    instance: {
+      ip: '127.0.0.1',
+      port: requestedAddress.port,
+      args: ['--maxmemory', process.env.UTMS_DEV_REDIS_MAXMEMORY || '64mb', '--maxmemory-policy', 'noeviction'],
+    },
+  });
+  const host = await embeddedRedis.getHost();
+  const port = await embeddedRedis.getPort();
+  const embeddedUrl = `redis://${host}:${port}`;
+  console.log(`[dev:all] Started an ephemeral local Redis server at redis://${host}:${port}.`);
+  return embeddedUrl;
+}
+
+function npmInvocation(script) {
+  const npmCli = process.env.npm_execpath;
+  if (npmCli && npmCli.endsWith('.js')) return [process.execPath, [npmCli, 'run', script]];
+  return [process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', script]];
+}
+
+function startService(name, redisUrl) {
+  const [command, args] = npmInvocation(name);
+  const child = spawn(command, args, {
+    cwd: repositoryRoot,
+    env: { ...process.env, REDIS_URL: redisUrl },
+    stdio: 'inherit',
+    shell: false,
+  });
+  children.set(name, child);
+  child.once('error', error => {
+    console.error(`[dev:all] ${name} could not start: ${error.message}`);
+    void shutdown(1);
+  });
+  child.once('exit', (code, signal) => {
+    children.delete(name);
+    if (!stopping) {
+      console.error(`[dev:all] ${name} exited unexpectedly (${signal || code || 0}).`);
+      void shutdown(code || 1);
+    }
+  });
+}
+
+async function stopChild(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === 'win32') {
+    await new Promise(resolve => {
+      const killer = spawn('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      killer.once('error', resolve);
+      killer.once('exit', resolve);
+    });
+    return;
+  }
+  child.kill('SIGTERM');
+  await new Promise(resolve => {
+    const timeout = setTimeout(resolve, 3000);
+    child.once('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
+async function shutdown(exitCode = 0) {
+  if (stopping) return;
+  stopping = true;
+  await Promise.allSettled([...children.values()].map(stopChild));
+  if (embeddedRedis) await embeddedRedis.stop().catch(() => {});
+  process.exit(exitCode);
+}
+
+async function main() {
+  await assertDevelopmentPortsAvailable();
+  const redisUrl = await prepareRedis();
+  for (const name of ['dev:web', 'dev:api', 'dev:worker', 'dev:runner']) startService(name, redisUrl);
+}
+
+process.once('SIGINT', () => void shutdown(0));
+process.once('SIGTERM', () => void shutdown(0));
+process.once('SIGHUP', () => void shutdown(0));
+
+main().catch(error => {
+  console.error(`[dev:all] Startup failed: ${error.message}`);
+  void shutdown(1);
 });

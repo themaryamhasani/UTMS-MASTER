@@ -8,8 +8,8 @@ For the exact runtime and persistence boundaries, start with [Current Implementa
 
 - `apps/web` - React/Vite frontend.
 - `apps/api` - health, domain RPC, partial PostgreSQL adapters and API Console transitional server.
-- `apps/worker` - background worker capability descriptor; no processor loop yet.
-- `apps/playwright-runner` - isolated execution capability descriptor; no job executor yet.
+- `apps/worker` - BullMQ snapshot materialization worker.
+- `apps/playwright-runner` - isolated BullMQ Playwright execution worker.
 - `packages/contracts` - shared API contracts.
 - `packages/shared` - framework-independent shared utilities.
 - `packages/config` - shared configuration contracts.
@@ -19,6 +19,7 @@ For the exact runtime and persistence boundaries, start with [Current Implementa
 
 - Node.js 22 and npm, matching CI and Docker.
 - PostgreSQL 16 for the database-backed domains, or Docker Compose for the complete local infrastructure.
+- Redis for queues in deployed environments. `dev:all` starts an ephemeral local Redis-compatible process when no external Redis is configured.
 - Playwright browser binaries only when running browser suites.
 
 ## Quick Start
@@ -32,7 +33,7 @@ npm run db:seed
 npm run dev:all
 ```
 
-The web app runs on `http://localhost:5173`, the API on `http://localhost:4174`, and Vite proxies API-only paths to the API server. `npm run dev` starts only the web app; use `dev:web`, `dev:api`, `dev:worker` and `dev:runner` for individual workspaces.
+The web app runs on `http://localhost:5173`, the API on `http://localhost:4174`, and Vite proxies API-only paths to the API server. `npm run dev:all` starts the web app, API, snapshot worker and Playwright runner. It uses `REDIS_URL` when configured and otherwise starts an ephemeral, development-only Redis-compatible process on `REDIS_PORT` (default `6379`). `npm run dev` starts only the web app; use `dev:web`, `dev:api`, `dev:worker` and `dev:runner` for individual workspaces.
 
 Useful checks:
 

@@ -7,7 +7,39 @@ const jobToken = process.env.UTMS_INTERNAL_JOB_TOKEN || (process.env.NODE_ENV ==
 
 if (!jobToken) throw new Error('UTMS_INTERNAL_JOB_TOKEN is required in production.');
 
-const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+function redisLabel(value) {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.protocol}//${parsed.hostname}:${parsed.port || (parsed.protocol === 'rediss:' ? '6380' : '6379')}`;
+  } catch {
+    return 'the configured Redis endpoint';
+  }
+}
+
+async function connectRedis() {
+  let startupComplete = false;
+  const client = new IORedis(redisUrl, {
+    maxRetriesPerRequest: null,
+    lazyConnect: true,
+    enableOfflineQueue: false,
+    connectTimeout: 1500,
+    retryStrategy: attempts => (startupComplete ? Math.min(attempts * 100, 2000) : null),
+  });
+  const ignoreInitialError = () => {};
+  client.on('error', ignoreInitialError);
+  try {
+    await client.connect();
+    await client.ping();
+    startupComplete = true;
+    client.off('error', ignoreInitialError);
+    return client;
+  } catch (error) {
+    client.disconnect();
+    throw new Error(`Snapshot worker cannot reach Redis at ${redisLabel(redisUrl)}. Start Redis or run npm run dev:all.`, { cause: error });
+  }
+}
+
+const connection = await connectRedis();
 
 async function internalPost(path) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -34,6 +66,9 @@ const worker = new Worker('utms-playwright-snapshots', async job => {
 
 worker.on('failed', (job, error) => {
   console.error(JSON.stringify({ event: 'snapshot-job-failed', jobId: job?.id, code: error.code || 'ERROR', message: error.message }));
+});
+worker.on('error', error => {
+  console.error(JSON.stringify({ event: 'snapshot-worker-error', message: error.message }));
 });
 
 const cleanup = setInterval(() => {
