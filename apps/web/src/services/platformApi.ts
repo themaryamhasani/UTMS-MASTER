@@ -30,16 +30,18 @@ export interface CdeCatalogRepository {
   type: 'WEB_UI' | 'DATA_SERVICE' | 'API_MODULE' | 'MESSAGE_CONSUMER' | 'TESTS';
   repoName: string;
   packages: CdePackageSummary[];
+  error?: { code: string; message: string };
 }
 
 export interface CdeCatalog {
-  applicationId: string;
+  applicationId?: string;
   projectKey: string;
   repositories: CdeCatalogRepository[];
 }
 
 export interface CdePackageContent {
-  applicationId: string;
+  applicationId?: string;
+  projectKey?: string;
   repositoryType: CdeCatalogRepository['type'];
   repoName: string;
   packId: string;
@@ -50,6 +52,11 @@ export interface CdePackageContent {
     meta?: Record<string, unknown>;
   };
   files: Array<{ path: string; code: string; language?: string; readOnly: boolean }>;
+}
+
+export interface CdeProjectDescriptor {
+  projectKey: string;
+  repositories: Record<'WEB_UI' | 'DATA_SERVICE' | 'API_MODULE' | 'MESSAGE_CONSUMER', string>;
 }
 
 export interface ApplicationEnvironmentProfile {
@@ -165,6 +172,15 @@ export const cdeApi = {
     method: 'POST', body: JSON.stringify({ challenge, password }),
   }),
   disconnect: () => request<CdeConnectionStatus>('/api/cde/session', { method: 'DELETE' }),
+  projects: () => request<CdeProjectDescriptor[]>('/api/cde/projects'),
+  projectCatalog: (projectKey: string) => request<CdeCatalog>(`/api/cde/projects/${encodeURIComponent(projectKey)}/catalog`),
+  projectPackage: (projectKey: string, data: {
+    repositoryType: Exclude<CdeCatalogRepository['type'], 'TESTS'>;
+    packId: string;
+    branch?: CdeBranchSelector;
+  }) => request<CdePackageContent>(`/api/cde/projects/${encodeURIComponent(projectKey)}/package`, {
+    method: 'POST', body: JSON.stringify(data),
+  }),
   applications: () => request<CdeVisibleApplication[]>('/api/cde/applications'),
   mapping: (applicationId: string) => request<CdeApplicationMapping>(`/api/applications/${encodeURIComponent(applicationId)}/cde/mapping`),
   saveMapping: (applicationId: string, data: Omit<CdeApplicationMapping, 'applicationId' | 'serviceId' | 'lastValidationStatus' | 'lastValidatedAt'>) =>

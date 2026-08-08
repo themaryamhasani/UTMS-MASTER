@@ -21,12 +21,13 @@ const { deleteObject, putEncryptedObject } = require('../playwright/object-store
 const { cancelQueuedRun, enqueueRun, enqueueSnapshot } = require('../playwright/playwright-queue.cjs');
 
 const REPOSITORY_CONFIG = {
-  WEB_UI: { mappingField: 'webUiRepoName', key: 'cde/repository/web-ui/list/fetch', root: 'web-ui' },
-  DATA_SERVICE: { mappingField: 'dataServiceRepoName', key: 'cde/repository/data-service/list/fetch', root: 'data-service' },
-  API_MODULE: { mappingField: 'apiModuleRepoName', key: 'cde/repository/api-module/list/fetch', root: 'api-module' },
-  MESSAGE_CONSUMER: { mappingField: 'messageConsumerRepoName', key: 'cde/repository/message-consumer/list/fetch', root: 'message-consumer' },
-  TESTS: { mappingField: 'testRepoName', key: 'cde/repository/data-service/list/fetch', root: 'tests' },
+  WEB_UI: { mappingField: 'webUiRepoName', key: 'cde/repository/web-ui/list/fetch', root: 'web-ui', suffix: 'web-ui' },
+  DATA_SERVICE: { mappingField: 'dataServiceRepoName', key: 'cde/repository/data-service/list/fetch', root: 'data-service', suffix: 'data-service' },
+  API_MODULE: { mappingField: 'apiModuleRepoName', key: 'cde/repository/api-module/list/fetch', root: 'api-module', suffix: 'api-module' },
+  MESSAGE_CONSUMER: { mappingField: 'messageConsumerRepoName', key: 'cde/repository/message-consumer/list/fetch', root: 'message-consumer', suffix: 'message-consumer' },
+  TESTS: { mappingField: 'testRepoName', key: 'cde/repository/data-service/list/fetch', root: 'tests', suffix: 'data-service' },
 };
+const BROWSABLE_REPOSITORY_TYPES = ['WEB_UI', 'DATA_SERVICE', 'API_MODULE', 'MESSAGE_CONSUMER'];
 const TEST_FILE_PATTERN = /\.(?:spec\.(?:ts|js)|ts|js|json|md)$/i;
 
 class CdeApiError extends Error {
@@ -216,6 +217,46 @@ async function accessibleProjects(req, force = false) {
   return state.accessibleProjects;
 }
 
+function normalizeProjectKey(value) {
+  const projectKey = String(value || '').trim();
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$/.test(projectKey)) {
+    throw new CdeApiError('CDE_PROJECT_INVALID', 'CDE project key is invalid.', 400);
+  }
+  return projectKey;
+}
+
+function projectRepositoryName(projectKey, repositoryType) {
+  const normalizedProjectKey = normalizeProjectKey(projectKey);
+  const config = REPOSITORY_CONFIG[String(repositoryType || '')];
+  if (!config || !BROWSABLE_REPOSITORY_TYPES.includes(String(repositoryType))) {
+    throw new CdeApiError('CDE_REPOSITORY_TYPE_INVALID', 'Repository type is not browsable.', 400);
+  }
+  return `${normalizedProjectKey}/${config.suffix}`;
+}
+
+async function assertAccessibleProject(req, projectKey) {
+  const normalizedProjectKey = normalizeProjectKey(projectKey);
+  const projects = await accessibleProjects(req);
+  if (!projects.includes(normalizedProjectKey)) {
+    throw new CdeApiError('CDE_PROJECT_ACCESS_DENIED', 'The connected CDE account cannot access this project.', 403);
+  }
+  return normalizedProjectKey;
+}
+
+function projectDescriptor(projectKey) {
+  return {
+    projectKey,
+    repositories: Object.fromEntries(BROWSABLE_REPOSITORY_TYPES.map(repositoryType => [
+      repositoryType,
+      projectRepositoryName(projectKey, repositoryType),
+    ])),
+  };
+}
+
+async function browseProjects(req) {
+  return (await accessibleProjects(req)).map(projectDescriptor);
+}
+
 async function mappingForApplication(req, applicationId) {
   assertApplicationScope(req, applicationId);
   const mapping = await getPrismaClient().cdeApplicationMapping.findUnique({ where: { applicationId: String(applicationId) } });
@@ -307,6 +348,10 @@ function packageSummary(item, repositoryType) {
   };
 }
 
+function packagesFromResponse(response, repositoryType) {
+  return itemsOf(response).map(item => typeof item === 'string' ? { id: item, branches: [] } : packageSummary(item, repositoryType));
+}
+
 async function repositoryList(req, mapping, repositoryType) {
   const config = REPOSITORY_CONFIG[repositoryType];
   const repoName = mapping[config.mappingField];
@@ -315,8 +360,37 @@ async function repositoryList(req, mapping, repositoryType) {
   return {
     type: repositoryType,
     repoName,
-    packages: itemsOf(response).map(item => typeof item === 'string' ? { id: item, branches: [] } : packageSummary(item, repositoryType)),
+    packages: packagesFromResponse(response, repositoryType),
   };
+}
+
+async function browseProjectCatalog(req, projectKey) {
+  const accessibleProjectKey = await assertAccessibleProject(req, projectKey);
+  const repositories = [];
+  for (const repositoryType of BROWSABLE_REPOSITORY_TYPES) {
+    const config = REPOSITORY_CONFIG[repositoryType];
+    const repoName = projectRepositoryName(accessibleProjectKey, repositoryType);
+    try {
+      const response = await callDataSource(req, config.key, { repoName });
+      repositories.push({
+        type: repositoryType,
+        repoName,
+        packages: packagesFromResponse(response, repositoryType),
+      });
+    } catch (error) {
+      if (['CDE_NOT_CONNECTED', 'CDE_RECONNECT_REQUIRED'].includes(error.category)) throw error;
+      repositories.push({
+        type: repositoryType,
+        repoName,
+        packages: [],
+        error: {
+          code: error.category || 'CDE_REPOSITORY_LOAD_FAILED',
+          message: error.message || 'CDE repository could not be loaded.',
+        },
+      });
+    }
+  }
+  return { projectKey: accessibleProjectKey, repositories };
 }
 
 async function visibleApplications(req) {
@@ -402,6 +476,46 @@ async function loadPackageItem(req, mapping, repositoryType, repoName, packId) {
   const pack = resultOf(response).pack;
   if (!pack || typeof pack !== 'object') throw new CdeApiError('CDE_PACKAGE_NOT_FOUND', 'CDE package was not found.', 404);
   return pack;
+}
+
+async function browseProjectPackage(req, projectKey, body) {
+  const accessibleProjectKey = await assertAccessibleProject(req, projectKey);
+  const repositoryType = String(body.repositoryType || '');
+  const config = REPOSITORY_CONFIG[repositoryType];
+  if (!config || !BROWSABLE_REPOSITORY_TYPES.includes(repositoryType)) {
+    throw new CdeApiError('CDE_REPOSITORY_TYPE_INVALID', 'Repository type is not browsable.', 400);
+  }
+  const repoName = projectRepositoryName(accessibleProjectKey, repositoryType);
+  const packId = String(body.packId || '');
+  const list = await callDataSource(req, config.key, { repoName });
+  const listedItem = itemsOf(list).find(candidate => String(candidate?.id || candidate?._id || candidate || '') === packId);
+  if (!listedItem) throw new CdeApiError('CDE_PACKAGE_NOT_FOUND', 'CDE package was not found in the selected repository.', 404);
+
+  let item = listedItem;
+  if (repositoryType !== 'API_MODULE') {
+    const response = await callDataSource(req, 'cde/package/any/one/fetch', { repoName, packId });
+    item = resultOf(response).pack;
+    if (!item || typeof item !== 'object') throw new CdeApiError('CDE_PACKAGE_NOT_FOUND', 'CDE package was not found.', 404);
+  }
+
+  const branches = repositoryBranches(item, repositoryType);
+  const requestedSelector = body.branch || null;
+  let branch = requestedSelector ? branches.find(candidate => selectorMatches(candidate, requestedSelector)) : null;
+  if (!branch && branches.length === 1) branch = branches[0];
+  if (!branch) {
+    throw new CdeApiError('BRANCH_SELECTION_REQUIRED', 'Select one accessible CDE branch before opening this package.', 409, {
+      branches: branches.map(({ selector, versionId, editable, meta }) => ({ selector, versionId, editable, meta })),
+    });
+  }
+
+  return {
+    projectKey: accessibleProjectKey,
+    repositoryType,
+    repoName,
+    packId,
+    branch: { selector: branch.selector, versionId: branch.versionId, editable: branch.editable, meta: branch.meta },
+    files: normalizeRemoteFiles(branch, repositoryType, packId),
+  };
 }
 
 async function packageContent(req, applicationId, body) {
@@ -1198,6 +1312,11 @@ async function handleCde(req, parsedUrl, body) {
   if (pathname === '/api/cde/session/start' && req.method === 'POST') return startCdeLogin(req, body);
   if (pathname === '/api/cde/session/password' && req.method === 'POST') return finishCdePassword(req, body);
   if (pathname === '/api/cde/session' && req.method === 'DELETE') return disconnectCde(req);
+  if (pathname === '/api/cde/projects' && req.method === 'GET') return browseProjects(req);
+  match = routeMatch(pathname, /^\/api\/cde\/projects\/([^/]+)\/catalog$/);
+  if (match && req.method === 'GET') return browseProjectCatalog(req, decodeURIComponent(match[1]));
+  match = routeMatch(pathname, /^\/api\/cde\/projects\/([^/]+)\/package$/);
+  if (match && req.method === 'POST') return browseProjectPackage(req, decodeURIComponent(match[1]), body);
   if (pathname === '/api/cde/applications' && req.method === 'GET') return visibleApplications(req);
 
   match = routeMatch(pathname, /^\/api\/applications\/([^/]+)\/cde\/mapping$/);
@@ -1234,6 +1353,7 @@ module.exports = {
   handleCde,
   normalizeRemoteFiles,
   materializeSnapshot,
+  projectRepositoryName,
   repositoryBranches,
   selectorMatches,
 };

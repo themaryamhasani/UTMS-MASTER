@@ -17,6 +17,7 @@ import {
   type CdeCatalog,
   type CdeConnectionStatus,
   type CdePackageContent,
+  type CdeProjectDescriptor,
   type CdeVisibleApplication,
 } from '../services/platformApi';
 import type {
@@ -56,7 +57,7 @@ interface FormState {
 }
 
 interface PendingBranchSelection {
-  repositoryType: CdeCatalog['repositories'][number]['type'];
+  repositoryType: Exclude<CdeCatalog['repositories'][number]['type'], 'TESTS'>;
   repoName: string;
   packId: string;
   branches: Array<{
@@ -72,6 +73,8 @@ export const PlaywrightFilesPage: React.FC = () => {
   const { defaultApplicationId, scopeApplicationIds, isAppLevel } = useDataScope();
   const [applications, setApplications] = useState<Application[]>([]);
   const [cdeApplications, setCdeApplications] = useState<CdeVisibleApplication[]>([]);
+  const [cdeProjects, setCdeProjects] = useState<CdeProjectDescriptor[]>([]);
+  const [selectedProjectKey, setSelectedProjectKey] = useState('');
   const [cdeStatus, setCdeStatus] = useState<CdeConnectionStatus>({ connected: false });
   const [catalog, setCatalog] = useState<CdeCatalog | null>(null);
   const [packageContent, setPackageContent] = useState<CdePackageContent | null>(null);
@@ -109,6 +112,7 @@ export const PlaywrightFilesPage: React.FC = () => {
     description: '',
     script: DEFAULT_SCRIPT,
   });
+  const mappedApplicationSelected = cdeApplications.some(application => application.id === formData.applicationId);
 
   useEffect(() => {
     if (activeContext) {
@@ -117,24 +121,33 @@ export const PlaywrightFilesPage: React.FC = () => {
   }, [activeContext]);
 
   useEffect(() => {
-    if (activeContext && cdeStatus.connected && formData.applicationId) {
+    if (activeContext && cdeStatus.connected && formData.applicationId && mappedApplicationSelected) {
       void loadFiles();
+    } else if (cdeStatus.connected && !mappedApplicationSelected) {
+      setData(null);
+      setFolders([]);
+      setLoading(false);
     }
-  }, [activeContext, cdeStatus.connected, formData.applicationId, filters]);
+  }, [activeContext, cdeStatus.connected, formData.applicationId, filters, mappedApplicationSelected]);
 
   useEffect(() => {
-    if (formData.applicationId && cdeStatus.connected) void loadCatalog(formData.applicationId);
-  }, [formData.applicationId]);
+    if (selectedProjectKey && cdeStatus.connected) void loadCatalog(selectedProjectKey);
+  }, [selectedProjectKey, cdeStatus.connected]);
 
   const loadCdeSession = async () => {
     if (!activeContext) return;
     try {
       const status = await cdeApi.status();
       setCdeStatus(status);
-      if (status.connected) await loadApplications();
+      if (status.connected) {
+        await loadProjects();
+        await loadApplications();
+      }
       else {
         setApplications([]);
         setCdeApplications([]);
+        setCdeProjects([]);
+        setSelectedProjectKey('');
         setCatalog(null);
         setData(null);
         setFolders([]);
@@ -144,6 +157,18 @@ export const PlaywrightFilesPage: React.FC = () => {
       setCdeStatus({ connected: false });
       setLoading(false);
     }
+  };
+
+  const loadProjects = async () => {
+    const projects = await cdeApi.projects();
+    setCdeProjects(projects);
+    if (!projects.length) {
+      setCatalog(null);
+      setPackageContent(null);
+    }
+    setSelectedProjectKey(previous => projects.some(project => project.projectKey === previous)
+      ? previous
+      : projects[0]?.projectKey || '');
   };
 
   const loadApplications = async () => {
@@ -166,15 +191,23 @@ export const PlaywrightFilesPage: React.FC = () => {
         ? prev.applicationId
         : allowed.find(application => application.id === defaultApplicationId)?.id || allowed[0]?.id || '',
     }));
+    if (!allowed.length) {
+      setData(null);
+      setFolders([]);
+      setLoading(false);
+    }
   };
 
-  const loadCatalog = async (applicationId: string) => {
+  const loadCatalog = async (projectKey: string) => {
     setCatalogLoading(true);
     try {
-      setCatalog(await cdeApi.catalog(applicationId));
+      setCatalog(await cdeApi.projectCatalog(projectKey));
       setPackageContent(null);
-    } catch {
+    } catch (error) {
       setCatalog(null);
+      if (error instanceof PlatformApiError && ['CDE_RECONNECT_REQUIRED', 'CDE_NOT_CONNECTED'].includes(error.code)) {
+        setCdeStatus({ connected: false, reconnectRequired: true });
+      }
       toast.error('خطا در خواندن فهرست پروژه از CDE.');
     } finally {
       setCatalogLoading(false);
@@ -217,6 +250,7 @@ export const PlaywrightFilesPage: React.FC = () => {
         if (response.connected) {
           setCdeStatus(response);
           setShowCdeLogin(false);
+          await loadProjects();
           await loadApplications();
         } else {
           setCdeChallenge(response.challenge || '');
@@ -227,6 +261,7 @@ export const PlaywrightFilesPage: React.FC = () => {
         setCdeStatus(response);
         setCdePassword('');
         setShowCdeLogin(false);
+        await loadProjects();
         await loadApplications();
       }
     } catch (error) {
@@ -241,23 +276,24 @@ export const PlaywrightFilesPage: React.FC = () => {
     setCdeStatus({ connected: false });
     setApplications([]);
     setCdeApplications([]);
+    setCdeProjects([]);
+    setSelectedProjectKey('');
     setCatalog(null);
     setPackageContent(null);
     setData(null);
   };
 
   const openPackage = async (
-    repositoryType: CdeCatalog['repositories'][number]['type'],
+    repositoryType: Exclude<CdeCatalog['repositories'][number]['type'], 'TESTS'>,
     repoName: string,
     packId: string,
     branch?: CdePackageContent['branch']['selector']
   ) => {
-    if (!formData.applicationId) return;
+    if (!selectedProjectKey) return;
     setCatalogLoading(true);
     try {
-      setPackageContent(await cdeApi.packageContent(formData.applicationId, {
+      setPackageContent(await cdeApi.projectPackage(selectedProjectKey, {
         repositoryType,
-        repoName,
         packId,
         ...(branch ? { branch } : {}),
       }));
@@ -274,17 +310,15 @@ export const PlaywrightFilesPage: React.FC = () => {
   };
 
   const selectPackageBranch = async (branch: PendingBranchSelection['branches'][number]) => {
-    if (!pendingBranchSelection || !formData.applicationId) return;
+    if (!pendingBranchSelection || !selectedProjectKey) return;
     setCatalogLoading(true);
     try {
       const request = {
         repositoryType: pendingBranchSelection.repositoryType,
-        repoName: pendingBranchSelection.repoName,
         packId: pendingBranchSelection.packId,
         branch: branch.selector,
       };
-      await cdeApi.selectBranch(formData.applicationId, request);
-      setPackageContent(await cdeApi.packageContent(formData.applicationId, request));
+      setPackageContent(await cdeApi.projectPackage(selectedProjectKey, request));
       setPendingBranchSelection(null);
     } catch {
       toast.error('شاخه CDE دیگر قابل دسترسی نیست؛ فهرست را دوباره بارگذاری کنید.');
@@ -506,10 +540,10 @@ export const PlaywrightFilesPage: React.FC = () => {
         title="فایل‌های تست Playwright"
         onRefresh={() => {
           void loadCdeSession();
-          if (formData.applicationId && cdeStatus.connected) void loadCatalog(formData.applicationId);
+          if (selectedProjectKey && cdeStatus.connected) void loadCatalog(selectedProjectKey);
         }}
         refreshing={loading}
-        actions={canManageFile && cdeStatus.connected && (
+        actions={canManageFile && cdeStatus.connected && mappedApplicationSelected && (
           <Button icon={<Plus className="w-4 h-4" />} onClick={openCreateForm}>
             ایجاد فایل
           </Button>
@@ -573,16 +607,16 @@ export const PlaywrightFilesPage: React.FC = () => {
                   <p className="text-xs text-gray-500 mt-1">All source is read as text through POST get-data-source.</p>
                 </div>
                 <Select
-                  value={formData.applicationId}
-                  onChange={(event) => setFormData(previous => ({ ...previous, applicationId: event.target.value, folderPath: '' }))}
-                  options={applications.map(application => ({ value: application.id, label: `${application.name} (${application.code})` }))}
-                  placeholder="Select mapped Application"
+                  value={selectedProjectKey}
+                  onChange={(event) => setSelectedProjectKey(event.target.value)}
+                  options={cdeProjects.map(project => ({ value: project.projectKey, label: project.projectKey }))}
+                  placeholder="Select a CDE project"
                 />
               </div>
 
-              {applications.length === 0 && (
+              {cdeProjects.length === 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                  No mapped Application is shared by the active UTMS context and this CDE account.
+                  The connected CDE account did not return any projects from cde/repository/list/my-repo.
                 </div>
               )}
 
@@ -594,11 +628,23 @@ export const PlaywrightFilesPage: React.FC = () => {
                       <span className="truncate font-mono text-[11px] text-gray-500" dir="ltr">{repository.repoName}</span>
                     </div>
                     <div className="max-h-44 space-y-1 overflow-auto">
+                      {repository.error && (
+                        <p className="rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-700">
+                          {repository.error.message}
+                        </p>
+                      )}
+                      {!repository.error && repository.packages.length === 0 && (
+                        <p className="px-2 py-1.5 text-xs text-gray-400">No packages returned.</p>
+                      )}
                       {repository.packages.map(pack => (
                         <button
                           key={pack.id}
                           type="button"
-                          onClick={() => void openPackage(repository.type, repository.repoName, pack.id)}
+                          onClick={() => void openPackage(
+                            repository.type as Exclude<CdeCatalog['repositories'][number]['type'], 'TESTS'>,
+                            repository.repoName,
+                            pack.id
+                          )}
                           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700"
                           dir="ltr"
                         >
@@ -643,6 +689,16 @@ export const PlaywrightFilesPage: React.FC = () => {
 
         <Card padding="sm">
           <div className="flex flex-wrap gap-4 items-center">
+            <div className="min-w-[260px] flex-1">
+              <Select
+                label="Mapped UTMS Application for editable Playwright tests"
+                value={formData.applicationId}
+                onChange={(event) => setFormData(previous => ({ ...previous, applicationId: event.target.value, folderPath: '' }))}
+                options={applications.map(application => ({ value: application.id, label: `${application.name} (${application.code})` }))}
+                placeholder="No mapped Application"
+                disabled={applications.length === 0}
+              />
+            </div>
             <CartableSearchInput
               value={filters.search || ''}
               onChange={(search) => setFilters({ ...filters, search, page: 1 })}
@@ -651,6 +707,12 @@ export const PlaywrightFilesPage: React.FC = () => {
             />
           </div>
         </Card>
+
+        {cdeStatus.connected && applications.length === 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Project source browsing is available above. Creating Playwright files still requires a System Administrator to map a UTMS Application to a dedicated editable CDE test package.
+          </div>
+        )}
 
         <Table
           columns={columns}

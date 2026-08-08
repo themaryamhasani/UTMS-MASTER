@@ -14,6 +14,11 @@ const {
 } = require('../src/modules/cde/data-service-compiler.cjs');
 const { decryptObject, encryptObject } = require('../src/modules/playwright/object-store.cjs');
 const { createLoginChallenge, readLoginChallenge } = require('../src/modules/cde/cde-session-store.cjs');
+const {
+  normalizeRemoteFiles,
+  projectRepositoryName,
+  repositoryBranches,
+} = require('../src/modules/cde/cde-server.cjs');
 
 function jsonResponse(payload, headers = {}) {
   return new Response(JSON.stringify(payload), {
@@ -63,6 +68,67 @@ test('login providers use the login referer and never receive editor prostage', 
   assert.equal(captured.init.method, 'POST');
   assert.equal(captured.init.headers.referer, 'https://cde.edus.ir/');
   assert.equal(captured.init.headers.prostage, undefined);
+});
+
+test('project browsing sends the exact repository-list and package-fetch Core payloads', async t => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return jsonResponse({ Result: { IsUserLogin: true, items: [] } });
+  };
+  t.after(() => { global.fetch = originalFetch; });
+
+  let state = createCdeState();
+  state = (await getDataSource(state, 'cde/repository/web-ui/list/fetch', {
+    repoName: 'medu-inquiry/web-ui',
+  })).state;
+  state = (await getDataSource(state, 'cde/package/any/one/fetch', {
+    repoName: 'medu-inquiry/web-ui',
+    packId: 'pages/component/medu-inquiry/App',
+  })).state;
+
+  assert.ok(calls.every(call => call.init.method === 'POST'));
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    serviceId: 'cde.edus.ir',
+    key: 'cde/repository/web-ui/list/fetch',
+    params: { repoName: 'medu-inquiry/web-ui' },
+  });
+  assert.deepEqual(JSON.parse(calls[1].init.body), {
+    serviceId: 'cde.edus.ir',
+    key: 'cde/package/any/one/fetch',
+    params: {
+      repoName: 'medu-inquiry/web-ui',
+      packId: 'pages/component/medu-inquiry/App',
+    },
+  });
+});
+
+test('project browsing derives allowlisted repository names and normalizes nested read-only source', () => {
+  assert.equal(projectRepositoryName('medu-inquiry', 'WEB_UI'), 'medu-inquiry/web-ui');
+  assert.equal(projectRepositoryName('medu-inquiry', 'DATA_SERVICE'), 'medu-inquiry/data-service');
+  assert.equal(projectRepositoryName('medu-inquiry', 'API_MODULE'), 'medu-inquiry/api-module');
+  assert.throws(() => projectRepositoryName('../other', 'WEB_UI'), error => error.category === 'CDE_PROJECT_INVALID');
+  assert.throws(() => projectRepositoryName('medu-inquiry', 'TESTS'), error => error.category === 'CDE_REPOSITORY_TYPE_INVALID');
+
+  const branches = repositoryBranches({
+    personal: [{
+      rand_id: '1r4hhryn2a2c5f',
+      versionId: 'msbj99sq6xm',
+      editable: false,
+      content: {
+        type: 'REACT',
+        content: [{ name: 'components/composites/Card.jsx', code: 'function Card() {}' }],
+      },
+    }],
+  }, 'WEB_UI');
+  assert.equal(branches.length, 1);
+  assert.deepEqual(branches[0].selector, { kind: 'PERSONAL', randId: '1r4hhryn2a2c5f', index: 0 });
+  assert.deepEqual(normalizeRemoteFiles(branches[0], 'WEB_UI', 'pages/component/medu-inquiry/App'), [{
+    path: 'components/composites/Card.jsx',
+    code: 'function Card() {}',
+    readOnly: true,
+  }]);
 });
 
 test('ecreq encrypts requests and decrypts double-encoded Core responses', async t => {
