@@ -22,7 +22,6 @@ const ALLOWED_DATA_KEYS = new Set([
 const ALLOWED_FORM_IDS = new Set([
   'auth/signin/iran-cellphone',
   'auth/signin/check-password',
-  'cde/package/any/personal/save',
 ]);
 
 class CoreClientError extends Error {

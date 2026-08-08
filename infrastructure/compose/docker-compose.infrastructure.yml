@@ -28,6 +28,22 @@ services:
       timeout: 5s
       retries: 5
 
+  couchdb:
+    image: couchdb:3.5.2.1
+    environment:
+      COUCHDB_USER: utms
+      COUCHDB_PASSWORD: utms-couchdb-development
+    ports:
+      - "5984:5984"
+    volumes:
+      - utms-couchdb:/opt/couchdb/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -u '$${COUCHDB_USER}:$${COUCHDB_PASSWORD}' http://127.0.0.1:5984/_up >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   utms-postgres:
   utms-redis:
+  utms-couchdb:

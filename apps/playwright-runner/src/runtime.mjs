@@ -116,6 +116,7 @@ function configSource(run, paths) {
 const { defineConfig } = require('@playwright/test');
 module.exports = defineConfig({
   testDir: './tests',
+  testMatch: ['**/*.spec.ts', '**/*.spec.js', '**/*.test.ts', '**/*.test.js', '**/*.js'],
   outputDir: ${JSON.stringify(paths.results)},
   timeout: 60000,
   expect: { timeout: 10000 },

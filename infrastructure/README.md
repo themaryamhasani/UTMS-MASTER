@@ -1,6 +1,6 @@
 # Infrastructure
 
-Source-verified: 2026-07-22
+Source-verified: 2026-08-08
 
 Infrastructure files live under `infrastructure/`.
 
@@ -35,10 +35,16 @@ docker compose -f infrastructure/compose/docker-compose.development.yml up --bui
 
 Additional isolated stacks:
 
-- `infrastructure/compose/docker-compose.test.yml`: PostgreSQL `15432`, Redis `16379`, API `14174`, web `15173`, plus the Playwright QA service.
+- `infrastructure/compose/docker-compose.test.yml`: PostgreSQL `15432`, Redis `16379`, CouchDB `15984`, API `14174`, web `15173`, plus the Playwright QA service.
 - `infrastructure/compose/docker-compose.performance.yml`: isolated performance dependencies, downstream fixture, API `24174`, web `25173` and k6.
 
-The default stack provisions PostgreSQL and Redis for the API, but Redis is not consumed by current application workflows. Worker and product-runner services require the `jobs` and `runner` profiles. Runtime API Console state is stored in a named volume; transitional `runtime/domain-rpc` state is not mounted and is lost when the API container is replaced.
+The default stack provisions PostgreSQL, Redis, CouchDB and MinIO. CouchDB is
+the authoritative Playwright test-source store; every test document contains an
+exact CDE project binding. Redis holds CDE sessions, write locks and BullMQ
+state, while MinIO holds encrypted snapshots/artifacts. Worker and product-runner
+services require the `jobs` and `runner` profiles. Runtime API Console state is
+stored in a named volume; transitional `runtime/domain-rpc` state is not mounted
+and is lost when the API container is replaced.
 
 The current API image does not copy `apps/web/src`, which the transitional domain-RPC dispatcher uses to create non-PostgreSQL services dynamically. Those services are therefore not self-contained in the image. This is tracked as `GAP-IMAGE-001`; users, applications and workflow policies use dedicated adapters and do not depend on that bundle.
 

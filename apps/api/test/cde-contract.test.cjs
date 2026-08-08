@@ -16,9 +16,27 @@ const { decryptObject, encryptObject } = require('../src/modules/playwright/obje
 const { createLoginChallenge, readLoginChallenge } = require('../src/modules/cde/cde-session-store.cjs');
 const {
   normalizeRemoteFiles,
+  projectDescriptor,
   projectRepositoryName,
   repositoryBranches,
 } = require('../src/modules/cde/cde-server.cjs');
+
+test('CDE project descriptors expose canonical repositories and editor URLs', () => {
+  assert.deepEqual(projectDescriptor('medu-inquiry'), {
+    projectKey: 'medu-inquiry',
+    repositories: {
+      WEB_UI: 'medu-inquiry/web-ui',
+      DATA_SERVICE: 'medu-inquiry/data-service',
+      API_MODULE: 'medu-inquiry/api-module',
+      MESSAGE_CONSUMER: 'medu-inquiry/message-consumer',
+    },
+    editorUrls: {
+      webUi: 'https://cde.edus.ir/front/directory/medu-inquiry%3EApp',
+      dataService: 'https://cde.edus.ir/dservice/directory/medu-inquiry%3EApp',
+      gateway: 'https://cde.edus.ir/back/medu-inquiry/medu-inquiry%3E?return=/workspace/medu-inquiry',
+    },
+  });
+});
 
 function jsonResponse(payload, headers = {}) {
   return new Response(JSON.stringify(payload), {
@@ -27,7 +45,7 @@ function jsonResponse(payload, headers = {}) {
   });
 }
 
-test('Core read/write gateways are POST-only, strip provider prefixes, and retain session identity', async t => {
+test('Core read/login-form gateways are POST-only, strip provider prefixes, and retain session identity', async t => {
   const originalFetch = global.fetch;
   const calls = [];
   global.fetch = async (url, init) => {
@@ -39,7 +57,7 @@ test('Core read/write gateways are POST-only, strip provider prefixes, and retai
   let state = createCdeState();
   const clientId = state.clientId;
   state = (await getDataSource(state, 'ds/cde/repository/list/my-repo', {})).state;
-  state = (await storeFormData(state, 'fr/cde/package/any/personal/save', { personal: { content: 'x' } })).state;
+  state = (await storeFormData(state, 'fr/auth/signin/check-password', { password: 'not-a-real-password' })).state;
 
   assert.equal(calls.length, 2);
   assert.equal(calls[0].url, 'https://cde.edus.ir/core-api/v1/data-provider/get-data-source');
@@ -47,10 +65,10 @@ test('Core read/write gateways are POST-only, strip provider prefixes, and retai
   assert.ok(calls.every(call => call.init.method === 'POST'));
   assert.ok(calls.every(call => call.init.headers['client-id'] === clientId));
   assert.deepEqual(JSON.parse(calls[0].init.body), { serviceId: 'cde.edus.ir', key: 'cde/repository/list/my-repo', params: {} });
-  assert.equal(JSON.parse(calls[1].init.body).formId, 'cde/package/any/personal/save');
+  assert.equal(JSON.parse(calls[1].init.body).formId, 'auth/signin/check-password');
   assert.equal(calls[0].init.headers.referer, 'https://cde.edus.ir/second-editor');
-  assert.equal(calls[1].init.headers.referer, 'https://cde.edus.ir/second-editor');
-  assert.equal(calls[1].init.headers.prostage, 'develop');
+  assert.equal(calls[1].init.headers.referer, 'https://cde.edus.ir/');
+  assert.equal(calls[1].init.headers.prostage, undefined);
   assert.match(calls[1].init.headers.cookie, /_cdesc=rotated/);
   assert.equal(calls[0].init.headers['content-length'], undefined);
   assert.equal(calls[0].init.headers['sec-fetch-site'], undefined);
@@ -155,18 +173,10 @@ test('HTTP 200 logical errors and non-allowlisted providers are rejected', async
     getDataSource(createCdeState(), 'ds/arbitrary/provider', {}),
     error => error.category === 'CDE_PROVIDER_NOT_ALLOWED' && error.statusCode === 403
   );
-});
-
-test('Core save transport accepts payloads above the observed four MiB default', async t => {
-  const originalFetch = global.fetch;
-  let serializedBytes = 0;
-  global.fetch = async (url, init) => {
-    serializedBytes = Buffer.byteLength(init.body);
-    return jsonResponse({ Result: { versionId: 'next-version', IsUserLogin: true } });
-  };
-  t.after(() => { global.fetch = originalFetch; });
-  await storeFormData(createCdeState(), 'cde/package/any/personal/save', { personal: { content: 'x'.repeat(5 * 1024 * 1024) } });
-  assert.ok(serializedBytes > 4 * 1024 * 1024);
+  await assert.rejects(
+    storeFormData(createCdeState(), 'fr/cde/package/any/personal/save', {}),
+    error => error.category === 'CDE_PROVIDER_NOT_ALLOWED' && error.statusCode === 403
+  );
 });
 
 test('Data Service compiler rejects unsafe/colliding paths and preserves unrelated content fields', () => {

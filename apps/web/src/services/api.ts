@@ -3702,7 +3702,7 @@ function normalizeCdeRoot(value?: string): string {
   return (value || '').trim().replace(/[\\/]+$/, '');
 }
 
-const PLAYWRIGHT_TEST_FILE_NAME_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*\.spec\.ts$/;
+const PLAYWRIGHT_TEST_FILE_NAME_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.spec\.(?:ts|js)|\.test\.(?:ts|js)|\.js)$/;
 
 const CDE_ROOT_FOLDERS: Record<PlaywrightCdeRootKind, string[]> = {
   FRONT: ['tests/e2e', 'tests/e2e/auth', 'tests/e2e/smoke', 'tests/e2e/regression'],
@@ -3754,8 +3754,8 @@ function cdeTestFoldersForApplication(app: Application): PlaywrightTestFolder[] 
 }
 
 function defaultPlaywrightScript(fileName: string): string {
-  const title = fileName.replace(/\.spec\.ts$/, '').replace(/-/g, ' ');
-  return `import { test, expect } from '@playwright/test';\n\n` +
+  const title = fileName.replace(/(?:\.spec|\.test)?\.(?:ts|js)$/, '').replace(/-/g, ' ');
+  return `const { test, expect } = require('@playwright/test');\n\n` +
     `test('${title}', async ({ page }) => {\n` +
     `  await page.goto('/');\n` +
     `  await expect(page).toHaveTitle(/./);\n` +

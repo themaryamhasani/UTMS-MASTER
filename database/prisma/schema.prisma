@@ -296,6 +296,7 @@ enum PlaywrightTestFileSource {
   DISCOVERED
   MANAGED
   CDE
+  COUCHDB
 }
 
 enum CdeRepositoryType {
@@ -1290,6 +1291,9 @@ model PlaywrightTestFile {
   remotePath         String?                  @map("remote_path") @db.Text
   sourceHash         String?                  @map("source_hash") @db.VarChar(64)
   syncedAt           DateTime?                @map("synced_at") @db.Timestamptz(6)
+  couchDocumentId    String?                  @unique @map("couch_document_id") @db.Text
+  couchRevision      String?                  @map("couch_revision") @db.VarChar(255)
+  cdeBinding         Json?                    @map("cde_binding")
   description        String?                  @db.Text
   createdById        String                   @map("created_by_id")
   createdBy          User                     @relation("PlaywrightFileCreator", fields: [createdById], references: [id], onDelete: Restrict)
@@ -1313,8 +1317,8 @@ model CdeApplicationMapping {
   dataServiceRepoName     String?     @map("data_service_repo_name") @db.Text
   apiModuleRepoName       String?     @map("api_module_repo_name") @db.Text
   messageConsumerRepoName String?     @map("message_consumer_repo_name") @db.Text
-  testRepoName            String      @map("test_repo_name") @db.Text
-  testPackId              String      @map("test_pack_id") @db.Text
+  testRepoName            String?     @map("test_repo_name") @db.Text
+  testPackId              String?     @map("test_pack_id") @db.Text
   testBranchRandId        String?     @map("test_branch_rand_id") @db.VarChar(255)
   testBranchIndex         Int?        @map("test_branch_index")
   enabled                 Boolean     @default(true)

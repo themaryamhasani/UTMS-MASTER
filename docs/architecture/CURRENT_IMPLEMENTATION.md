@@ -1,21 +1,28 @@
 # Current Implementation
 
-Source-verified: 2026-07-26
+Source-verified: 2026-08-08
 
 This document describes the code that is executable in this checkout. Product requirements and phase reports describe intended or historical behavior; when they conflict with runtime details, this document and the linked source files are the current implementation reference.
+
+The live CDE transport, direct project browser, mapped Playwright file workflow,
+snapshot worker, and real runner are documented in detail in
+[Live CDE and Playwright implementation record](../integrations/CDE_PLAYWRIGHT_IMPLEMENTATION.md).
 
 ## Runtime Topology
 
 | Runtime | Entry point | Current responsibility | Maturity |
 | --- | --- | --- | --- |
 | Web | `apps/web/src/main.tsx` | React 19/Vite UI, route guards, active-context selection, cartables, reports and API Console client | Executable |
-| API | `apps/api/src/main.cjs` | Health, domain RPC, reports RPC and Online API Console HTTP routes | Executable transitional server |
-| Worker | `apps/worker/src/main.ts` | Declares notification-outbox and scheduled-report capabilities | Foundation only; no processor loop |
-| Playwright runner | `apps/playwright-runner/src/main.ts` | Declares per-run isolation and artifact policy | Foundation only; no job executor |
+| API | `apps/api/src/main.cjs` | Health, domain/report RPC, Online API Console, server sessions, live CDE integration and Playwright orchestration routes | Executable transitional server |
+| Worker | `apps/worker/src/runtime.mjs` | BullMQ CDE source-snapshot materialization and expired-snapshot purge | Executable for the Playwright pipeline; other declared worker capabilities remain foundations |
+| Playwright runner | `apps/playwright-runner/src/runtime.mjs` | BullMQ Playwright 1.55 execution, heartbeat/cancellation and encrypted artifact upload | Executable product runner |
 | PostgreSQL | `database/prisma/schema.prisma` | Target relational schema, migrations and baseline seed data | Executable; runtime adoption is partial |
-| Redis | Compose services | Provisioned dependency for future queues/coordination | Not used by current domain operations |
+| Redis | Compose or the local development launcher | CDE session state, CouchDB path locks, BullMQ queues and run cancellation | Active dependency for CDE/Playwright operations |
+| CouchDB | Compose or configured external service | Authoritative Playwright test documents bound to exact CDE project mappings | Active dependency for Playwright file management and snapshots |
+| S3-compatible storage | MinIO in Compose | Encrypted immutable source snapshots and Playwright artifacts | Active dependency for snapshot/run execution |
 
-The default development ports are web `5173`, API `4174`, PostgreSQL `5432` and Redis `6379`.
+The default development ports are web `5173`, API `4174`, PostgreSQL `5432`,
+Redis `6379`, CouchDB `5984`, MinIO `9000`, and the MinIO console `9001`.
 
 ## Web Routes
 
@@ -51,12 +58,17 @@ Unauthenticated users see the login flow. Authenticated users without permission
 
 ## HTTP Surfaces
 
-The API server exposes four groups:
+The API server exposes these principal groups:
 
 - `GET /api/health` for process health.
 - `GET /api/domain/health`, `GET /api/domain/services` and `POST /api/domain/rpc` for domain services and reports.
 - `/api/api-console/*` for Online API Console collections, requests, execution, sharing, repository, documentation and exports.
 - `/api/reports/*` as an API Console server prefix; report read models used by the web app currently run through `reportsApi` over domain RPC.
+- `/api/auth/*` for opaque server login sessions, active-context switching and logout.
+- `/api/cde/session*` for the separate server-side CDE connection.
+- `/api/cde/projects*` for direct live CDE project/catalog/package browsing.
+- `/api/applications/:id/cde/*`, `/playwright/files` and `/environments` for mapped source/test administration.
+- `/api/playwright/runs*` and token-protected internal snapshot routes for real queued execution.
 
 The machine-readable API Console inventory is `tests/data/api-route-inventory.json`. See [Domain RPC API](../api/DOMAIN_RPC_API.md), [Reports API](../api/REPORTS_API.md) and [Online API Console](../api/ONLINE_API_CONSOLE_IMPLEMENTATION.md).
 
@@ -70,10 +82,13 @@ The repository contains a complete Prisma schema, but the running system uses a 
 | Applications | PostgreSQL through Prisma | `postgres-application-service.cjs` |
 | Workflow policies and application-policy assignment | PostgreSQL through Prisma | `postgres-workflow-policy-service.cjs` |
 | Test requests, requirements, flows and test cases | PostgreSQL snapshot bridge through Prisma; refreshed before RPC reads and persisted transactionally after mutations | `postgres-test-management-state.cjs` |
-| Test runs, bugs, retest tasks, run issues, legacy checklists, Playwright data, VersionHistory, audit, notifications, comments, attachments, reports, settings and security reviews | API-process memory plus `runtime/domain-rpc/utms-state.json` when invoked through domain RPC; IndexedDB with a localStorage mirror in browser mock mode | `apps/web/src/services/api.ts`, `persistentStore.ts`, `reportsApi.ts` |
+| Test runs, bugs, retest tasks, run issues, legacy checklists, non-CDE legacy Playwright state, VersionHistory, audit, notifications, comments, attachments, reports, settings and security reviews | API-process memory plus `runtime/domain-rpc/utms-state.json` when invoked through domain RPC; IndexedDB with a localStorage mirror in browser mock mode | `apps/web/src/services/api.ts`, `persistentStore.ts`, `reportsApi.ts` |
+| UTMS sessions, CDE mappings, branch selections, environment profiles, CDE source snapshots, CouchDB Playwright metadata/cache and real Playwright runs | PostgreSQL through Prisma | `auth-session-server.cjs`, `cde-server.cjs`, `database/prisma/schema.prisma` |
+| Authoritative Playwright test source and exact CDE project binding | CouchDB | `couchdb-test-store.cjs` |
+| Encrypted CDE cookie jars, CouchDB path locks, snapshot/run queues and cancellation markers | Redis | `cde-session-store.cjs`, `cde-write-lock.cjs`, `playwright-queue.cjs` |
+| Encrypted source snapshots and Playwright artifacts | Private S3-compatible storage | `object-store.cjs`, `apps/playwright-runner/src/runtime.mjs` |
 | Online API Console | JSON store, encrypted secret vault and key beneath `API_CONSOLE_DATA_DIR` | `api-console-server.cjs` |
 | Remaining PostgreSQL schema | Tables and seeds exist, but the remaining domain services are not yet routed to Prisma repositories | `database/prisma/schema.prisma` |
-| Redis | Persistent Compose volume only | No application consumer yet |
 
 The test-management bridge hydrates its four collections from PostgreSQL
 before domain-RPC execution and writes them back in one transaction after
@@ -120,6 +135,8 @@ currently include:
 - `20260726103000_test_request_types_text`
 - `20260726114000_complete_approved_test_requests`
 - `20260726130000_security_review_follow_up`
+- `20260803130000_live_cde_playwright`
+- `20260808110000_couchdb_playwright_store`
 
 ## Shared Packages
 
@@ -144,13 +161,28 @@ npm run dev:all
 
 Individual processes are available through `npm run dev:web`, `npm run dev:api`, `npm run dev:worker` and `npm run dev:runner`. On Windows PowerShell, use `npm.cmd` if execution policy blocks `npm.ps1`.
 
+`dev:all` preflights ports 5173 and 4174, reuses a reachable configured Redis,
+tries an ephemeral development Redis when none is configured, and falls back
+to Compose Redis when the Windows Memurai runtime is unavailable. It also
+reuses CouchDB or starts the local Compose CouchDB service. It passes the same
+dependency URLs to all four processes and cleans up their process trees on exit.
+An occupied port fails startup instead of allowing Vite to silently select a
+different port. The API process is not watched, so restart `dev:all` after API
+source changes.
+
+The current Windows workstation runs native Apache CouchDB 3.5.2 from
+`F:\Program Files\Apache CouchDB` as an external service on port 5984 and uses
+Compose Redis on port 6379. These endpoints are configured in ignored `.env`;
+no second CouchDB container is started by `dev:all`.
+
 The normal Compose stack is:
 
 ```bash
 docker compose up --build
 ```
 
-Optional foundations use `--profile jobs` and `--profile runner`.
+The default Compose stack includes PostgreSQL, Redis, CouchDB, MinIO, API and Web.
+Snapshot-worker and Playwright-runner services use the jobs and runner profiles.
 
 ## Verification
 
@@ -170,8 +202,14 @@ CI is defined in `.github/workflows/qa.yml` and uses Node.js 22, an isolated Com
 - API Console and remaining transitional domain state are file-backed outside the three dedicated PostgreSQL services and the test-management bridge.
 - The root Compose file mounts API Console state but not `runtime/domain-rpc`, so transitional domain state is not durable across API-container replacement.
 - The active-context header is development trust, not signed authentication/authorization.
-- Redis, the worker and the product Playwright runner are not operational integrations.
-- Scheduled reports, alert delivery, external CDE/FAVA calls and production object storage are not implemented.
+- Scheduled reports, alert delivery and FAVA calls are not implemented.
+- Live CDE source browsing is implemented, while managed Playwright edits and
+  runs still require administrator mappings, CouchDB, deployed environment
+  profiles, and production secret configuration. UTMS does not write tests to
+  CDE; each Couch document carries an exact server-generated CDE binding.
+- The CDE/Playwright pipeline uses S3-compatible encrypted object storage; its
+  production object-store, network and container resource policies still need
+  deployment-specific validation.
 - API Console persistence and secret storage need production database/secret-management adapters.
 
 Track test-specific limitations in [Known Test Gaps](../testing/KNOWN_TEST_GAPS.md).

@@ -1,6 +1,6 @@
 # Database
 
-Source-verified: 2026-07-26
+Source-verified: 2026-08-08
 
 Database ownership lives under `database/`.
 
@@ -43,7 +43,7 @@ The initial schema covers the UTMS production domains:
 - Workflow policies, integration adapter settings and Playwright runner settings.
 - Test requests, requirements, flows, test cases, test runs, bugs, retest tasks, run issues and checklists.
 - Per-test-request security reviews created only when QA explicitly requires a security test, plus checklist templates.
-- Playwright runs, managed/discovered test files, hidden discovery paths and artifacts through attachments.
+- Playwright runs, CouchDB document/revision/binding indexes, legacy managed/discovered test files, hidden discovery paths and artifacts through attachments.
 - VersionHistory release decisions, linked requests, revisions and immutable snapshots.
 - Audit logs, comments, notifications, notification outbox, command traces and idempotency records.
 - Online API Console collections, request definitions, executions, sharing, consumers, references, usage and documentation evidence.
@@ -69,6 +69,8 @@ The current migration chain is:
 3. `20260726103000_test_request_types_text`
 4. `20260726114000_complete_approved_test_requests`
 5. `20260726130000_security_review_follow_up`
+6. `20260803130000_live_cde_playwright`
+7. `20260808110000_couchdb_playwright_store`
 
 The third migration changes `TestRequest.testTypes` to `TEXT[]`, matching the
 multi-select domain model. The fourth completes the primary test request when
@@ -76,5 +78,11 @@ an approved or conditional release decision has already been recorded.
 The fifth adds the traceable security-remediation states, executions,
 transitions and attachment references, and removes `NOT_TESTED` from security
 review item results.
+
+The sixth migration introduces server sessions, CDE mappings, branch
+selections, environments, snapshots and real Playwright-run metadata. The
+seventh moves authoritative Playwright source to CouchDB by adding Couch
+document/revision/binding metadata and making the historical writable-CDE-test
+package fields nullable.
 
 The committed seed populates workflow policies, applications, identity/role data, integration and runner settings, VersionHistory/testing baselines and API Console relational tables. The Online API Console runtime itself remains on its dedicated file store in this checkout.

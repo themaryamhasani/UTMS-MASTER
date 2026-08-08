@@ -1,6 +1,6 @@
 'use strict';
 
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { existsSync } = require('node:fs');
 const net = require('node:net');
 const { tmpdir } = require('node:os');
@@ -29,6 +29,11 @@ function configuredRedisUrl() {
     : `redis://127.0.0.1:${port}`;
 }
 
+function configuredCouchDbUrl() {
+  if (process.env.COUCHDB_URL) return process.env.COUCHDB_URL;
+  return `http://127.0.0.1:${positivePort(process.env.COUCHDB_PORT, 5984)}`;
+}
+
 function redisAddress(redisUrl) {
   try {
     const parsed = new URL(redisUrl);
@@ -55,6 +60,33 @@ function canConnect({ host, port }, timeoutMs = 750) {
     socket.once('timeout', () => finish(false));
     socket.once('error', () => finish(false));
   });
+}
+
+function errorMessage(error) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === 'string' && error.trim()) return error.trim();
+  return 'The dependency exited before it became ready.';
+}
+
+function startComposeService(serviceName) {
+  const docker = spawnSync('docker', ['compose', 'up', '-d', serviceName], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: 30_000,
+  });
+  if (docker.error || docker.status !== 0) {
+    const detail = String(docker.stderr || docker.stdout || docker.error?.message || '').trim();
+    throw new Error(`${serviceName} could not be started with Docker Compose.${detail ? ` ${detail}` : ''}`);
+  }
+}
+
+async function waitForAddress(address, attempts = 40) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (await canConnect(address, 500)) return true;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return false;
 }
 
 async function assertDevelopmentPortsAvailable() {
@@ -88,36 +120,93 @@ async function prepareRedis() {
     );
   }
 
-  embeddedRedis = new RedisMemoryServer({
-    binary: {
-      // Memurai cannot resolve its developer license from a path containing
-      // non-ASCII characters, so keep its downloaded runtime in Windows temp.
-      downloadDir: path.join(tmpdir(), 'utms-redis-memory-server'),
-    },
-    instance: {
-      ip: '127.0.0.1',
-      port: requestedAddress.port,
-      args: ['--maxmemory', process.env.UTMS_DEV_REDIS_MAXMEMORY || '64mb', '--maxmemory-policy', 'noeviction'],
-    },
-  });
-  const host = await embeddedRedis.getHost();
-  const port = await embeddedRedis.getPort();
-  const embeddedUrl = `redis://${host}:${port}`;
-  console.log(`[dev:all] Started an ephemeral local Redis server at redis://${host}:${port}.`);
-  return embeddedUrl;
+  try {
+    embeddedRedis = new RedisMemoryServer({
+      binary: {
+        // Memurai cannot resolve its developer license from a path containing
+        // non-ASCII characters, so keep its downloaded runtime in Windows temp.
+        downloadDir: path.join(tmpdir(), 'utms-redis-memory-server'),
+      },
+      instance: {
+        ip: '127.0.0.1',
+        port: requestedAddress.port,
+        args: ['--maxmemory', process.env.UTMS_DEV_REDIS_MAXMEMORY || '64mb', '--maxmemory-policy', 'noeviction'],
+      },
+    });
+    const host = await embeddedRedis.getHost();
+    const port = await embeddedRedis.getPort();
+    const embeddedUrl = `redis://${host}:${port}`;
+    console.log(`[dev:all] Started an ephemeral local Redis server at redis://${host}:${port}.`);
+    return embeddedUrl;
+  } catch (embeddedError) {
+    if (embeddedRedis) await embeddedRedis.stop().catch(() => {});
+    embeddedRedis = undefined;
+    console.warn(`[dev:all] Embedded Redis could not start: ${errorMessage(embeddedError)}`);
+  }
+
+  console.log('[dev:all] Starting the local Compose redis service instead.');
+  startComposeService('redis');
+  if (!(await waitForAddress(requestedAddress))) {
+    throw new Error(`The local Redis container did not become reachable at ${requestedAddress.label}. Check "docker compose logs redis".`);
+  }
+  const password = process.env.REDIS_PASSWORD || 'utms-redis-development';
+  const composeUrl = `redis://:${encodeURIComponent(password)}@127.0.0.1:${requestedAddress.port}`;
+  console.log(`[dev:all] Started Redis at ${requestedAddress.label}.`);
+  return composeUrl;
+}
+
+async function prepareCouchDb() {
+  const requestedUrl = configuredCouchDbUrl();
+  let parsed;
+  try {
+    parsed = new URL(requestedUrl);
+  } catch {
+    throw new Error('COUCHDB_URL must be a valid http:// or https:// URL.');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('COUCHDB_URL must use http:// or https://.');
+  const address = {
+    host: parsed.hostname || '127.0.0.1',
+    port: positivePort(parsed.port, parsed.protocol === 'https:' ? 443 : 80),
+  };
+  if (await canConnect(address)) {
+    console.log(`[dev:all] Using CouchDB at ${parsed.origin}.`);
+    return requestedUrl;
+  }
+  if (process.env.COUCHDB_URL || process.env.UTMS_DEV_COUCHDB === 'external') {
+    throw new Error(`CouchDB is unavailable at ${parsed.origin}. Start the configured CouchDB service before running UTMS.`);
+  }
+  if (process.env.UTMS_DEV_COUCHDB === 'optional') {
+    console.warn(`[dev:all] CouchDB is unavailable at ${parsed.origin}; Playwright file storage will return COUCHDB_UNAVAILABLE.`);
+    return requestedUrl;
+  }
+  console.log('[dev:all] CouchDB is not running; starting the local Compose couchdb service.');
+  try {
+    startComposeService('couchdb');
+  } catch (error) {
+    throw new Error(`CouchDB could not be started. ${errorMessage(error)}`);
+  }
+  if (await waitForAddress(address)) {
+    console.log(`[dev:all] Started CouchDB at ${parsed.origin}.`);
+    return requestedUrl;
+  }
+  throw new Error(`The local CouchDB container did not become reachable at ${parsed.origin}. Check "docker compose logs couchdb".`);
 }
 
 function npmInvocation(script) {
   const npmCli = process.env.npm_execpath;
   if (npmCli && npmCli.endsWith('.js')) return [process.execPath, [npmCli, 'run', script]];
+  if (process.platform === 'win32') {
+    const installedNpmCli = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    if (existsSync(installedNpmCli)) return [process.execPath, [installedNpmCli, 'run', script]];
+  }
   return [process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', script]];
 }
 
-function startService(name, redisUrl) {
+function startService(name, redisUrl, couchdbUrl) {
   const [command, args] = npmInvocation(name);
   const child = spawn(command, args, {
     cwd: repositoryRoot,
-    env: { ...process.env, REDIS_URL: redisUrl },
+    env: { ...process.env, REDIS_URL: redisUrl, COUCHDB_URL: couchdbUrl },
     stdio: 'inherit',
     shell: false,
   });
@@ -169,7 +258,8 @@ async function shutdown(exitCode = 0) {
 async function main() {
   await assertDevelopmentPortsAvailable();
   const redisUrl = await prepareRedis();
-  for (const name of ['dev:web', 'dev:api', 'dev:worker', 'dev:runner']) startService(name, redisUrl);
+  const couchdbUrl = await prepareCouchDb();
+  for (const name of ['dev:web', 'dev:api', 'dev:worker', 'dev:runner']) startService(name, redisUrl, couchdbUrl);
 }
 
 process.once('SIGINT', () => void shutdown(0));
@@ -177,6 +267,6 @@ process.once('SIGTERM', () => void shutdown(0));
 process.once('SIGHUP', () => void shutdown(0));
 
 main().catch(error => {
-  console.error(`[dev:all] Startup failed: ${error.message}`);
+  console.error(`[dev:all] Startup failed: ${errorMessage(error)}`);
   void shutdown(1);
 });

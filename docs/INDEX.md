@@ -1,6 +1,6 @@
 # Documentation Index
 
-Source-verified index: 2026-07-26
+Source-verified index: 2026-08-08
 
 Use [Current implementation](architecture/CURRENT_IMPLEMENTATION.md) for executable behavior and persistence boundaries. Requirements describe intended product behavior; migration documents and dated test results are historical evidence.
 
@@ -16,6 +16,10 @@ Use [Current implementation](architecture/CURRENT_IMPLEMENTATION.md) for executa
 - [Domain RPC API](api/DOMAIN_RPC_API.md)
 - [Online API Console implementation](api/ONLINE_API_CONSOLE_IMPLEMENTATION.md)
 - [Reports API](api/REPORTS_API.md)
+
+## Integrations And Execution
+
+- [Live CDE and Playwright implementation record](integrations/CDE_PLAYWRIGHT_IMPLEMENTATION.md)
 
 ## Workflows And Requirements
 

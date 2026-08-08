@@ -6,13 +6,13 @@ import { Card } from '../components/ui/Card';
 import { Table, Pagination } from '../components/ui/Table';
 import { Badge } from '../components/ui/Badge';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
-import { Input, Textarea } from '../components/ui/Input';
+import { Input, Select, Textarea } from '../components/ui/Input';
 import { useAuthStore, canPerformAction } from '../stores/authStore';
 import { applicationApi, userApi } from '../services/api';
 import { toast } from '../components/ui/Toast';
 import type { Application, CartableFilterParams, User as UserType, UserRoleAssignment } from '../types';
 import { ROLE_LABELS } from '../types';
-import { cdeApi, PlatformApiError } from '../services/platformApi';
+import { cdeApi, PlatformApiError, type CdeProjectDescriptor } from '../services/platformApi';
 
 const CDE_BASE_URL = 'https://cde.edus.ir/';
 const CDE_ROOT_RULES = {
@@ -36,10 +36,22 @@ const emptyAppForm = {
   name: '',
   code: '',
   description: '',
+  cdeProjectKey: '',
   cdeFrontUrl: '',
   cdeDataServiceUrl: '',
   cdeGatewayUrl: '',
 };
+
+function projectKeyFromCdeRoot(value?: string) {
+  if (!value) return '';
+  try {
+    const decodedPath = decodeURIComponent(new URL(value).pathname);
+    const match = decodedPath.match(/^\/(?:front|dservice)\/directory\/([^>]+)>/);
+    return match?.[1] || '';
+  } catch {
+    return '';
+  }
+}
 
 const emptyCdeMappingForm = {
   projectKey: '',
@@ -47,10 +59,6 @@ const emptyCdeMappingForm = {
   dataServiceRepoName: '',
   apiModuleRepoName: '',
   messageConsumerRepoName: '',
-  testRepoName: '',
-  testPackId: '',
-  testBranchRandId: '',
-  testBranchIndex: '',
   enabled: true,
   environmentName: '',
   webBaseUrl: '',
@@ -76,11 +84,18 @@ export const ApplicationsPage: React.FC = () => {
   const [appForm, setAppForm] = useState(emptyAppForm);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [cdeMappingForm, setCdeMappingForm] = useState(emptyCdeMappingForm);
+  const [cdeProjects, setCdeProjects] = useState<CdeProjectDescriptor[]>([]);
+  const [cdeProjectsLoading, setCdeProjectsLoading] = useState(false);
+  const [cdeProjectsError, setCdeProjectsError] = useState('');
 
   const role = activeContext?.role;
   const canManage = canPerformAction(role!, 'admin:manage-apps');
 
   useEffect(() => { if (activeContext) loadData(); }, [activeContext]);
+
+  useEffect(() => {
+    if (showCreateModal || showEditModal || showCdeMappingModal) void loadCdeProjects();
+  }, [showCreateModal, showEditModal, showCdeMappingModal]);
 
   const loadData = async () => {
     setLoading(true);
@@ -109,6 +124,97 @@ export const ApplicationsPage: React.FC = () => {
       const roles = assignments.filter(a => a.userId === uid).map(a => a.role);
       return { user, roles };
     }).filter(u => u.user);
+  };
+
+  const loadCdeProjects = async () => {
+    setCdeProjectsLoading(true);
+    setCdeProjectsError('');
+    try {
+      setCdeProjects(await cdeApi.projects());
+    } catch (error) {
+      setCdeProjects([]);
+      if (error instanceof PlatformApiError && ['CDE_NOT_CONNECTED', 'CDE_RECONNECT_REQUIRED'].includes(error.code)) {
+        setCdeProjectsError('ابتدا در کارتابل Playwright حساب CDE خود را متصل کنید.');
+      } else {
+        setCdeProjectsError(error instanceof Error ? error.message : 'فهرست پروژه‌های CDE بارگذاری نشد.');
+      }
+    } finally {
+      setCdeProjectsLoading(false);
+    }
+  };
+
+  const selectApplicationCdeProject = (projectKey: string) => {
+    const project = cdeProjects.find(item => item.projectKey === projectKey);
+    setAppForm(previous => ({
+      ...previous,
+      cdeProjectKey: projectKey,
+      ...(project ? {
+        cdeFrontUrl: project.editorUrls.webUi,
+        cdeDataServiceUrl: project.editorUrls.dataService,
+        cdeGatewayUrl: project.editorUrls.gateway,
+      } : {
+        cdeFrontUrl: '',
+        cdeDataServiceUrl: '',
+        cdeGatewayUrl: '',
+      }),
+    }));
+    setFormErrors(previous => {
+      const next = { ...previous };
+      delete next.cdeFrontUrl;
+      delete next.cdeDataServiceUrl;
+      delete next.cdeGatewayUrl;
+      return next;
+    });
+  };
+
+  const saveApplicationCdeMapping = async (applicationId: string) => {
+    const project = cdeProjects.find(item => item.projectKey === appForm.cdeProjectKey);
+    if (!project) return;
+    await cdeApi.saveMapping(applicationId, {
+      projectKey: project.projectKey,
+      webUiRepoName: project.repositories.WEB_UI,
+      dataServiceRepoName: project.repositories.DATA_SERVICE,
+      apiModuleRepoName: project.repositories.API_MODULE,
+      messageConsumerRepoName: project.repositories.MESSAGE_CONSUMER || null,
+      testRepoName: null,
+      testPackId: null,
+      testBranchRandId: null,
+      testBranchIndex: null,
+      enabled: true,
+    });
+    await cdeApi.validateMapping(applicationId);
+  };
+
+  const renderCdeProjectPicker = () => {
+    const project = cdeProjects.find(item => item.projectKey === appForm.cdeProjectKey);
+    return (
+      <div className="space-y-3">
+        <div className="flex items-end gap-2">
+          <Select
+            label="پروژه CDE"
+            value={appForm.cdeProjectKey}
+            onChange={(event) => selectApplicationCdeProject(event.target.value)}
+            options={cdeProjects.map(item => ({ value: item.projectKey, label: item.projectKey }))}
+            placeholder={cdeProjectsLoading ? 'در حال بارگذاری پروژه‌ها…' : 'یک پروژه CDE انتخاب کنید'}
+            disabled={cdeProjectsLoading}
+            className="font-mono"
+            dir="ltr"
+          />
+          <Button type="button" variant="secondary" onClick={() => void loadCdeProjects()} loading={cdeProjectsLoading} disabled={cdeProjectsLoading}>
+            بروزرسانی
+          </Button>
+        </div>
+        {cdeProjectsError && <p className="rounded-lg bg-amber-100 px-3 py-2 text-xs text-amber-800">{cdeProjectsError}</p>}
+        {project && (
+          <div className="grid grid-cols-1 gap-2 text-xs text-blue-800 md:grid-cols-2" dir="ltr">
+            <span className="rounded bg-white/70 px-2 py-1 font-mono">{project.repositories.WEB_UI}</span>
+            <span className="rounded bg-white/70 px-2 py-1 font-mono">{project.repositories.DATA_SERVICE}</span>
+            <span className="rounded bg-white/70 px-2 py-1 font-mono">{project.repositories.API_MODULE}</span>
+            <span className="rounded bg-white/70 px-2 py-1 font-mono">{project.repositories.MESSAGE_CONSUMER}</span>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const validateCdeRoot = (field: CdeRootField): string | undefined => {
@@ -145,7 +251,7 @@ export const ApplicationsPage: React.FC = () => {
     if (!validateForm()) return;
     setActionLoading(true);
     try {
-      await applicationApi.create({
+      const application = await applicationApi.create({
         name: appForm.name.trim(),
         code: appForm.code.trim(),
         description: appForm.description.trim(),
@@ -153,6 +259,13 @@ export const ApplicationsPage: React.FC = () => {
         cdeDataServiceUrl: appForm.cdeDataServiceUrl.trim(),
         cdeGatewayUrl: appForm.cdeGatewayUrl.trim(),
       });
+      try {
+        await saveApplicationCdeMapping(application.id);
+      } catch (mappingError) {
+        toast.warning(mappingError instanceof Error
+          ? `سامانه ایجاد شد، اما نگاشت زنده CDE تأیید نشد: ${mappingError.message}`
+          : 'سامانه ایجاد شد، اما نگاشت زنده CDE تأیید نشد.');
+      }
       toast.success(`سامانه «${appForm.name}» با موفقیت ایجاد شد.`);
       setShowCreateModal(false); setAppForm(emptyAppForm); loadData();
     } catch (error) {
@@ -177,6 +290,13 @@ export const ApplicationsPage: React.FC = () => {
         cdeDataServiceUrl: appForm.cdeDataServiceUrl.trim(),
         cdeGatewayUrl: appForm.cdeGatewayUrl.trim(),
       });
+      try {
+        await saveApplicationCdeMapping(selectedApp.id);
+      } catch (mappingError) {
+        toast.warning(mappingError instanceof Error
+          ? `سامانه ویرایش شد، اما نگاشت زنده CDE تأیید نشد: ${mappingError.message}`
+          : 'سامانه ویرایش شد، اما نگاشت زنده CDE تأیید نشد.');
+      }
       toast.success(`سامانه «${appForm.name}» ویرایش شد.`);
       setShowEditModal(false); loadData();
     } catch (error) {
@@ -219,10 +339,6 @@ export const ApplicationsPage: React.FC = () => {
         dataServiceRepoName: mapping.dataServiceRepoName || '',
         apiModuleRepoName: mapping.apiModuleRepoName || '',
         messageConsumerRepoName: mapping.messageConsumerRepoName || '',
-        testRepoName: mapping.testRepoName,
-        testPackId: mapping.testPackId,
-        testBranchRandId: mapping.testBranchRandId || '',
-        testBranchIndex: mapping.testBranchIndex === null || mapping.testBranchIndex === undefined ? '' : String(mapping.testBranchIndex),
         enabled: mapping.enabled,
         environmentName: environment?.name || '',
         webBaseUrl: environment?.webBaseUrl || '',
@@ -238,18 +354,17 @@ export const ApplicationsPage: React.FC = () => {
   };
 
   const updateProjectKey = (projectKey: string) => {
+    const project = cdeProjects.find(item => item.projectKey === projectKey);
     setCdeMappingForm(previous => {
       const previousKey = previous.projectKey;
       const derived = (value: string, suffix: string) => !value || value === `${previousKey}/${suffix}`;
-      const derivedPack = !previous.testPackId || previous.testPackId === `dservice/package/${previousKey}/utms-playwright`;
       return {
         ...previous,
         projectKey,
-        webUiRepoName: derived(previous.webUiRepoName, 'web-ui') ? `${projectKey}/web-ui` : previous.webUiRepoName,
-        dataServiceRepoName: derived(previous.dataServiceRepoName, 'data-service') ? `${projectKey}/data-service` : previous.dataServiceRepoName,
-        apiModuleRepoName: derived(previous.apiModuleRepoName, 'api-module') ? `${projectKey}/api-module` : previous.apiModuleRepoName,
-        testRepoName: derived(previous.testRepoName, 'data-service') ? `${projectKey}/data-service` : previous.testRepoName,
-        testPackId: derivedPack ? `dservice/package/${projectKey}/utms-playwright` : previous.testPackId,
+        webUiRepoName: project?.repositories.WEB_UI || (derived(previous.webUiRepoName, 'web-ui') ? `${projectKey}/web-ui` : previous.webUiRepoName),
+        dataServiceRepoName: project?.repositories.DATA_SERVICE || (derived(previous.dataServiceRepoName, 'data-service') ? `${projectKey}/data-service` : previous.dataServiceRepoName),
+        apiModuleRepoName: project?.repositories.API_MODULE || (derived(previous.apiModuleRepoName, 'api-module') ? `${projectKey}/api-module` : previous.apiModuleRepoName),
+        messageConsumerRepoName: project?.repositories.MESSAGE_CONSUMER || previous.messageConsumerRepoName,
       };
     });
   };
@@ -258,17 +373,16 @@ export const ApplicationsPage: React.FC = () => {
     if (!selectedApp) return;
     setActionLoading(true);
     try {
-      const branchIndex = cdeMappingForm.testBranchIndex.trim() === '' ? undefined : Number(cdeMappingForm.testBranchIndex);
       await cdeApi.saveMapping(selectedApp.id, {
         projectKey: cdeMappingForm.projectKey.trim(),
         webUiRepoName: cdeMappingForm.webUiRepoName.trim() || null,
         dataServiceRepoName: cdeMappingForm.dataServiceRepoName.trim() || null,
         apiModuleRepoName: cdeMappingForm.apiModuleRepoName.trim() || null,
         messageConsumerRepoName: cdeMappingForm.messageConsumerRepoName.trim() || null,
-        testRepoName: cdeMappingForm.testRepoName.trim(),
-        testPackId: cdeMappingForm.testPackId.trim(),
-        testBranchRandId: cdeMappingForm.testBranchRandId.trim() || null,
-        testBranchIndex: typeof branchIndex === 'number' && Number.isInteger(branchIndex) ? branchIndex : null,
+        testRepoName: null,
+        testPackId: null,
+        testBranchRandId: null,
+        testBranchIndex: null,
         enabled: cdeMappingForm.enabled,
       });
       if (cdeMappingForm.environmentName.trim() && cdeMappingForm.webBaseUrl.trim()) {
@@ -332,7 +446,7 @@ export const ApplicationsPage: React.FC = () => {
         const configuredCount = [item.cdeFrontUrl, item.cdeDataServiceUrl, item.cdeGatewayUrl].filter(Boolean).length;
         return (
           <Badge variant={configuredCount === 3 ? 'success' : configuredCount > 0 ? 'warning' : 'default'} size="sm">
-            {configuredCount}/3 ریشه تست
+            {configuredCount === 3 ? 'متصل به CDE' : `${configuredCount}/3 آدرس CDE`}
           </Badge>
         );
       },
@@ -362,6 +476,7 @@ export const ApplicationsPage: React.FC = () => {
                     name: item.name,
                     code: item.code,
                     description: item.description || '',
+                    cdeProjectKey: projectKeyFromCdeRoot(item.cdeFrontUrl) || projectKeyFromCdeRoot(item.cdeDataServiceUrl),
                     cdeFrontUrl: item.cdeFrontUrl || '',
                     cdeDataServiceUrl: item.cdeDataServiceUrl || '',
                     cdeGatewayUrl: item.cdeGatewayUrl || '',
@@ -428,31 +543,35 @@ export const ApplicationsPage: React.FC = () => {
             onChange={(e) => setAppForm({ ...appForm, description: e.target.value })} />
           <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
             <div>
-              <h4 className="font-medium text-blue-900">ریشه‌های فایل تست در CDE</h4>
-              <p className="text-xs text-blue-700 mt-1">با ثبت این آدرس‌ها، فایل‌های تست موجود در سه ریشه Front، Back NodeJS/DataService و Gateway در Discovery خوانده می‌شوند.</p>
+              <h4 className="font-medium text-blue-900">پروژه مبدأ در CDE</h4>
+              <p className="text-xs text-blue-700 mt-1">پروژه را از فهرست زنده CDE انتخاب کنید؛ آدرس‌های Front، DataService و Gateway و repositoryهای نگاشت به‌صورت خودکار ساخته می‌شوند.</p>
             </div>
+            {renderCdeProjectPicker()}
             <Input
               label="آدرس فرانت سامانه در CDE"
               placeholder="https://cde.edus.ir/front/directory/medu-community%3EApp"
               value={appForm.cdeFrontUrl}
-              onChange={(e) => setAppForm({ ...appForm, cdeFrontUrl: e.target.value })}
               error={formErrors.cdeFrontUrl}
+              readOnly
+              className="bg-gray-100 font-mono"
               dir="ltr"
             />
             <Input
               label="آدرس Back NodeJS / DataService در CDE"
               placeholder="https://cde.edus.ir/dservice/directory/medu-community%3EApp"
               value={appForm.cdeDataServiceUrl}
-              onChange={(e) => setAppForm({ ...appForm, cdeDataServiceUrl: e.target.value })}
               error={formErrors.cdeDataServiceUrl}
+              readOnly
+              className="bg-gray-100 font-mono"
               dir="ltr"
             />
             <Input
               label="آدرس Gateway در CDE"
               placeholder="https://cde.edus.ir/back/medu-ai/medu-community%3E?return=/workspace/medu-ai"
               value={appForm.cdeGatewayUrl}
-              onChange={(e) => setAppForm({ ...appForm, cdeGatewayUrl: e.target.value })}
               error={formErrors.cdeGatewayUrl}
+              readOnly
+              className="bg-gray-100 font-mono"
               dir="ltr"
             />
           </div>
@@ -474,28 +593,32 @@ export const ApplicationsPage: React.FC = () => {
             onChange={(e) => setAppForm({ ...appForm, description: e.target.value })} />
           <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
             <div>
-              <h4 className="font-medium text-blue-900">ریشه‌های فایل تست در CDE</h4>
-              <p className="text-xs text-blue-700 mt-1">با ثبت این آدرس‌ها، فایل‌های تست موجود در سه ریشه Front، Back NodeJS/DataService و Gateway در Discovery خوانده می‌شوند.</p>
+              <h4 className="font-medium text-blue-900">پروژه مبدأ در CDE</h4>
+              <p className="text-xs text-blue-700 mt-1">پروژه را از فهرست زنده CDE انتخاب کنید؛ آدرس‌های Front، DataService و Gateway و repositoryهای نگاشت به‌صورت خودکار ساخته می‌شوند.</p>
             </div>
+            {renderCdeProjectPicker()}
             <Input
               label="آدرس فرانت سامانه در CDE"
               value={appForm.cdeFrontUrl}
-              onChange={(e) => setAppForm({ ...appForm, cdeFrontUrl: e.target.value })}
               error={formErrors.cdeFrontUrl}
+              readOnly
+              className="bg-gray-100 font-mono"
               dir="ltr"
             />
             <Input
               label="آدرس Back NodeJS / DataService در CDE"
               value={appForm.cdeDataServiceUrl}
-              onChange={(e) => setAppForm({ ...appForm, cdeDataServiceUrl: e.target.value })}
               error={formErrors.cdeDataServiceUrl}
+              readOnly
+              className="bg-gray-100 font-mono"
               dir="ltr"
             />
             <Input
               label="آدرس Gateway در CDE"
               value={appForm.cdeGatewayUrl}
-              onChange={(e) => setAppForm({ ...appForm, cdeGatewayUrl: e.target.value })}
               error={formErrors.cdeGatewayUrl}
+              readOnly
+              className="bg-gray-100 font-mono"
               dir="ltr"
             />
           </div>
@@ -520,7 +643,7 @@ export const ApplicationsPage: React.FC = () => {
             </div>
             {selectedApp.description && <div className="p-4 bg-gray-50 rounded-lg"><p className="text-sm">{selectedApp.description}</p></div>}
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <h4 className="font-medium text-blue-900 mb-3">ریشه‌های فایل تست در CDE</h4>
+              <h4 className="font-medium text-blue-900 mb-3">آدرس‌های پروژه مبدأ در CDE</h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
                 <div>
                   <p className="text-xs text-blue-700 mb-1">فرانت سامانه</p>
@@ -556,6 +679,7 @@ export const ApplicationsPage: React.FC = () => {
                     name: selectedApp.name,
                     code: selectedApp.code,
                     description: selectedApp.description || '',
+                    cdeProjectKey: projectKeyFromCdeRoot(selectedApp.cdeFrontUrl) || projectKeyFromCdeRoot(selectedApp.cdeDataServiceUrl),
                     cdeFrontUrl: selectedApp.cdeFrontUrl || '',
                     cdeDataServiceUrl: selectedApp.cdeDataServiceUrl || '',
                     cdeGatewayUrl: selectedApp.cdeGatewayUrl || '',
@@ -587,25 +711,31 @@ export const ApplicationsPage: React.FC = () => {
       >
         <div className="space-y-5">
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-            این نگاشت نام پروژه و repository/package واقعی را ذخیره می‌کند. URLهای قدیمی Application در این مسیر استفاده نمی‌شوند.
+            این نگاشت نام پروژه و repositoryهای واقعی CDE را ذخیره می‌کند. فایل‌های Playwright در CouchDB و با همین نگاشت پروژه نگهداری می‌شوند؛ URLهای قدیمی Application در این مسیر استفاده نمی‌شوند.
           </div>
+          {cdeProjectsError && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{cdeProjectsError}</p>}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Input label="CDE project key *" value={cdeMappingForm.projectKey} onChange={(event) => updateProjectKey(event.target.value.trim())} dir="ltr" />
-            <Input label="Web UI repository" value={cdeMappingForm.webUiRepoName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, webUiRepoName: event.target.value })} dir="ltr" />
-            <Input label="Data Service repository" value={cdeMappingForm.dataServiceRepoName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, dataServiceRepoName: event.target.value })} dir="ltr" />
-            <Input label="API Module repository" value={cdeMappingForm.apiModuleRepoName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, apiModuleRepoName: event.target.value })} dir="ltr" />
-            <Input label="Message Consumer repository (optional)" value={cdeMappingForm.messageConsumerRepoName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, messageConsumerRepoName: event.target.value })} dir="ltr" />
+            <Select
+              label="CDE project *"
+              value={cdeMappingForm.projectKey}
+              onChange={(event) => updateProjectKey(event.target.value)}
+              options={cdeProjects.map(item => ({ value: item.projectKey, label: item.projectKey }))}
+              placeholder={cdeProjectsLoading ? 'Loading CDE projects…' : 'Select a CDE project'}
+              disabled={cdeProjectsLoading}
+              className="font-mono"
+              dir="ltr"
+            />
+            <Input label="Web UI repository" value={cdeMappingForm.webUiRepoName} readOnly className="bg-gray-100 font-mono" dir="ltr" />
+            <Input label="Data Service repository" value={cdeMappingForm.dataServiceRepoName} readOnly className="bg-gray-100 font-mono" dir="ltr" />
+            <Input label="API Module repository" value={cdeMappingForm.apiModuleRepoName} readOnly className="bg-gray-100 font-mono" dir="ltr" />
+            <Input label="Message Consumer repository (optional)" value={cdeMappingForm.messageConsumerRepoName} readOnly className="bg-gray-100 font-mono" dir="ltr" />
           </div>
 
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-            <h3 className="font-medium text-amber-900">Dedicated Playwright Data Service package</h3>
-            <p className="mt-1 text-xs text-amber-700">این بسته باید غیرتولیدی، نوع JS و شاخه personal آن editable باشد.</p>
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Input label="Test repository *" value={cdeMappingForm.testRepoName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, testRepoName: event.target.value })} dir="ltr" />
-              <Input label="Test package ID *" value={cdeMappingForm.testPackId} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, testPackId: event.target.value })} dir="ltr" />
-              <Input label="Personal rand_id" value={cdeMappingForm.testBranchRandId} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, testBranchRandId: event.target.value })} dir="ltr" />
-              <Input label="Personal index (if rand_id is absent)" type="number" min={0} value={cdeMappingForm.testBranchIndex} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, testBranchIndex: event.target.value })} dir="ltr" />
-            </div>
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+            <h3 className="font-medium text-emerald-900">Playwright storage: UTMS CouchDB</h3>
+            <p className="mt-1 text-xs text-emerald-700">
+              فایل‌های تست دیگر داخل CDE ذخیره نمی‌شوند. UTMS آن‌ها را در CouchDB نگه می‌دارد و هر سند را به همین project key و repositoryهای CDE متصل می‌کند.
+            </p>
           </div>
 
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">

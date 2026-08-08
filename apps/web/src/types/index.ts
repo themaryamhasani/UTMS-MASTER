@@ -828,7 +828,7 @@ export const PLAYWRIGHT_CDE_ROOT_LABELS: Record<PlaywrightCdeRootKind, string> =
     DATASERVICE: 'Back NodeJS / DataService',
     GATEWAY: 'Gateway',
     MESSAGE_CONSUMER: 'Message Consumer',
-    TESTS: 'CDE Playwright Tests',
+    TESTS: 'CouchDB Playwright Tests',
 };
 export interface PlaywrightTestFolder {
     id: string;
@@ -843,7 +843,7 @@ export interface PlaywrightTestFile {
     applicationId: string;
     rootKind: PlaywrightCdeRootKind;
     rootUrl: string;
-    source: 'DISCOVERED' | 'MANAGED' | 'CDE';
+    source: 'DISCOVERED' | 'MANAGED' | 'CDE' | 'COUCHDB';
     folderPath: string;
     relativeFolderPath: string;
     fileName: string;
@@ -858,6 +858,14 @@ export interface PlaywrightTestFile {
     remotePath?: string | undefined;
     sourceHash?: string | undefined;
     syncedAt?: string | undefined;
+    couchDocumentId?: string | undefined;
+    couchRevision?: string | undefined;
+    cdeBinding?: {
+        serviceId: string;
+        origin: string;
+        projectKey: string;
+        repositories: Record<string, string | null>;
+    } | undefined;
     description?: string | undefined;
     createdById: string;
     createdBy?: User | undefined;

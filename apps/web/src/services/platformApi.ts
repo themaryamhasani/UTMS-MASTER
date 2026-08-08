@@ -57,6 +57,11 @@ export interface CdePackageContent {
 export interface CdeProjectDescriptor {
   projectKey: string;
   repositories: Record<'WEB_UI' | 'DATA_SERVICE' | 'API_MODULE' | 'MESSAGE_CONSUMER', string>;
+  editorUrls: {
+    webUi: string;
+    dataService: string;
+    gateway: string;
+  };
 }
 
 export interface ApplicationEnvironmentProfile {
@@ -87,8 +92,8 @@ export interface CdeApplicationMapping {
   dataServiceRepoName?: string | null;
   apiModuleRepoName?: string | null;
   messageConsumerRepoName?: string | null;
-  testRepoName: string;
-  testPackId: string;
+  testRepoName?: string | null;
+  testPackId?: string | null;
   testBranchRandId?: string | null;
   testBranchIndex?: number | null;
   enabled: boolean;
@@ -187,7 +192,11 @@ export const cdeApi = {
     request<CdeApplicationMapping>(`/api/applications/${encodeURIComponent(applicationId)}/cde/mapping`, {
       method: 'PUT', body: JSON.stringify(data),
     }),
-  validateMapping: (applicationId: string) => request<{ valid: true; versionId?: string; editable: true }>(`/api/applications/${encodeURIComponent(applicationId)}/cde/mapping/validate`, {
+  validateMapping: (applicationId: string) => request<{
+    valid: true;
+    projectKey: string;
+    storage: { provider: 'COUCHDB'; database: string; healthy: true; documentCount: number };
+  }>(`/api/applications/${encodeURIComponent(applicationId)}/cde/mapping/validate`, {
     method: 'POST', body: '{}',
   }),
   catalog: (applicationId: string) => request<CdeCatalog>(`/api/applications/${encodeURIComponent(applicationId)}/cde/catalog`),
@@ -250,6 +259,6 @@ export const cdeApi = {
   }),
   runnableFiles: (applicationId: string) => request<{
     files: PaginatedResponse<PlaywrightTestFile>;
-    branch: { versionId?: string; editable: boolean };
+    storage: { provider: 'COUCHDB'; database: string; projectKey: string; bindingFingerprint: string; editable: boolean };
   }>(`/api/applications/${encodeURIComponent(applicationId)}/playwright/files?limit=100`),
 };

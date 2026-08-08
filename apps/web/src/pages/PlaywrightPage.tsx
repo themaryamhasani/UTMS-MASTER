@@ -27,6 +27,7 @@ import type {
   PlaywrightReporter,
   PlaywrightTestFile,
 } from '../types';
+
 import {
   PLAYWRIGHT_RUN_STATUS_LABELS,
   PLAYWRIGHT_PROJECT_LABELS,
@@ -35,6 +36,8 @@ import {
   PLAYWRIGHT_TRACE_LABELS,
   PLAYWRIGHT_REPORTER_LABELS,
 } from '../types';
+
+const PLAYWRIGHT_RUNNABLE_FILE_REGEX = /(?:\.spec\.(?:ts|js)|\.test\.(?:ts|js)|\.js)$/i;
 
 const PLAYWRIGHT_PROJECT_OPTIONS: PlaywrightProject[] = ['chromium', 'firefox', 'webkit'];
 
@@ -178,7 +181,9 @@ export const PlaywrightPage: React.FC = () => {
         cdeApi.runnableFiles(formApplicationId),
         cdeApi.environments(formApplicationId),
       ]);
-      setDiscoveredFiles(fileResponse.files.data.filter(file => file.source === 'CDE'));
+      setDiscoveredFiles(fileResponse.files.data.filter(file =>
+        file.source === 'COUCHDB' && PLAYWRIGHT_RUNNABLE_FILE_REGEX.test(file.remotePath || file.fullPath)
+      ));
       setEnvironments(environmentResponse);
     } catch {
       setDiscoveredFiles([]);
@@ -542,7 +547,7 @@ export const PlaywrightPage: React.FC = () => {
             {discoveredFiles.length > 0 ? (
               <div className="space-y-2 min-w-0">
                 <p className="text-xs text-gray-500">
-                  {discoveredFiles.length} فایل تست از ریشه‌های CDE و فایل‌های ساخته‌شده در UTMS قابل انتخاب است.
+                  {discoveredFiles.length} فایل تست CouchDB که به پروژه CDE انتخاب‌شده متصل است قابل اجراست.
                 </p>
                 <Select
                   value={formData.testFileId}
@@ -561,7 +566,7 @@ export const PlaywrightPage: React.FC = () => {
               </div>
             ) : (
               <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-                ابتدا CDE را متصل و یک فایل Playwright در بسته تست ایجاد کنید.
+                ابتدا CDE را متصل و یک فایل Playwright برای پروژه در CouchDB ایجاد کنید.
               </p>
             )}
           </div>

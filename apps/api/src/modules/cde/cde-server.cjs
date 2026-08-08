@@ -2,7 +2,6 @@ const { createHash, timingSafeEqual } = require('crypto');
 const { getPrismaClient } = require('../../database/prisma-client.cjs');
 const { assertCsrf, requireUtmsSession, sessionContext } = require('../auth/auth-session-server.cjs');
 const {
-  CoreClientError,
   assertLogicalSuccess,
   createCdeState,
   getDataSource,
@@ -16,19 +15,30 @@ const {
   setCdeSession,
 } = require('./cde-session-store.cjs');
 const { acquireCdeWriteLock } = require('./cde-write-lock.cjs');
-const { CdeCompileError, compileDataServiceBranchContent, normalizeSourcePath } = require('./data-service-compiler.cjs');
+const { normalizeSourcePath } = require('./data-service-compiler.cjs');
 const { deleteObject, putEncryptedObject } = require('../playwright/object-store.cjs');
 const { cancelQueuedRun, enqueueRun, enqueueSnapshot } = require('../playwright/playwright-queue.cjs');
+const {
+  bindingFingerprint,
+  bindingForMapping,
+  createDocument: createCouchTestDocument,
+  getDocument: getCouchTestDocument,
+  health: couchTestStoreHealth,
+  listProjectDocuments: listCouchTestDocuments,
+  storeDescriptor: couchStoreDescriptor,
+  updateDocument: updateCouchTestDocument,
+} = require('../playwright/couchdb-test-store.cjs');
 
 const REPOSITORY_CONFIG = {
   WEB_UI: { mappingField: 'webUiRepoName', key: 'cde/repository/web-ui/list/fetch', root: 'web-ui', suffix: 'web-ui' },
   DATA_SERVICE: { mappingField: 'dataServiceRepoName', key: 'cde/repository/data-service/list/fetch', root: 'data-service', suffix: 'data-service' },
   API_MODULE: { mappingField: 'apiModuleRepoName', key: 'cde/repository/api-module/list/fetch', root: 'api-module', suffix: 'api-module' },
   MESSAGE_CONSUMER: { mappingField: 'messageConsumerRepoName', key: 'cde/repository/message-consumer/list/fetch', root: 'message-consumer', suffix: 'message-consumer' },
-  TESTS: { mappingField: 'testRepoName', key: 'cde/repository/data-service/list/fetch', root: 'tests', suffix: 'data-service' },
 };
 const BROWSABLE_REPOSITORY_TYPES = ['WEB_UI', 'DATA_SERVICE', 'API_MODULE', 'MESSAGE_CONSUMER'];
 const TEST_FILE_PATTERN = /\.(?:spec\.(?:ts|js)|ts|js|json|md)$/i;
+const RUNNABLE_PLAYWRIGHT_FILE_PATTERN = /(?:\.spec\.(?:ts|js)|\.test\.(?:ts|js)|\.js)$/i;
+const CDE_EDITOR_ORIGIN = 'https://cde.edus.ir';
 
 class CdeApiError extends Error {
   constructor(category, message, statusCode = 400, details) {
@@ -107,18 +117,6 @@ async function callDataSource(req, key, params = {}, options = {}) {
   const response = await persistCoreResult(req, callResult);
   assertLogicalSuccess(response);
   if (options.requireLogin !== false && resultOf(response).IsUserLogin === false) {
-    await deleteCdeSession(req.utmsSession.id);
-    throw new CdeApiError('CDE_RECONNECT_REQUIRED', 'The CDE session has expired. Connect again.', 401);
-  }
-  return response;
-}
-
-async function callForm(req, formId, data, options = {}) {
-  const state = options.state || await loadCdeState(req);
-  const callResult = await storeFormData(state, formId, data);
-  const response = await persistCoreResult(req, callResult);
-  assertLogicalSuccess(response);
-  if (options.requireLogin === true && resultOf(response).IsUserLogin === false) {
     await deleteCdeSession(req.utmsSession.id);
     throw new CdeApiError('CDE_RECONNECT_REQUIRED', 'The CDE session has expired. Connect again.', 401);
   }
@@ -244,12 +242,21 @@ async function assertAccessibleProject(req, projectKey) {
 }
 
 function projectDescriptor(projectKey) {
+  const normalizedProjectKey = normalizeProjectKey(projectKey);
+  const encodedProject = encodeURIComponent(normalizedProjectKey);
+  const encodedApp = encodeURIComponent(`${normalizedProjectKey}>App`);
+  const encodedGateway = encodeURIComponent(`${normalizedProjectKey}>`);
   return {
-    projectKey,
+    projectKey: normalizedProjectKey,
     repositories: Object.fromEntries(BROWSABLE_REPOSITORY_TYPES.map(repositoryType => [
       repositoryType,
-      projectRepositoryName(projectKey, repositoryType),
+      projectRepositoryName(normalizedProjectKey, repositoryType),
     ])),
+    editorUrls: {
+      webUi: `${CDE_EDITOR_ORIGIN}/front/directory/${encodedApp}`,
+      dataService: `${CDE_EDITOR_ORIGIN}/dservice/directory/${encodedApp}`,
+      gateway: `${CDE_EDITOR_ORIGIN}/back/${encodedProject}/${encodedGateway}?return=/workspace/${encodedProject}`,
+    },
   };
 }
 
@@ -416,7 +423,7 @@ async function visibleApplications(req) {
       dataService: application.cdeMapping.dataServiceRepoName,
       apiModule: application.cdeMapping.apiModuleRepoName,
       messageConsumer: application.cdeMapping.messageConsumerRepoName,
-      tests: application.cdeMapping.testRepoName,
+      tests: `couchdb://${couchStoreDescriptor().database}/${application.cdeMapping.projectKey}`,
     },
     environments: application.applicationEnvironments.map(serializeEnvironment),
   }));
@@ -431,11 +438,9 @@ async function catalog(req, applicationId) {
   }
   repositories.push({
     type: 'TESTS',
-    repoName: mapping.testRepoName,
-    packages: [{ id: mapping.testPackId, branches: [{
-      selector: { kind: 'PERSONAL', ...(mapping.testBranchRandId ? { randId: mapping.testBranchRandId } : {}), ...(Number.isInteger(mapping.testBranchIndex) ? { index: mapping.testBranchIndex } : {}) },
-      configured: true,
-    }] }],
+    repoName: couchStoreDescriptor().database,
+    storage: 'COUCHDB',
+    packages: [{ id: `playwright/${mapping.projectKey}`, branches: [], configured: true }],
   });
   return { applicationId, projectKey: mapping.projectKey, repositories };
 }
@@ -537,11 +542,10 @@ async function packageContent(req, applicationId, body) {
 
 async function saveBranchSelection(req, applicationId, body) {
   assertCsrf(req);
-  await mappingForApplication(req, applicationId);
+  const mapping = await mappingForApplication(req, applicationId);
   const repositoryType = String(body.repositoryType || '');
   const config = REPOSITORY_CONFIG[repositoryType];
   if (!config) throw new CdeApiError('CDE_REPOSITORY_TYPE_INVALID', 'Repository type is invalid.', 400);
-  const mapping = await getPrismaClient().cdeApplicationMapping.findUnique({ where: { applicationId: String(applicationId) } });
   if (mapping[config.mappingField] !== body.repoName) throw new CdeApiError('CDE_REPOSITORY_NOT_MAPPED', 'Repository is not mapped.', 403);
   const selector = body.branch || {};
   if (!['PUBLIC', 'PERSONAL'].includes(selector.kind)) throw new CdeApiError('CDE_BRANCH_INVALID', 'Branch selector is invalid.', 400);
@@ -590,13 +594,6 @@ function validateMappingPayload(applicationId, body) {
     }
     return normalized;
   };
-  const testPackId = String(body.testPackId || '').trim();
-  if (!testPackId.startsWith('dservice/package/') || testPackId.includes('..')) {
-    throw new CdeApiError('CDE_MAPPING_INVALID', 'Playwright package must be a Data Service package ID.', 400);
-  }
-  if (!body.testBranchRandId && !Number.isInteger(body.testBranchIndex)) {
-    throw new CdeApiError('CDE_MAPPING_INVALID', 'An explicit personal Playwright branch selector is required.', 400);
-  }
   return {
     applicationId: String(applicationId),
     serviceId: 'cde.edus.ir',
@@ -605,10 +602,12 @@ function validateMappingPayload(applicationId, body) {
     dataServiceRepoName: repo(body.dataServiceRepoName || `${projectKey}/data-service`, 'data-service'),
     apiModuleRepoName: repo(body.apiModuleRepoName || `${projectKey}/api-module`, 'api-module'),
     messageConsumerRepoName: repo(body.messageConsumerRepoName, 'message-consumer'),
-    testRepoName: repo(body.testRepoName, 'data-service', true),
-    testPackId,
-    testBranchRandId: body.testBranchRandId ? String(body.testBranchRandId) : null,
-    testBranchIndex: Number.isInteger(body.testBranchIndex) ? body.testBranchIndex : null,
+    // These columns remain nullable only for compatibility with mappings made
+    // before CouchDB became the authoritative Playwright test store.
+    testRepoName: null,
+    testPackId: null,
+    testBranchRandId: null,
+    testBranchIndex: null,
     enabled: body.enabled !== false,
   };
 }
@@ -642,17 +641,12 @@ async function validateMapping(req, applicationId) {
   const prisma = getPrismaClient();
   const mapping = await mappingForApplication(req, applicationId);
   try {
-    const pack = await loadPackageItem(req, mapping, 'TESTS', mapping.testRepoName, mapping.testPackId);
-    const selector = { kind: 'PERSONAL', ...(mapping.testBranchRandId ? { randId: mapping.testBranchRandId } : {}), ...(Number.isInteger(mapping.testBranchIndex) ? { index: mapping.testBranchIndex } : {}) };
-    const branch = repositoryBranches(pack, 'TESTS').find(candidate => selectorMatches(candidate, selector));
-    if (!branch) throw new CdeApiError('CDE_TEST_BRANCH_NOT_FOUND', 'Configured Playwright branch was not found.', 404);
-    if (!branch.editable) throw new CdeApiError('CDE_TEST_BRANCH_READ_ONLY', 'Configured Playwright branch is not editable.', 409);
-    if (branch.value?.content?.type !== 'JS') throw new CdeApiError('CDE_TEST_PACKAGE_INVALID', 'Configured Playwright package is not a JS Data Service package.', 409);
+    const storage = await couchTestStoreHealth();
     await prisma.cdeApplicationMapping.update({
       where: { applicationId: String(applicationId) },
       data: { lastValidationStatus: 'HEALTHY', lastValidatedAt: new Date() },
     });
-    return { valid: true, versionId: branch.versionId, editable: true };
+    return { valid: true, storage, projectKey: mapping.projectKey };
   } catch (error) {
     await prisma.cdeApplicationMapping.update({
       where: { applicationId: String(applicationId) },
@@ -660,24 +654,6 @@ async function validateMapping(req, applicationId) {
     });
     throw error;
   }
-}
-
-function configuredTestSelector(mapping) {
-  return {
-    kind: 'PERSONAL',
-    ...(mapping.testBranchRandId ? { randId: mapping.testBranchRandId } : {}),
-    ...(Number.isInteger(mapping.testBranchIndex) ? { index: mapping.testBranchIndex } : {}),
-  };
-}
-
-async function loadTestBranch(req, applicationId, options = {}) {
-  const mapping = options.mapping || await mappingForApplication(req, applicationId);
-  const pack = await loadPackageItem(req, mapping, 'TESTS', mapping.testRepoName, mapping.testPackId);
-  const selector = configuredTestSelector(mapping);
-  const branch = repositoryBranches(pack, 'TESTS').find(candidate => selectorMatches(candidate, selector));
-  if (!branch) throw new CdeApiError('CDE_TEST_BRANCH_NOT_FOUND', 'Configured Playwright branch was not found.', 404);
-  if (branch.value?.content?.type !== 'JS') throw new CdeApiError('CDE_TEST_PACKAGE_INVALID', 'Playwright package must be a JS Data Service package.', 409);
-  return { mapping, pack, branch };
 }
 
 function testDisplayPath(remotePath) {
@@ -699,59 +675,75 @@ function testFileDto(row) {
   };
 }
 
-async function syncTestFiles(req, applicationId, mapping, branch) {
+function couchRootUrl(mapping) {
+  return `couchdb://${couchStoreDescriptor().database}/${mapping.projectKey}`;
+}
+
+function normalizedCouchDocuments(documents) {
+  const seen = new Set();
+  return documents.map(document => {
+    let path;
+    try { path = normalizeTestPath(document.path); } catch (error) { throw new CdeApiError('COUCHDB_DOCUMENT_INVALID', error.message, 422); }
+    const folded = path.toLocaleLowerCase('en-US');
+    if (seen.has(folded)) throw new CdeApiError('COUCHDB_PATH_COLLISION', 'CouchDB contains duplicate or case-colliding Playwright paths.', 409);
+    seen.add(folded);
+    return { ...document, path };
+  });
+}
+
+async function projectTestDocuments(applicationId, mapping) {
+  return normalizedCouchDocuments(await listCouchTestDocuments(String(applicationId), bindingForMapping(mapping)));
+}
+
+async function syncCouchTestFiles(req, applicationId, mapping, suppliedDocuments) {
   const prisma = getPrismaClient();
-  const remoteFiles = normalizeRemoteFiles(branch, 'TESTS', mapping.testPackId);
+  const documents = suppliedDocuments || await projectTestDocuments(applicationId, mapping);
   const synced = [];
-  for (const remote of remoteFiles) {
-    if (!TEST_FILE_PATTERN.test(remote.path)) continue;
-    const fullPath = testDisplayPath(remote.path);
+  for (const document of documents) {
+    const fullPath = testDisplayPath(document.path);
     const slash = fullPath.lastIndexOf('/');
     const folderPath = slash >= 0 ? fullPath.slice(0, slash) : 'tests';
     const fileName = slash >= 0 ? fullPath.slice(slash + 1) : fullPath;
-    const row = await prisma.playwrightTestFile.upsert({
-      where: { applicationId_fullPath: { applicationId: String(applicationId), fullPath } },
-      create: {
-        applicationId: String(applicationId),
-        rootKind: 'TESTS',
-        rootUrl: `cde://${mapping.testRepoName}/${mapping.testPackId}`,
-        source: 'CDE',
-        folderPath,
-        relativeFolderPath: folderPath.replace(/^tests\/?/, ''),
-        fileName,
-        fullPath,
-        script: remote.code,
-        createdById: req.utmsContext.userId,
-        remoteRepoName: mapping.testRepoName,
-        remotePackId: mapping.testPackId,
-        remoteBranchKind: 'PERSONAL',
-        remoteBranchRandId: branch.selector.randId || null,
-        remoteBranchIndex: Number.isInteger(branch.selector.index) ? branch.selector.index : null,
-        remoteVersionId: branch.versionId,
-        remotePath: remote.path,
-        sourceHash: hash(remote.code),
-        syncedAt: new Date(),
-      },
-      update: {
-        rootKind: 'TESTS',
-        rootUrl: `cde://${mapping.testRepoName}/${mapping.testPackId}`,
-        source: 'CDE',
-        folderPath,
-        relativeFolderPath: folderPath.replace(/^tests\/?/, ''),
-        fileName,
-        script: remote.code,
-        remoteRepoName: mapping.testRepoName,
-        remotePackId: mapping.testPackId,
-        remoteBranchKind: 'PERSONAL',
-        remoteBranchRandId: branch.selector.randId || null,
-        remoteBranchIndex: Number.isInteger(branch.selector.index) ? branch.selector.index : null,
-        remoteVersionId: branch.versionId,
-        remotePath: remote.path,
-        sourceHash: hash(remote.code),
-        syncedAt: new Date(),
-      },
-      include: { createdBy: true },
-    });
+    const shared = {
+      rootKind: 'TESTS',
+      rootUrl: couchRootUrl(mapping),
+      source: 'COUCHDB',
+      folderPath,
+      relativeFolderPath: folderPath.replace(/^tests\/?/, ''),
+      fileName,
+      script: String(document.script || ''),
+      remoteRepoName: mapping.projectKey,
+      remotePackId: document._id,
+      remoteBranchKind: null,
+      remoteBranchRandId: null,
+      remoteBranchIndex: null,
+      remoteVersionId: document._rev,
+      remotePath: document.path,
+      sourceHash: document.sourceHash || hash(document.script || ''),
+      syncedAt: new Date(),
+      couchDocumentId: document._id,
+      couchRevision: document._rev,
+      cdeBinding: document.cdeBinding,
+      description: document.description ? String(document.description).slice(0, 700) : null,
+    };
+    const existingByDocument = await prisma.playwrightTestFile.findUnique({ where: { couchDocumentId: document._id } });
+    const row = existingByDocument
+      ? await prisma.playwrightTestFile.update({
+        where: { id: existingByDocument.id },
+        data: { fullPath, ...shared },
+        include: { createdBy: true },
+      })
+      : await prisma.playwrightTestFile.upsert({
+        where: { applicationId_fullPath: { applicationId: String(applicationId), fullPath } },
+        create: {
+          applicationId: String(applicationId),
+          fullPath,
+          createdById: String(document.createdById || req.utmsContext.userId),
+          ...shared,
+        },
+        update: shared,
+        include: { createdBy: true },
+      });
     synced.push(row);
   }
   return synced;
@@ -774,11 +766,12 @@ function derivedTestFolders(files) {
 
 async function listTestFiles(req, applicationId, parsedUrl) {
   assertAutomatedTestAccess(req);
-  const loaded = await loadTestBranch(req, applicationId);
-  const remoteRows = await syncTestFiles(req, applicationId, loaded.mapping, loaded.branch);
+  const mapping = await mappingForApplication(req, applicationId);
+  const documents = await projectTestDocuments(applicationId, mapping);
+  const remoteRows = await syncCouchTestFiles(req, applicationId, mapping, documents);
   const remotePaths = new Set(remoteRows.map(row => row.fullPath));
   const legacy = await getPrismaClient().playwrightTestFile.findMany({
-    where: { applicationId: String(applicationId), source: { in: ['MANAGED', 'DISCOVERED'] } },
+    where: { applicationId: String(applicationId), source: { in: ['MANAGED', 'DISCOVERED', 'CDE'] } },
     include: { createdBy: true },
     orderBy: { updatedAt: 'desc' },
   });
@@ -796,7 +789,13 @@ async function listTestFiles(req, applicationId, parsedUrl) {
       totalPages: Math.max(1, Math.ceil(files.length / limit)),
     },
     folders: derivedTestFolders(files),
-    branch: { selector: loaded.branch.selector, versionId: loaded.branch.versionId, editable: loaded.branch.editable },
+    storage: {
+      ...couchStoreDescriptor(),
+      projectKey: mapping.projectKey,
+      bindingFingerprint: bindingFingerprint(bindingForMapping(mapping)),
+      editable: true,
+    },
+    branch: { versionId: null, editable: true, storage: 'COUCHDB' },
   };
 }
 
@@ -814,65 +813,57 @@ async function writeTestFile(req, applicationId, body, existingId) {
   const prisma = getPrismaClient();
   let existing = null;
   if (existingId) {
-    existing = await prisma.playwrightTestFile.findFirst({ where: { id: existingId, applicationId: String(applicationId), source: 'CDE' } });
-    if (!existing) throw new CdeApiError('PLAYWRIGHT_FILE_NOT_FOUND', 'CDE Playwright file was not found.', 404);
+    existing = await prisma.playwrightTestFile.findFirst({ where: { id: existingId, applicationId: String(applicationId), source: 'COUCHDB' } });
+    if (!existing?.couchDocumentId) throw new CdeApiError('PLAYWRIGHT_FILE_NOT_FOUND', 'CouchDB Playwright file was not found.', 404);
   }
   const targetPath = normalizeTestPath(body.path || existing?.remotePath || existing?.fullPath || '');
   const source = String(body.script ?? body.code ?? '');
   if (!source.trim()) throw new CdeApiError('PLAYWRIGHT_SCRIPT_REQUIRED', 'Playwright source is required.', 422);
   if (Buffer.byteLength(source) > 2 * 1024 * 1024) throw new CdeApiError('PLAYWRIGHT_FILE_TOO_LARGE', 'Playwright file exceeds two MiB.', 413);
   const mapping = await mappingForApplication(req, applicationId);
-  const lockIdentity = hash(`${mapping.testRepoName}\0${mapping.testPackId}\0${mapping.testBranchRandId || mapping.testBranchIndex}`);
+  const cdeBinding = bindingForMapping(mapping);
+  const fingerprint = bindingFingerprint(cdeBinding);
+  const lockIdentity = hash(`couchdb\0${applicationId}\0${fingerprint}\0${targetPath.toLocaleLowerCase('en-US')}`);
   const release = await acquireCdeWriteLock(lockIdentity, 60_000);
-  if (!release) throw new CdeApiError('CDE_WRITE_BUSY', 'Another save is already updating this CDE branch.', 409);
+  if (!release) throw new CdeApiError('COUCHDB_WRITE_BUSY', 'Another save is already updating this Playwright path.', 409);
   try {
-    const loaded = await loadTestBranch(req, applicationId, { mapping });
-    if (!loaded.branch.editable) throw new CdeApiError('CDE_TEST_BRANCH_READ_ONLY', 'Configured Playwright branch is not editable.', 409);
-    const expectedVersionId = String(body.expectedVersionId || '');
-    if (!expectedVersionId || expectedVersionId !== String(loaded.branch.versionId || '')) {
-      throw new CdeApiError('CDE_WRITE_CONFLICT', 'The CDE branch changed. Reload it before saving.', 409, { currentVersionId: loaded.branch.versionId });
-    }
-    const personal = JSON.parse(JSON.stringify(loaded.branch.value));
-    const files = personal.content.content.map(file => ({ ...file, name: normalizeSourcePath(file.name) }));
-    const previousPath = existing?.remotePath || null;
-    const collision = files.find(file => file.name.toLowerCase() === targetPath.toLowerCase() && file.name !== previousPath);
-    if (collision) throw new CdeApiError('PLAYWRIGHT_TEST_FILE_ALREADY_EXISTS', 'A CDE file already exists at this path.', 409);
-    let replaced = false;
-    const nextFiles = files.map(file => {
-      if (previousPath && file.name === previousPath) {
-        replaced = true;
-        return { name: targetPath, code: source, oppend: false };
-      }
-      return file;
+    const documents = await projectTestDocuments(applicationId, mapping);
+    const previousPath = existing?.remotePath || existing?.fullPath || null;
+    const collision = documents.find(document => document.path.toLocaleLowerCase('en-US') === targetPath.toLocaleLowerCase('en-US') && document._id !== existing?.couchDocumentId);
+    if (collision) throw new CdeApiError('PLAYWRIGHT_TEST_FILE_ALREADY_EXISTS', 'A Playwright file already exists at this CouchDB path.', 409);
+    const indexedCollision = await prisma.playwrightTestFile.findFirst({
+      where: { applicationId: String(applicationId), fullPath: { equals: targetPath, mode: 'insensitive' }, ...(existing ? { id: { not: existing.id } } : {}) },
     });
-    if (!replaced) nextFiles.push({ name: targetPath, code: source, oppend: false });
-    personal.content = compileDataServiceBranchContent({ ...personal.content, content: nextFiles });
-    const saveResponse = await callForm(req, 'cde/package/any/personal/save', {
-      personal,
-      _id: loaded.pack._id || mapping.testPackId,
-      packType: 'data-service',
-      commitDesc: String(body.commitDesc || `UTMS: ${existing ? 'update' : 'create'} ${targetPath}`).slice(0, 500),
-    }, { requireLogin: true });
-    const savedVersionId = resultOf(saveResponse).versionId;
-    if (!savedVersionId) throw new CdeApiError('CDE_WRITE_FAILED', 'CDE did not return a version after saving.', 502);
-    const verified = await loadTestBranch(req, applicationId, { mapping });
-    if (String(verified.branch.versionId || '') !== String(savedVersionId) || String(savedVersionId) === expectedVersionId) {
-      throw new CdeApiError('CDE_WRITE_CONFLICT', 'The CDE version returned by save did not match the refetched branch.', 409, {
-        expectedVersionId,
-        savedVersionId,
-        currentVersionId: verified.branch.versionId,
+    if (indexedCollision) throw new CdeApiError('PLAYWRIGHT_TEST_FILE_ALREADY_EXISTS', 'A legacy or CouchDB file already uses this path.', 409);
+    let saved;
+    if (existing) {
+      const current = await getCouchTestDocument(existing.couchDocumentId, { applicationId: String(applicationId), bindingFingerprint: fingerprint });
+      if (!current) throw new CdeApiError('PLAYWRIGHT_FILE_NOT_FOUND', 'The CouchDB Playwright document no longer exists.', 404);
+      saved = await updateCouchTestDocument(current, {
+        path: targetPath,
+        script: source,
+        description: body.description ? String(body.description).slice(0, 700) : null,
+        userId: req.utmsContext.userId,
+        expectedRevision: body.expectedRevision || body.expectedVersionId,
+      });
+    } else {
+      saved = await createCouchTestDocument({
+        applicationId: String(applicationId),
+        path: targetPath,
+        script: source,
+        description: body.description ? String(body.description).slice(0, 700) : null,
+        userId: req.utmsContext.userId,
+        cdeBinding,
       });
     }
-    const verifiedFile = normalizeRemoteFiles(verified.branch, 'TESTS', mapping.testPackId).find(file => file.path === targetPath);
-    if (!verifiedFile || hash(verifiedFile.code) !== hash(source)) {
-      throw new CdeApiError('CDE_WRITE_CONFLICT', 'The saved CDE source could not be verified.', 409, { savedVersionId });
+    const verified = await getCouchTestDocument(saved._id, { applicationId: String(applicationId), bindingFingerprint: fingerprint });
+    if (!verified || verified._rev !== saved._rev || hash(verified.script) !== hash(source)) {
+      throw new CdeApiError('COUCHDB_WRITE_CONFLICT', 'The saved Playwright document could not be verified.', 409, { savedRevision: saved._rev });
     }
-    const rows = await syncTestFiles(req, applicationId, mapping, verified.branch);
+    const refreshedDocuments = await projectTestDocuments(applicationId, mapping);
+    const rows = await syncCouchTestFiles(req, applicationId, mapping, refreshedDocuments);
     const row = rows.find(item => item.remotePath === targetPath);
-    if (!row) throw new CdeApiError('CDE_WRITE_FAILED', 'Saved file metadata could not be synchronized.', 502);
-    if (body.description !== undefined) {
-      await prisma.playwrightTestFile.update({ where: { id: row.id }, data: { description: String(body.description || '').slice(0, 700) || null } });
-    }
+    if (!row) throw new CdeApiError('COUCHDB_WRITE_FAILED', 'Saved file metadata could not be synchronized.', 502);
     await prisma.auditLog.create({
       data: {
         userId: req.utmsContext.userId,
@@ -880,9 +871,9 @@ async function writeTestFile(req, applicationId, body, existingId) {
         entityType: 'PLAYWRIGHT_TEST_FILE',
         entityId: row.id,
         action: existing ? 'UPDATE' : 'CREATE',
-        previousValue: existing ? JSON.stringify({ path: existing.remotePath, hash: existing.sourceHash, versionId: existing.remoteVersionId }) : null,
-        newValue: JSON.stringify({ path: targetPath, hash: hash(source), versionId: verified.branch.versionId }),
-        metadata: { repoName: mapping.testRepoName, packId: mapping.testPackId, branch: verified.branch.selector },
+        previousValue: existing ? JSON.stringify({ path: previousPath, hash: existing.sourceHash, revision: existing.couchRevision }) : null,
+        newValue: JSON.stringify({ path: targetPath, hash: hash(source), revision: verified._rev }),
+        metadata: { storage: 'COUCHDB', documentId: verified._id, cdeBinding, bindingFingerprint: fingerprint },
       },
     });
     return testFileDto(await prisma.playwrightTestFile.findUnique({ where: { id: row.id }, include: { createdBy: true } }));
@@ -992,27 +983,52 @@ async function snapshotRepository(req, applicationId, mapping, repositoryType, b
   }
 }
 
-async function materializeSnapshot(req, applicationId, environment) {
+function couchRevisionManifest(documents, mapping) {
+  return {
+    provider: 'COUCHDB',
+    database: couchStoreDescriptor().database,
+    projectKey: mapping.projectKey,
+    bindingFingerprint: bindingFingerprint(bindingForMapping(mapping)),
+    documents: documents.map(document => ({
+      id: document._id,
+      revision: document._rev,
+      path: document.path,
+      sourceHash: document.sourceHash || hash(document.script || ''),
+    })).sort((left, right) => left.id.localeCompare(right.id)),
+  };
+}
+
+function sameCouchRevisionManifest(left, right) {
+  return hash(JSON.stringify(left || {})) === hash(JSON.stringify(right || {}));
+}
+
+async function materializeSnapshot(req, applicationId, environment, options = {}) {
   const mapping = await mappingForApplication(req, applicationId);
   const files = [];
   const packages = [];
   for (const repositoryType of ['WEB_UI', 'DATA_SERVICE', 'API_MODULE', 'MESSAGE_CONSUMER']) {
     await snapshotRepository(req, applicationId, mapping, repositoryType, files, packages);
   }
-  const tests = await loadTestBranch(req, applicationId, { mapping });
-  const testRemoteFiles = normalizeRemoteFiles(tests.branch, 'TESTS', mapping.testPackId);
-  const testFiles = testRemoteFiles.map(file => {
-    const path = snapshotFilePath('TESTS', mapping.testPackId, tests.branch, file);
-    const sourceHash = hash(file.code);
-    files.push({ path, code: file.code, sourceHash, readOnly: true });
+  const testDocuments = await projectTestDocuments(applicationId, mapping);
+  const testRevisionManifest = couchRevisionManifest(testDocuments, mapping);
+  if (options.expectedTestManifest && !sameCouchRevisionManifest(testRevisionManifest, options.expectedTestManifest)) {
+    throw new CdeApiError('COUCHDB_SNAPSHOT_CONFLICT', 'Playwright files changed while the run snapshot was queued. Start the run again.', 409, {
+      currentRevisionManifest: testRevisionManifest,
+    });
+  }
+  const testFiles = testDocuments.map(document => {
+    const path = snapshotFilePath('TESTS', `playwright/${mapping.projectKey}`, null, { path: document.path });
+    const sourceHash = document.sourceHash || hash(document.script || '');
+    files.push({ path, code: String(document.script || ''), sourceHash, readOnly: true });
     return { path, sourceHash };
   });
   packages.push({
     repositoryType: 'TESTS',
-    repoName: mapping.testRepoName,
-    packId: mapping.testPackId,
-    selector: tests.branch.selector,
-    versionId: tests.branch.versionId || null,
+    storage: 'COUCHDB',
+    repoName: couchStoreDescriptor().database,
+    packId: `playwright/${mapping.projectKey}`,
+    selector: { kind: 'COUCHDB', bindingFingerprint: testRevisionManifest.bindingFingerprint },
+    versionId: hash(JSON.stringify(testRevisionManifest.documents)),
     files: testFiles,
   });
   const folded = new Set();
@@ -1023,7 +1039,7 @@ async function materializeSnapshot(req, applicationId, environment) {
   }
   files.sort((left, right) => left.path.localeCompare(right.path));
   const manifest = {
-    format: 1,
+    format: 2,
     serviceId: 'cde.edus.ir',
     applicationId: String(applicationId),
     projectKey: mapping.projectKey,
@@ -1036,6 +1052,7 @@ async function materializeSnapshot(req, applicationId, environment) {
       gatewayBaseUrl: environment.gatewayBaseUrl,
     },
     packages,
+    playwrightStore: testRevisionManifest,
     fileCount: files.length,
   };
   const contentHash = hash(JSON.stringify({ manifest, files }));
@@ -1086,6 +1103,9 @@ function serializeRun(row) {
       fullPath: testFile.fullPath,
       remotePath: testFile.remotePath,
       remoteVersionId: testFile.remoteVersionId,
+      couchDocumentId: testFile.couchDocumentId,
+      couchRevision: testFile.couchRevision,
+      cdeBinding: testFile.cdeBinding,
       sourceHash: testFile.sourceHash,
     } : undefined,
     requestedAt: row.requestedAt?.toISOString(),
@@ -1143,16 +1163,31 @@ async function createRun(req, body) {
   assertCsrf(req);
   const applicationId = String(body.applicationId || '');
   assertApplicationScope(req, applicationId);
-  await mappingForApplication(req, applicationId);
+  const mapping = await mappingForApplication(req, applicationId);
   const prisma = getPrismaClient();
   const environment = await prisma.applicationEnvironment.findFirst({
     where: { id: String(body.environmentProfileId || ''), applicationId, enabled: true },
   });
   if (!environment) throw new CdeApiError('PLAYWRIGHT_ENVIRONMENT_REQUIRED', 'Select an enabled deployed environment.', 422);
   const testFile = await prisma.playwrightTestFile.findFirst({
-    where: { id: String(body.testFileId || ''), applicationId, source: 'CDE' },
+    where: { id: String(body.testFileId || ''), applicationId, source: 'COUCHDB' },
   });
-  if (!testFile?.remotePath) throw new CdeApiError('PLAYWRIGHT_TEST_FILE_REQUIRED', 'Select a CDE-backed Playwright test file.', 422);
+  if (!testFile?.couchDocumentId) throw new CdeApiError('PLAYWRIGHT_TEST_FILE_REQUIRED', 'Select a CouchDB-backed Playwright test file.', 422);
+  const binding = bindingForMapping(mapping);
+  const fingerprint = bindingFingerprint(binding);
+  const documents = await projectTestDocuments(applicationId, mapping);
+  const selectedDocument = documents.find(document => document._id === testFile.couchDocumentId);
+  if (!selectedDocument || selectedDocument.bindingFingerprint !== fingerprint) {
+    throw new CdeApiError('COUCHDB_PROJECT_BINDING_MISMATCH', 'The selected Playwright file is not mapped to the current CDE project.', 409);
+  }
+  if (!RUNNABLE_PLAYWRIGHT_FILE_PATTERN.test(selectedDocument.path)) {
+    throw new CdeApiError(
+      'PLAYWRIGHT_TEST_FILE_NOT_RUNNABLE',
+      'Select a runnable Playwright file ending in .js, .spec.js, .test.js, .spec.ts, or .test.ts.',
+      422,
+    );
+  }
+  const requestedTests = couchRevisionManifest(documents, mapping);
   const projects = Array.from(new Set(Array.isArray(body.projects) ? body.projects : ['chromium']))
     .filter(project => ['chromium', 'firefox', 'webkit'].includes(project));
   if (!projects.length) throw new CdeApiError('PLAYWRIGHT_PROJECT_REQUIRED', 'Select at least one browser project.', 422);
@@ -1170,7 +1205,7 @@ async function createRun(req, body) {
         requestedById: context.userId,
         initiatingSessionId: req.utmsSession.id,
         status: 'PENDING',
-        manifest: {},
+        manifest: { requestedTests },
         expiresAt,
       },
     });
@@ -1180,7 +1215,7 @@ async function createRun(req, body) {
         environmentProfileId: environment.id,
         snapshotId: snapshot.id,
         testFileId: testFile.id,
-        testFilePath: testFile.remotePath,
+        testFilePath: selectedDocument.path,
         environment: environment.name,
         projects,
         headed: false,
@@ -1241,7 +1276,9 @@ async function materializeSnapshotJob(req, snapshotId) {
   await prisma.cdeSourceSnapshot.update({ where: { id: snapshot.id }, data: { status: 'MATERIALIZING' } });
   try {
     const internalRequest = await requestForInitiatingSession(snapshot.initiatingSessionId);
-    const bundle = await materializeSnapshot(internalRequest, snapshot.applicationId, run.environmentProfile);
+    const bundle = await materializeSnapshot(internalRequest, snapshot.applicationId, run.environmentProfile, {
+      expectedTestManifest: snapshot.manifest?.requestedTests || null,
+    });
     const objectKey = `snapshots/${snapshot.applicationId}/${snapshot.id}.json.enc`;
     await putEncryptedObject(objectKey, Buffer.from(JSON.stringify(bundle)), 'application/json');
     await prisma.$transaction([
@@ -1353,6 +1390,7 @@ module.exports = {
   handleCde,
   normalizeRemoteFiles,
   materializeSnapshot,
+  projectDescriptor,
   projectRepositoryName,
   repositoryBranches,
   selectorMatches,

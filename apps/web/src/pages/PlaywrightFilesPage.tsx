@@ -30,15 +30,21 @@ import type {
 import { PLAYWRIGHT_CDE_ROOT_LABELS } from '../types';
 
 const DESCRIPTION_MAX_LENGTH = 700;
-const PLAYWRIGHT_FILE_NAME_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*\.spec\.ts$/;
+const PLAYWRIGHT_FILE_NAME_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.spec\.(?:ts|js)|\.test\.(?:ts|js)|\.js)$/;
 
 interface CdeTestFilesResponse {
   files: PaginatedResponse<PlaywrightTestFile>;
   folders: PlaywrightTestFolder[];
-  branch: { versionId?: string | null; editable: boolean };
+  storage: {
+    provider: 'COUCHDB';
+    database: string;
+    projectKey: string;
+    bindingFingerprint: string;
+    editable: boolean;
+  };
 }
 
-const DEFAULT_SCRIPT = `import { test, expect } from '@playwright/test';
+const DEFAULT_SCRIPT = `const { test, expect } = require('@playwright/test');
 
 test('new scenario', async ({ page }) => {
   await page.goto('/');
@@ -87,7 +93,8 @@ export const PlaywrightFilesPage: React.FC = () => {
   const [cdeLoginStep, setCdeLoginStep] = useState<'phone' | 'password'>('phone');
   const [cdeError, setCdeError] = useState('');
   const [catalogLoading, setCatalogLoading] = useState(false);
-  const [testBranchVersion, setTestBranchVersion] = useState('');
+  const [editingRevision, setEditingRevision] = useState('');
+  const [testStorage, setTestStorage] = useState<CdeTestFilesResponse['storage'] | null>(null);
   const [folders, setFolders] = useState<PlaywrightTestFolder[]>([]);
   const [data, setData] = useState<PaginatedResponse<PlaywrightTestFile> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,6 +133,7 @@ export const PlaywrightFilesPage: React.FC = () => {
     } else if (cdeStatus.connected && !mappedApplicationSelected) {
       setData(null);
       setFolders([]);
+      setTestStorage(null);
       setLoading(false);
     }
   }, [activeContext, cdeStatus.connected, formData.applicationId, filters, mappedApplicationSelected]);
@@ -224,18 +232,19 @@ export const PlaywrightFilesPage: React.FC = () => {
         ...(filters.search ? { search: filters.search } : {}),
       });
       setData(response.files);
+      setTestStorage(response.storage);
       setFolders(response.folders.map(folder => ({ ...folder, applicationId: formData.applicationId })));
-      setTestBranchVersion(response.branch.versionId || '');
       setFormData(prev => ({
         ...prev,
         folderPath: response.folders.some(folder => folder.fullPath === prev.folderPath) ? prev.folderPath : 'tests',
       }));
     } catch (error) {
       setData(null);
+      setTestStorage(null);
       if (error instanceof PlatformApiError && ['CDE_RECONNECT_REQUIRED', 'CDE_NOT_CONNECTED'].includes(error.code)) {
         setCdeStatus({ connected: false, reconnectRequired: true });
       }
-      toast.error('خطا در بارگذاری فایل‌های تست CDE.');
+      toast.error('خطا در بارگذاری فایل‌های تست از CouchDB.');
     } finally {
       setLoading(false);
     }
@@ -281,6 +290,7 @@ export const PlaywrightFilesPage: React.FC = () => {
     setCatalog(null);
     setPackageContent(null);
     setData(null);
+    setTestStorage(null);
   };
 
   const openPackage = async (
@@ -350,6 +360,7 @@ export const PlaywrightFilesPage: React.FC = () => {
       script: DEFAULT_SCRIPT,
     });
     setEditingFileId(null);
+    setEditingRevision('');
     setFormErrors({});
   };
 
@@ -360,12 +371,13 @@ export const PlaywrightFilesPage: React.FC = () => {
   };
 
   const openEditForm = (file: PlaywrightTestFile) => {
-    if (file.source !== 'CDE') {
-      toast.error('فایل‌های قدیمی فقط خواندنی هستند؛ ابتدا آن‌ها را به بسته CDE منتقل کنید.');
+    if (file.source !== 'COUCHDB') {
+      toast.error('فایل‌های قدیمی و CDE فقط خواندنی هستند؛ یک نسخه در CouchDB بسازید.');
       return;
     }
     setFormMode('edit');
     setEditingFileId(file.id);
+    setEditingRevision(file.couchRevision || file.remoteVersionId || '');
     setFormData({
       applicationId: file.applicationId,
       folderPath: file.folderPath,
@@ -385,7 +397,7 @@ export const PlaywrightFilesPage: React.FC = () => {
     if (!formData.fileName.trim()) {
       errors.fileName = 'نام فایل تست الزامی است.';
     } else if (!PLAYWRIGHT_FILE_NAME_REGEX.test(formData.fileName.trim())) {
-      errors.fileName = 'فرمت نام فایل باید مثل login-flow.spec.ts باشد؛ فقط حروف کوچک انگلیسی، عدد و خط تیره مجاز است.';
+      errors.fileName = 'نام فایل باید مانند province-ask.js، login-flow.spec.js یا login-flow.spec.ts باشد؛ فقط حروف کوچک انگلیسی، عدد و خط تیره مجاز است.';
     }
     if (!formData.script.trim()) errors.script = 'اسکریپت تست الزامی است.';
     if (formData.description.length > DESCRIPTION_MAX_LENGTH) {
@@ -410,8 +422,7 @@ export const PlaywrightFilesPage: React.FC = () => {
         path: finalPath,
         script: formData.script,
         description: formData.description.trim(),
-        expectedVersionId: testBranchVersion,
-        commitDesc: `UTMS: ${formMode === 'edit' ? 'update' : 'create'} ${finalPath}`,
+        ...(formMode === 'edit' ? { expectedRevision: editingRevision } : {}),
       };
       if (formMode === 'edit' && editingFileId) {
         await cdeApi.updateTestFile(formData.applicationId, editingFileId, payload);
@@ -426,13 +437,13 @@ export const PlaywrightFilesPage: React.FC = () => {
     } catch (error) {
       const message = error instanceof PlatformApiError ? error.code : error instanceof Error ? error.message : '';
       if (message === 'INVALID_PLAYWRIGHT_TEST_FILE_NAME') {
-        setFormErrors({ fileName: 'فرمت نام فایل معتبر نیست. نمونه درست: login-flow.spec.ts' });
+        setFormErrors({ fileName: 'فرمت نام فایل معتبر نیست. نمونه درست: province-ask.js یا login-flow.spec.ts' });
       } else if (message === 'PLAYWRIGHT_TEST_FILE_ALREADY_EXISTS') {
         setFormErrors({ fileName: 'در این مسیر فایلی با همین نام وجود دارد.' });
       } else if (message === 'PLAYWRIGHT_SCRIPT_REQUIRED') {
         setFormErrors({ script: 'اسکریپت تست الزامی است.' });
-      } else if (message === 'CDE_WRITE_CONFLICT') {
-        toast.error('نسخه CDE تغییر کرده است. فایل‌ها دوباره بارگذاری شدند؛ تغییر را روی نسخه جدید اعمال کنید.');
+      } else if (message === 'COUCHDB_WRITE_CONFLICT') {
+        toast.error('نسخه CouchDB تغییر کرده است. فایل‌ها دوباره بارگذاری شدند؛ تغییر را روی نسخه جدید اعمال کنید.');
         await loadFiles();
       } else {
         toast.error('خطا در ذخیره فایل تست Playwright.');
@@ -475,14 +486,14 @@ export const PlaywrightFilesPage: React.FC = () => {
       key: 'source',
       title: 'منبع',
       render: (item: PlaywrightTestFile) => (
-        <Badge variant={item.source === 'CDE' ? 'success' : 'secondary'}>
-          {item.source === 'CDE' ? 'CDE' : 'قدیمی - فقط خواندنی'}
+        <Badge variant={item.source === 'COUCHDB' ? 'success' : 'secondary'}>
+          {item.source === 'COUCHDB' ? 'CouchDB' : 'قدیمی - فقط خواندنی'}
         </Badge>
       ),
     },
     {
       key: 'rootKind',
-      title: 'ریشه CDE',
+      title: 'ریشه ذخیره‌سازی',
       render: (item: PlaywrightTestFile) => (
         <Badge variant="info">{PLAYWRIGHT_CDE_ROOT_LABELS[item.rootKind]}</Badge>
       ),
@@ -516,7 +527,7 @@ export const PlaywrightFilesPage: React.FC = () => {
           >
             مشاهده
           </Button>
-          {canManageFile && item.source === 'CDE' && (
+          {canManageFile && item.source === 'COUCHDB' && (
             <Button
               size="sm"
               variant="ghost"
@@ -564,7 +575,7 @@ export const PlaywrightFilesPage: React.FC = () => {
               </p>
               <p className="text-xs text-gray-600 mt-1">
                 {cdeStatus.connected
-                  ? 'Repository reads and writes use the server-side CDE session.'
+                  ? 'Project source is read through the server-side CDE session; Playwright files are stored in UTMS CouchDB.'
                   : 'Connect your own CDE account; the password is sent once and is never stored.'}
               </p>
             </div>
@@ -593,8 +604,8 @@ export const PlaywrightFilesPage: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <StatCard title="کل فایل‌های تست" value={stats.total} icon={<FileText className="w-6 h-6" />} />
-          <StatCard title="پوشه‌های CDE" value={stats.folders} icon={<FolderOpen className="w-6 h-6" />} variant="primary" />
-          <StatCard title="ریشه‌های فعال CDE" value={stats.roots} icon={<Terminal className="w-6 h-6" />} variant="success" />
+          <StatCard title="پوشه‌های تست CouchDB" value={stats.folders} icon={<FolderOpen className="w-6 h-6" />} variant="primary" />
+          <StatCard title="ریشه‌های ذخیره‌سازی" value={stats.roots} icon={<Terminal className="w-6 h-6" />} variant="success" />
           <StatCard title="سامانه‌های مجاز" value={stats.applications} icon={<CheckCircle className="w-6 h-6" />} variant="warning" />
         </div>
 
@@ -710,7 +721,7 @@ export const PlaywrightFilesPage: React.FC = () => {
 
         {cdeStatus.connected && applications.length === 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            Project source browsing is available above. Creating Playwright files still requires a System Administrator to map a UTMS Application to a dedicated editable CDE test package.
+            Project source browsing is available above. Creating Playwright files requires a System Administrator to map the UTMS Application to the exact CDE project; test source is stored in CouchDB.
           </div>
         )}
 
@@ -771,7 +782,8 @@ export const PlaywrightFilesPage: React.FC = () => {
               <div className="grid grid-cols-1 gap-2 text-xs">
                 <PathBadge label="CDE project" value={selectedCdeApplication?.projectKey} />
                 <PathBadge label="Test repository" value={selectedCdeApplication?.repositories.tests || undefined} />
-                <PathBadge label="Branch version" value={testBranchVersion || undefined} />
+                <PathBadge label="Storage" value={testStorage ? `${testStorage.provider}/${testStorage.database}` : undefined} />
+                {formMode === 'edit' && <PathBadge label="CouchDB revision" value={editingRevision || undefined} />}
               </div>
             )}
 
@@ -783,7 +795,7 @@ export const PlaywrightFilesPage: React.FC = () => {
                 value: folder.fullPath,
                 label: `${PLAYWRIGHT_CDE_ROOT_LABELS[folder.rootKind]} / ${folder.relativePath}`,
               }))}
-              placeholder={folders.length ? 'پوشه را انتخاب کنید' : 'پوشه‌ای از CDE خوانده نشد'}
+              placeholder={folders.length ? 'پوشه را انتخاب کنید' : 'پوشه‌ای در CouchDB وجود ندارد'}
               error={formErrors.folderPath}
               disabled={folders.length === 0}
             />
@@ -792,10 +804,13 @@ export const PlaywrightFilesPage: React.FC = () => {
               label="نام فایل تست *"
               value={formData.fileName}
               onChange={(e) => handleFileNameChange(e.target.value)}
-              placeholder="login-flow.spec.ts"
+              placeholder="province-ask.js یا login-flow.spec.ts"
               dir="ltr"
               error={formErrors.fileName}
             />
+            <p className="-mt-3 text-xs text-gray-500">
+              فرمت‌های قابل اجرا: <span dir="ltr" className="font-mono">.js، .spec.js، .test.js، .spec.ts و .test.ts</span>
+            </p>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">توضیحات</label>
@@ -821,13 +836,13 @@ export const PlaywrightFilesPage: React.FC = () => {
 
             {folders.length === 0 && (
               <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-sm text-amber-700">
-                برای این سامانه آدرس CDE یا پوشه قابل خواندن ثبت نشده است.
+                برای این پروژه هنوز فایل تستی در CouchDB ثبت نشده است.
               </div>
             )}
           </div>
 
           <CodeEditor
-            fileName={formData.fileName || 'new-test.spec.ts'}
+            fileName={formData.fileName || 'new-test.js'}
             value={formData.script}
             onChange={(script) => setFormData({ ...formData, script })}
             error={formErrors.script}
@@ -861,8 +876,8 @@ export const PlaywrightFilesPage: React.FC = () => {
                 <p className="text-xs text-gray-500 font-mono break-all mt-1" dir="ltr">{selectedFile.fullPath}</p>
               </div>
               <div className="flex flex-wrap gap-2 justify-end">
-                <Badge variant={selectedFile.source === 'CDE' ? 'success' : 'secondary'}>
-                  {selectedFile.source === 'CDE' ? `CDE · ${selectedFile.remoteVersionId || 'unknown version'}` : 'قدیمی - فقط خواندنی'}
+                <Badge variant={selectedFile.source === 'COUCHDB' ? 'success' : 'secondary'}>
+                  {selectedFile.source === 'COUCHDB' ? `CouchDB · ${selectedFile.couchRevision || 'unknown revision'}` : 'قدیمی - فقط خواندنی'}
                 </Badge>
                 <Badge variant="info">{PLAYWRIGHT_CDE_ROOT_LABELS[selectedFile.rootKind]}</Badge>
               </div>
@@ -874,7 +889,7 @@ export const PlaywrightFilesPage: React.FC = () => {
             )}
             <CodePreview fileName={selectedFile.fileName} value={selectedFile.script} />
             <div className="flex justify-end gap-3">
-              {canManageFile && selectedFile.source === 'CDE' && (
+              {canManageFile && selectedFile.source === 'COUCHDB' && (
                 <Button icon={<Edit className="w-4 h-4" />} onClick={() => openEditForm(selectedFile)}>
                   ویرایش
                 </Button>

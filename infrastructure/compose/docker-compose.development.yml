@@ -13,6 +13,10 @@ services:
       API_CONSOLE_DATA_DIR: /app/runtime/api-console
       DATABASE_URL: postgresql://postgres:1234@postgres:5432/UTMS?schema=public
       REDIS_URL: redis://redis:6379
+      COUCHDB_URL: http://couchdb:5984
+      COUCHDB_DATABASE: utms_playwright
+      COUCHDB_USERNAME: utms
+      COUCHDB_PASSWORD: utms-couchdb-development
     command: npm run dev:api
     ports:
       - "4174:4174"
@@ -21,6 +25,7 @@ services:
     depends_on:
       - postgres
       - redis
+      - couchdb
 
   web:
     build:
