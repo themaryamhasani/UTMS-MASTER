@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { chmod, chown, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { createRequire } from 'node:module';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { Worker } from 'bullmq';
 import IORedis from 'ioredis';
@@ -51,7 +52,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 const s3 = new S3Client({
   region: process.env.S3_REGION || 'us-east-1',
-  endpoint: process.env.S3_ENDPOINT || 'http://minio:9000',
+  endpoint: process.env.S3_ENDPOINT || 'http://127.0.0.1:9000',
   forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
   credentials: {
     accessKeyId: process.env.S3_ACCESS_KEY_ID || 'utms-minio',
@@ -60,7 +61,10 @@ const s3 = new S3Client({
 });
 const bucket = process.env.S3_BUCKET || 'utms-private';
 const runnerId = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
-const playwrightCli = process.env.PLAYWRIGHT_CLI_PATH || '/test-runtime/node_modules/@playwright/test/cli.js';
+const moduleRequire = createRequire(import.meta.url);
+const localPlaywrightCli = moduleRequire.resolve('@playwright/test/cli');
+const playwrightCli = process.env.PLAYWRIGHT_CLI_PATH || localPlaywrightCli;
+const localTestNodeModules = resolve(dirname(localPlaywrightCli), '..', '..');
 
 function encryptionKey() {
   const value = process.env.UTMS_OBJECT_ENCRYPTION_KEY || '';
@@ -230,7 +234,7 @@ async function executeRun(job) {
     await lstat(selectedTest);
     const configPath = join(workspace, 'playwright.config.cjs');
     await writeReadOnlyFile(workspace, 'playwright.config.cjs', configSource(run, paths));
-    const testNodeModules = process.env.PLAYWRIGHT_TEST_NODE_MODULES || '/test-runtime/node_modules';
+    const testNodeModules = process.env.PLAYWRIGHT_TEST_NODE_MODULES || localTestNodeModules;
     try { await symlink(testNodeModules, join(workspace, 'node_modules'), 'dir'); } catch { /* local development may resolve parent modules */ }
     if (await lstat(join(workspace, 'tests')).catch(() => null)) await makeTreeReadOnly(join(workspace, 'tests'));
     await makeTreeReadOnly(sourceRoot);
@@ -250,7 +254,7 @@ async function executeRun(job) {
       API_BASE_URL: run.environmentProfile.apiBaseUrl || '',
       GATEWAY_BASE_URL: run.environmentProfile.gatewayBaseUrl || '',
       UTMS_SOURCE_ROOT: sourceRoot,
-      PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || '/ms-playwright',
+      ...(process.env.PLAYWRIGHT_BROWSERS_PATH ? { PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH } : {}),
       NODE_PATH: testNodeModules,
     };
     child = spawn(process.execPath, [playwrightCli, ...args], {

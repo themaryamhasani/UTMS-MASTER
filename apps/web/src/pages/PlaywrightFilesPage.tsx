@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle, Edit, Eye, FileCode2, FileText, FolderOpen, Link2, LogOut, Plus, Save, Terminal } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Database, Edit, Eye, FileCode2, FileText, FolderOpen, FolderTree, Link2, LogOut, Plus, Save, Server } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, StatCard } from '../components/ui/Card';
@@ -7,7 +7,7 @@ import { Table, Pagination } from '../components/ui/Table';
 import { CartableSearchInput } from '../components/ui/CartableToolbar';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
-import { Input, Select } from '../components/ui/Input';
+import { Input, SearchableSelect } from '../components/ui/Input';
 import { toast } from '../components/ui/Toast';
 import { useAuthStore, canPerformAction, canUseAutomatedTests } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
@@ -561,8 +561,8 @@ export const PlaywrightFilesPage: React.FC = () => {
         )}
       />
 
-      <main className="p-4 sm:p-6 space-y-6">
-        <div className={`rounded-xl border p-4 flex flex-wrap items-center justify-between gap-3 ${
+      <main className="mx-auto max-w-[1800px] space-y-5 p-4 sm:p-6">
+        <div className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4 shadow-sm ${
           cdeStatus.connected ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'
         }`}>
           <div className="flex items-center gap-3">
@@ -571,18 +571,18 @@ export const PlaywrightFilesPage: React.FC = () => {
               : <AlertTriangle className="w-5 h-5 text-amber-600" />}
             <div>
               <p className="font-semibold text-gray-900">
-                {cdeStatus.connected ? `CDE connected${cdeStatus.user?.displayName ? `: ${cdeStatus.user.displayName}` : ''}` : 'CDE connection required'}
+                {cdeStatus.connected ? `اتصال CDE برقرار است${cdeStatus.user?.displayName ? ` · ${cdeStatus.user.displayName}` : ''}` : 'اتصال به CDE الزامی است'}
               </p>
               <p className="text-xs text-gray-600 mt-1">
                 {cdeStatus.connected
-                  ? 'Project source is read through the server-side CDE session; Playwright files are stored in UTMS CouchDB.'
-                  : 'Connect your own CDE account; the password is sent once and is never stored.'}
+                  ? 'سورس پروژه با Session سروری CDE خوانده و فایل‌های Playwright در CouchDB سامانه ذخیره می‌شوند.'
+                  : 'حساب CDE خود را متصل کنید؛ رمز عبور فقط یک‌بار ارسال می‌شود و ذخیره نخواهد شد.'}
               </p>
             </div>
           </div>
           {cdeStatus.connected ? (
             <Button variant="secondary" icon={<LogOut className="w-4 h-4" />} onClick={() => void disconnectCde()}>
-              Disconnect CDE
+              قطع اتصال CDE
             </Button>
           ) : (
             <Button icon={<Link2 className="w-4 h-4" />} onClick={() => {
@@ -590,7 +590,7 @@ export const PlaywrightFilesPage: React.FC = () => {
               setCdeError('');
               setShowCdeLogin(true);
             }}>
-              Connect CDE
+              اتصال به CDE
             </Button>
           )}
         </div>
@@ -602,157 +602,184 @@ export const PlaywrightFilesPage: React.FC = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <StatCard title="کل فایل‌های تست" value={stats.total} icon={<FileText className="w-6 h-6" />} />
-          <StatCard title="پوشه‌های تست CouchDB" value={stats.folders} icon={<FolderOpen className="w-6 h-6" />} variant="primary" />
-          <StatCard title="ریشه‌های ذخیره‌سازی" value={stats.roots} icon={<Terminal className="w-6 h-6" />} variant="success" />
-          <StatCard title="سامانه‌های مجاز" value={stats.applications} icon={<CheckCircle className="w-6 h-6" />} variant="warning" />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+          <StatCard title="کل فایل‌های تست" value={stats.total} icon={<FileText className="h-5 w-5" />} />
+          <StatCard title="پوشه‌های CouchDB" value={stats.folders} icon={<FolderTree className="h-5 w-5" />} variant="primary" />
+          <StatCard title="ریشه‌های ذخیره‌سازی" value={stats.roots} icon={<Database className="h-5 w-5" />} variant="success" />
+          <StatCard title="سامانه‌های مجاز" value={stats.applications} icon={<Server className="h-5 w-5" />} variant="warning" />
         </div>
 
-        {cdeStatus.connected && (
-          <Card>
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className={`grid min-w-0 items-start gap-5 ${cdeStatus.connected ? '2xl:grid-cols-[minmax(0,2fr)_minmax(340px,0.85fr)]' : 'grid-cols-1'}`}>
+          <section className="min-w-0 space-y-4">
+            <Card className="relative z-20 overflow-visible" padding="sm">
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 pb-3">
                 <div>
-                  <h2 className="font-semibold text-gray-900">Live CDE project source</h2>
-                  <p className="text-xs text-gray-500 mt-1">All source is read as text through POST get-data-source.</p>
+                  <h2 className="font-semibold text-gray-900">کارتابل فایل‌های تست</h2>
+                  <p className="mt-1 text-xs text-gray-500">فایل‌های CouchDB را براساس سامانه، نام، مسیر یا محتوا پیدا کنید.</p>
                 </div>
-                <Select
-                  value={selectedProjectKey}
-                  onChange={(event) => setSelectedProjectKey(event.target.value)}
-                  options={cdeProjects.map(project => ({ value: project.projectKey, label: project.projectKey }))}
-                  placeholder="Select a CDE project"
-                />
+                {testStorage && (
+                  <Badge variant="success">{testStorage.provider} · {testStorage.database}</Badge>
+                )}
               </div>
-
-              {cdeProjects.length === 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                  The connected CDE account did not return any projects from cde/repository/list/my-repo.
+              <div className="grid items-end gap-4 lg:grid-cols-[minmax(260px,0.9fr)_minmax(280px,1.1fr)]">
+                <SearchableSelect
+                  label="سامانه متصل به فایل‌های تست"
+                  value={formData.applicationId}
+                  onValueChange={(applicationId) => setFormData(previous => ({ ...previous, applicationId, folderPath: '' }))}
+                  options={applications.map(application => ({
+                    value: application.id,
+                    label: `${application.name} (${application.code})`,
+                    keywords: `${application.name} ${application.code}`,
+                  }))}
+                  placeholder="سامانه مپ‌شده‌ای وجود ندارد"
+                  searchPlaceholder="جستجوی نام یا کد سامانه..."
+                  disabled={applications.length === 0}
+                />
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">جستجوی فایل</label>
+                  <CartableSearchInput
+                    value={filters.search || ''}
+                    onChange={(search) => setFilters({ ...filters, search, page: 1 })}
+                    placeholder="نام، مسیر، توضیحات یا اسکریپت..."
+                    className="min-w-0"
+                  />
+                </div>
+              </div>
+              {selectedCdeApplication && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">CDE: {selectedCdeApplication.projectKey}</span>
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 font-mono text-gray-600" dir="ltr">{selectedCdeApplication.repositories.tests}</span>
                 </div>
               )}
+            </Card>
 
-              <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-                {catalog?.repositories.map(repository => (
-                  <div key={`${repository.type}:${repository.repoName}`} className="rounded-lg border border-gray-200 p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <Badge variant="info">{repository.type}</Badge>
-                      <span className="truncate font-mono text-[11px] text-gray-500" dir="ltr">{repository.repoName}</span>
+            {cdeStatus.connected && applications.length === 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                مشاهده سورس پروژه‌ها فعال است، اما برای ایجاد فایل Playwright باید مدیر سیستم سامانه UTMS را به پروژه CDE متناظر مپ کند.
+              </div>
+            )}
+
+            <Table
+              columns={columns}
+              data={data?.data || []}
+              loading={loading}
+              emptyMessage="فایل تستی با فیلترهای فعلی یافت نشد."
+              sortBy={filters.sortBy}
+              sortOrder={filters.sortOrder}
+              enableClientFilter={false}
+              exportFilename="playwright-test-files"
+              onSort={(key) => setFilters({
+                ...filters,
+                sortBy: key,
+                sortOrder: filters.sortBy === key && filters.sortOrder === 'asc' ? 'desc' : 'asc',
+              })}
+              onRowClick={(item) => {
+                setSelectedFile(item);
+                setShowDetailModal(true);
+              }}
+            />
+
+            {data && data.total > 0 && (
+              <Pagination
+                page={data.page}
+                totalPages={data.totalPages}
+                total={data.total}
+                limit={data.limit}
+                onPageChange={(page) => setFilters({ ...filters, page })}
+                onLimitChange={(limit) => setFilters({ ...filters, limit, page: 1 })}
+              />
+            )}
+          </section>
+
+          {cdeStatus.connected && (
+            <aside className="min-w-0 2xl:sticky 2xl:top-4">
+              <Card className="relative z-30 overflow-visible">
+                <div className="mb-4 border-b border-gray-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <FolderOpen className="h-5 w-5 text-blue-600" />
+                    <h2 className="font-semibold text-gray-900">مرورگر سورس CDE</h2>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-gray-500">سورس فقط‌خواندنی و نسخه دقیق هر پکیج را بررسی کنید.</p>
+                </div>
+
+                <SearchableSelect
+                  label="پروژه CDE"
+                  value={selectedProjectKey}
+                  onValueChange={setSelectedProjectKey}
+                  options={cdeProjects.map(project => ({ value: project.projectKey, label: project.projectKey }))}
+                  placeholder="پروژه CDE را انتخاب کنید"
+                  searchPlaceholder="جستجوی پروژه CDE..."
+                  emptyMessage="پروژه‌ای با این عبارت پیدا نشد."
+                  dir="ltr"
+                />
+
+                {cdeProjects.length === 0 && (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    حساب CDE متصل‌شده هیچ پروژه‌ای برنگرداند.
+                  </div>
+                )}
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-1">
+                  {catalog?.repositories.map(repository => (
+                    <div key={`${repository.type}:${repository.repoName}`} className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50/60">
+                      <div className="flex items-center justify-between gap-2 border-b border-gray-200 bg-white px-3 py-2.5">
+                        <Badge variant="info">{repository.type}</Badge>
+                        <span className="truncate font-mono text-[11px] text-gray-500" dir="ltr">{repository.repoName}</span>
+                      </div>
+                      <div className="max-h-44 space-y-1 overflow-auto p-2">
+                        {repository.error && <p className="rounded-lg bg-amber-50 px-2 py-2 text-xs text-amber-700">{repository.error.message}</p>}
+                        {!repository.error && repository.packages.length === 0 && <p className="px-2 py-2 text-xs text-gray-400">پکیجی برنگشته نشد.</p>}
+                        {repository.packages.map(pack => (
+                          <button
+                            key={pack.id}
+                            type="button"
+                            onClick={() => void openPackage(
+                              repository.type as Exclude<CdeCatalog['repositories'][number]['type'], 'TESTS'>,
+                              repository.repoName,
+                              pack.id
+                            )}
+                            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left font-mono text-xs text-gray-700 transition-colors hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                            dir="ltr"
+                          >
+                            <FileCode2 className="h-3.5 w-3.5 flex-shrink-0" />
+                            <span className="truncate">{pack.id}</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="max-h-44 space-y-1 overflow-auto">
-                      {repository.error && (
-                        <p className="rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-700">
-                          {repository.error.message}
-                        </p>
-                      )}
-                      {!repository.error && repository.packages.length === 0 && (
-                        <p className="px-2 py-1.5 text-xs text-gray-400">No packages returned.</p>
-                      )}
-                      {repository.packages.map(pack => (
+                  ))}
+                </div>
+
+                {packageContent && (
+                  <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/50 p-3">
+                    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-xs font-semibold text-gray-900" dir="ltr">{packageContent.packId}</p>
+                        <p className="mt-1 text-xs text-gray-500">نسخه {packageContent.branch.versionId || 'نامشخص'} · {packageContent.branch.editable ? 'قابل ویرایش' : 'فقط‌خواندنی'}</p>
+                      </div>
+                      <Badge variant="secondary">{packageContent.files.length} فایل</Badge>
+                    </div>
+                    <div className="max-h-52 space-y-1 overflow-y-auto">
+                      {packageContent.files.map(file => (
                         <button
-                          key={pack.id}
+                          key={file.path}
                           type="button"
-                          onClick={() => void openPackage(
-                            repository.type as Exclude<CdeCatalog['repositories'][number]['type'], 'TESTS'>,
-                            repository.repoName,
-                            pack.id
-                          )}
-                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left font-mono text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700"
+                          onClick={() => setSelectedSource(file)}
+                          className="block w-full truncate rounded-lg bg-white px-2.5 py-2 text-left font-mono text-xs text-gray-700 shadow-sm transition hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
                           dir="ltr"
                         >
-                          <FileCode2 className="h-3.5 w-3.5 flex-shrink-0" />
-                          <span className="truncate">{pack.id}</span>
+                          {file.path}
                         </button>
                       ))}
                     </div>
                   </div>
-                ))}
-              </div>
+                )}
 
-              {packageContent && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50/40 p-3">
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="font-mono text-xs font-semibold text-gray-900" dir="ltr">{packageContent.packId}</p>
-                      <p className="mt-1 text-xs text-gray-500">Version {packageContent.branch.versionId || 'unknown'} · {packageContent.branch.editable ? 'editable' : 'read-only'}</p>
-                    </div>
-                    <Badge variant="secondary">{packageContent.files.length} files</Badge>
-                  </div>
-                  <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
-                    {packageContent.files.map(file => (
-                      <button
-                        key={file.path}
-                        type="button"
-                        onClick={() => setSelectedSource(file)}
-                        className="truncate rounded bg-white px-2 py-2 text-left font-mono text-xs text-gray-700 shadow-sm hover:text-blue-700"
-                        dir="ltr"
-                      >
-                        {file.path}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {catalogLoading && <p className="text-sm text-gray-500">Loading CDE package data…</p>}
-            </div>
-          </Card>
-        )}
-
-        <Card padding="sm">
-          <div className="flex flex-wrap gap-4 items-center">
-            <div className="min-w-[260px] flex-1">
-              <Select
-                label="Mapped UTMS Application for editable Playwright tests"
-                value={formData.applicationId}
-                onChange={(event) => setFormData(previous => ({ ...previous, applicationId: event.target.value, folderPath: '' }))}
-                options={applications.map(application => ({ value: application.id, label: `${application.name} (${application.code})` }))}
-                placeholder="No mapped Application"
-                disabled={applications.length === 0}
-              />
-            </div>
-            <CartableSearchInput
-              value={filters.search || ''}
-              onChange={(search) => setFilters({ ...filters, search, page: 1 })}
-              placeholder="جستجو در نام، مسیر، توضیحات یا اسکریپت..."
-              className="min-w-[220px]"
-            />
-          </div>
-        </Card>
-
-        {cdeStatus.connected && applications.length === 0 && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-            Project source browsing is available above. Creating Playwright files requires a System Administrator to map the UTMS Application to the exact CDE project; test source is stored in CouchDB.
-          </div>
-        )}
-
-        <Table
-          columns={columns}
-          data={data?.data || []}
-          loading={loading}
-          emptyMessage="فایل تستی یافت نشد"
-          sortBy={filters.sortBy}
-          sortOrder={filters.sortOrder}
-          onSort={(key) => setFilters({
-            ...filters,
-            sortBy: key,
-            sortOrder: filters.sortBy === key && filters.sortOrder === 'asc' ? 'desc' : 'asc',
-          })}
-          onRowClick={(item) => {
-            setSelectedFile(item);
-            setShowDetailModal(true);
-          }}
-        />
-
-        {data && data.total > 0 && (
-          <Pagination
-            page={data.page}
-            totalPages={data.totalPages}
-            total={data.total}
-            limit={data.limit}
-            onPageChange={(page) => setFilters({ ...filters, page })}
-            onLimitChange={(limit) => setFilters({ ...filters, limit, page: 1 })}
-          />
-        )}
+                {catalogLoading && <p className="mt-4 text-sm text-gray-500">در حال بارگذاری داده‌های CDE…</p>}
+              </Card>
+            </aside>
+          )}
+        </div>
       </main>
 
       <Modal
@@ -768,12 +795,17 @@ export const PlaywrightFilesPage: React.FC = () => {
               <p className="text-sm text-gray-500 mt-1">همه اطلاعات فایل تست از همین فرم قابل ایجاد و ویرایش است.</p>
             </div>
 
-            <Select
+            <SearchableSelect
               label="سامانه *"
               value={formData.applicationId}
-              onChange={(e) => setFormData({ ...formData, applicationId: e.target.value, folderPath: '' })}
-              options={applications.map(app => ({ value: app.id, label: `${app.name} (${app.code})` }))}
+              onValueChange={(applicationId) => setFormData({ ...formData, applicationId, folderPath: '' })}
+              options={applications.map(app => ({
+                value: app.id,
+                label: `${app.name} (${app.code})`,
+                keywords: `${app.name} ${app.code}`,
+              }))}
               placeholder="سامانه را انتخاب کنید"
+              searchPlaceholder="جستجوی نام یا کد سامانه..."
               error={formErrors.applicationId}
               disabled={formMode === 'edit'}
             />
@@ -787,17 +819,20 @@ export const PlaywrightFilesPage: React.FC = () => {
               </div>
             )}
 
-            <Select
+            <SearchableSelect
               label="پوشه مقصد *"
               value={formData.folderPath}
-              onChange={(e) => setFormData({ ...formData, folderPath: e.target.value })}
+              onValueChange={(folderPath) => setFormData({ ...formData, folderPath })}
               options={folders.map(folder => ({
                 value: folder.fullPath,
                 label: `${PLAYWRIGHT_CDE_ROOT_LABELS[folder.rootKind]} / ${folder.relativePath}`,
+                keywords: `${folder.fullPath} ${folder.rootKind}`,
               }))}
               placeholder={folders.length ? 'پوشه را انتخاب کنید' : 'پوشه‌ای در CouchDB وجود ندارد'}
+              searchPlaceholder="جستجوی نام یا مسیر پوشه..."
               error={formErrors.folderPath}
               disabled={folders.length === 0}
+              dir="ltr"
             />
 
             <Input

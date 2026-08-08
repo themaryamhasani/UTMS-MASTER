@@ -38,6 +38,24 @@ import {
 } from '../types';
 
 const PLAYWRIGHT_RUNNABLE_FILE_REGEX = /(?:\.spec\.(?:ts|js)|\.test\.(?:ts|js)|\.js)$/i;
+const DEVELOPMENT_ENVIRONMENT_NAMES = new Set(['dev', 'develop', 'development']);
+
+function developmentEnvironment(environments: ApplicationEnvironmentProfile[]) {
+  return environments.find(environment =>
+    DEVELOPMENT_ENVIRONMENT_NAMES.has(environment.name.trim().toLowerCase())
+  ) || environments.find(environment => /develop/i.test(environment.name));
+}
+
+function isCdeSourceEditorEnvironment(environment?: ApplicationEnvironmentProfile) {
+  if (!environment) return false;
+  try {
+    const url = new URL(environment.webBaseUrl);
+    return url.origin === 'https://cde.edus.ir'
+      && /^\/(?:front\/directory|dservice\/directory|back)(?:\/|$)/i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
 
 const PLAYWRIGHT_PROJECT_OPTIONS: PlaywrightProject[] = ['chromium', 'firefox', 'webkit'];
 
@@ -45,7 +63,7 @@ const createDefaultPlaywrightForm = (timeoutSeconds = 120) => ({
   testFileId: '',
   testFilePath: '',
   environmentProfileId: '',
-  environment: 'staging',
+  environment: 'develop',
   timeoutSeconds,
   manualPath: false,
   projects: ['chromium'] as PlaywrightProject[],
@@ -185,6 +203,17 @@ export const PlaywrightPage: React.FC = () => {
         file.source === 'COUCHDB' && PLAYWRIGHT_RUNNABLE_FILE_REGEX.test(file.remotePath || file.fullPath)
       ));
       setEnvironments(environmentResponse);
+      setFormData(previous => {
+        const currentEnvironment = environmentResponse.find(environment =>
+          environment.id === previous.environmentProfileId
+        );
+        const selectedEnvironment = currentEnvironment || developmentEnvironment(environmentResponse);
+        return {
+          ...previous,
+          environmentProfileId: selectedEnvironment?.id || '',
+          environment: selectedEnvironment?.name || 'develop',
+        };
+      });
     } catch {
       setDiscoveredFiles([]);
       toast.error('خطا در کشف فایل‌های تست.');
@@ -205,6 +234,11 @@ export const PlaywrightPage: React.FC = () => {
       toast.error('سامانه، فایل تست و حداقل یک مرورگر را انتخاب کنید.');
       return;
     }
+    const selectedEnvironment = environments.find(environment => environment.id === formData.environmentProfileId);
+    if (isCdeSourceEditorEnvironment(selectedEnvironment)) {
+      toast.error('آدرس این محیط، صفحه مدیریت سورس CDE است. ابتدا آدرس واقعی Runtime یا Preview سامانه را در تنظیمات محیط وارد کنید.');
+      return;
+    }
     setActionLoading(true);
     try {
       await cdeApi.startRun({
@@ -222,8 +256,8 @@ export const PlaywrightPage: React.FC = () => {
       setFormData(createDefaultPlaywrightForm(runnerConfig?.defaultTimeoutSeconds || 120));
       setFormApplicationId(isAppLevel || isMultiSystem ? '' : defaultApplicationId);
       loadData();
-    } catch {
-      toast.error('خطا در شروع اجرای Playwright.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'خطا در شروع اجرای Playwright.');
     } finally {
       setActionLoading(false);
     }
@@ -580,6 +614,11 @@ export const PlaywrightPage: React.FC = () => {
             options={environments.map(environment => ({ value: environment.id, label: `${environment.name} — ${environment.webBaseUrl}` }))}
             placeholder="انتخاب محیط استقرار یافته"
           />
+          {isCdeSourceEditorEnvironment(environments.find(environment => environment.id === formData.environmentProfileId)) && (
+            <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              این آدرس فقط صفحه مدیریت سورس CDE است و Runtime قابل تست نیست. آدرس واقعی Runtime یا Preview محیط develop را در تنظیمات سامانه ثبت کنید.
+            </p>
+          )}
           <Input
             label="Timeout Runner (ثانیه)"
             type="number"
@@ -712,7 +751,8 @@ export const PlaywrightPage: React.FC = () => {
               icon={<Play className="w-4 h-4" />}
               onClick={handleStart}
               loading={actionLoading}
-              disabled={!formApplicationId || !formData.testFileId || !formData.environmentProfileId || formData.projects.length === 0}
+              disabled={!formApplicationId || !formData.testFileId || !formData.environmentProfileId || formData.projects.length === 0
+                || isCdeSourceEditorEnvironment(environments.find(environment => environment.id === formData.environmentProfileId))}
             >
               اجرا
             </Button>

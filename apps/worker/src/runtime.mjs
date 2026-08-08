@@ -1,4 +1,4 @@
-import { Worker } from 'bullmq';
+import { UnrecoverableError, Worker } from 'bullmq';
 import IORedis from 'ioredis';
 
 const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
@@ -48,7 +48,9 @@ async function internalPost(path) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload?.error?.message || `UTMS internal API returned HTTP ${response.status}.`);
+    const isTerminalClientError = response.status >= 400 && response.status < 500 && ![408, 429].includes(response.status);
+    const ErrorType = isTerminalClientError ? UnrecoverableError : Error;
+    const error = new ErrorType(payload?.error?.message || `UTMS internal API returned HTTP ${response.status}.`);
     error.code = payload?.error?.category || 'INTERNAL_JOB_FAILED';
     throw error;
   }

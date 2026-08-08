@@ -60,7 +60,7 @@ const emptyCdeMappingForm = {
   apiModuleRepoName: '',
   messageConsumerRepoName: '',
   enabled: true,
-  environmentName: '',
+  environmentName: 'develop',
   webBaseUrl: '',
   apiBaseUrl: '',
   gatewayBaseUrl: '',
@@ -340,11 +340,13 @@ export const ApplicationsPage: React.FC = () => {
         apiModuleRepoName: mapping.apiModuleRepoName || '',
         messageConsumerRepoName: mapping.messageConsumerRepoName || '',
         enabled: mapping.enabled,
-        environmentName: environment?.name || '',
+        environmentName: environment?.name || 'develop',
         webBaseUrl: environment?.webBaseUrl || '',
         apiBaseUrl: environment?.apiBaseUrl || '',
         gatewayBaseUrl: environment?.gatewayBaseUrl || '',
-      } : { ...emptyCdeMappingForm });
+      } : {
+        ...emptyCdeMappingForm,
+      });
       setShowCdeMappingModal(true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'خطا در بارگذاری نگاشت CDE.');
@@ -365,6 +367,10 @@ export const ApplicationsPage: React.FC = () => {
         dataServiceRepoName: project?.repositories.DATA_SERVICE || (derived(previous.dataServiceRepoName, 'data-service') ? `${projectKey}/data-service` : previous.dataServiceRepoName),
         apiModuleRepoName: project?.repositories.API_MODULE || (derived(previous.apiModuleRepoName, 'api-module') ? `${projectKey}/api-module` : previous.apiModuleRepoName),
         messageConsumerRepoName: project?.repositories.MESSAGE_CONSUMER || previous.messageConsumerRepoName,
+        environmentName: previous.environmentName || 'develop',
+        webBaseUrl: previous.webBaseUrl,
+        apiBaseUrl: previous.apiBaseUrl,
+        gatewayBaseUrl: previous.gatewayBaseUrl,
       };
     });
   };

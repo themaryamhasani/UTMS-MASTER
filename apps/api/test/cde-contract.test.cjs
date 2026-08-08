@@ -19,7 +19,46 @@ const {
   projectDescriptor,
   projectRepositoryName,
   repositoryBranches,
+  sameCouchRevisionManifest,
+  isCdeEditorUrl,
 } = require('../src/modules/cde/cde-server.cjs');
+
+test('CDE source-management links are never accepted as Playwright runtime URLs', () => {
+  assert.equal(isCdeEditorUrl('https://cde.edus.ir/front/directory/medu-inquiry%3EApp'), true);
+  assert.equal(isCdeEditorUrl('https://cde.edus.ir/dservice/directory/medu-inquiry%3EApp'), true);
+  assert.equal(isCdeEditorUrl('https://cde.edus.ir/back/medu-inquiry/medu-inquiry%3E'), true);
+  assert.equal(isCdeEditorUrl('https://inquiry.edus.ir/'), false);
+  assert.equal(isCdeEditorUrl('https://example.test/front/directory/app'), false);
+});
+
+test('CouchDB snapshot manifests compare semantically after JSONB key reordering', () => {
+  const original = {
+    provider: 'COUCHDB',
+    database: 'utms_playwright',
+    projectKey: 'medu-inquiry',
+    bindingFingerprint: 'binding-hash',
+    documents: [
+      { id: 'b', revision: '2-b', path: 'tests/b.js', sourceHash: 'hash-b' },
+      { id: 'a', revision: '1-a', path: 'tests/a.js', sourceHash: 'hash-a' },
+    ],
+  };
+  const jsonbShaped = {
+    database: 'utms_playwright',
+    documents: [
+      { path: 'tests/a.js', id: 'a', sourceHash: 'hash-a', revision: '1-a' },
+      { sourceHash: 'hash-b', revision: '2-b', id: 'b', path: 'tests/b.js' },
+    ],
+    bindingFingerprint: 'binding-hash',
+    projectKey: 'medu-inquiry',
+    provider: 'COUCHDB',
+  };
+
+  assert.equal(sameCouchRevisionManifest(original, jsonbShaped), true);
+  assert.equal(sameCouchRevisionManifest(original, {
+    ...jsonbShaped,
+    documents: [{ ...jsonbShaped.documents[0], revision: '3-changed' }, jsonbShaped.documents[1]],
+  }), false);
+});
 
 test('CDE project descriptors expose canonical repositories and editor URLs', () => {
   assert.deepEqual(projectDescriptor('medu-inquiry'), {

@@ -382,6 +382,14 @@ Production URLs must be HTTPS and cannot include credentials or fragments.
 Development may use HTTP. Tests run against this selected deployed environment;
 UTMS does not start Raya Core locally for each run.
 
+CDE source-management links are not execution environments. In particular,
+`https://cde.edus.ir/front/directory/...`, `/dservice/directory/...`, and
+`/back/...` identify editor/catalog pages. The API rejects them with
+`PLAYWRIGHT_ENVIRONMENT_EDITOR_URL`, and the run dialog shows the same problem
+before enabling Run. Administrators must configure the actual deployed or CDE
+Preview runtime URL. Mapping an Application no longer auto-creates `develop`
+from the three editor links.
+
 ## 7. CouchDB-Backed Playwright Files
 
 ### 7.1 Authoritative document store
@@ -524,6 +532,11 @@ different test set. The bundle is content-hashed, encrypted, uploaded to private
 storage, and marked `READY`. The initiating session ID is then removed from the
 snapshot row and the run job is placed on `utms-playwright-runs`.
 
+The revision-set comparison is canonical rather than raw `JSON.stringify`.
+PostgreSQL JSONB may reorder object keys, and that reordering must not create a
+false `COUCHDB_SNAPSHOT_CONFLICT`. Retryable snapshot failures retain the
+initiating session ID; terminal 4xx failures do not retry indefinitely.
+
 The worker also requests expired-snapshot purge periodically. Transient object
 deletion failures are retried on a later cleanup pass.
 
@@ -617,6 +630,14 @@ Internal snapshot materialization/purge routes require
 The page also shows UTMS login separately from CDE connection state, prompts
 for reconnect, handles branch-selection conflicts, exposes exact version IDs,
 marks legacy files as read-only, and refreshes after write conflicts.
+
+The workbench layout uses a responsive two-panel information architecture:
+the editable CouchDB file cartable is the primary panel and the read-only CDE
+source explorer is a sticky secondary panel on wide screens. Project,
+Application, and destination-folder choices use the shared accessible
+`SearchableSelect` combobox with type-to-filter, empty state, click-outside
+close, and Arrow/Enter/Escape keyboard behavior. The file cartable keeps one
+server-backed search field and disables the table's duplicate client filter.
 
 The important regression guard is: selecting a direct CDE project must not
 trigger `/api/applications/:id/playwright/files` unless that ID appears in
@@ -948,3 +969,16 @@ and distinguish a direct browsing bug from a missing managed-testing mapping.
   were replaced with the same live project list used by the Playwright
   workbench. Project selection now derives editor links and repository mapping
   and persists the exact mapping during Application create/edit.
+- **2026-08-08:** Run `cmsk8we5q0003y0zw92dnfi2p` exposed a false
+  `COUCHDB_SNAPSHOT_CONFLICT` caused by JSONB key ordering, followed by a masked
+  `CDE_RECONNECT_REQUIRED` on retries. Canonical manifest comparison and
+  retry/session handling fixed both causes. `dev:all` also gained MinIO bucket
+  preparation, and local Runner CLI/browser resolution was corrected.
+- **2026-08-08:** The same run then reached the real Chromium process and proved
+  its configured `develop` Web URL was the CDE source directory, not the app.
+  Live package metadata showed `medu-inquiry/App` has one personal branch,
+  `env: {}`, no public branch, and `imports.js` sets service ID
+  `inquiry.medu.ir`. `https://inquiry.edus.ir` returned `pageNotFound:true`, so
+  there is currently no externally testable published runtime. Automatic editor
+  URL environments were removed and both API and UI now reject this
+  misconfiguration before queueing.

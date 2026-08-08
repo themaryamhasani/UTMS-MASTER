@@ -619,11 +619,12 @@ async function putMapping(req, applicationId, body) {
   const application = await prisma.application.findUnique({ where: { id: String(applicationId) } });
   if (!application) throw new CdeApiError('APPLICATION_NOT_FOUND', 'Application was not found.', 404);
   const data = validateMappingPayload(applicationId, body);
-  return prisma.cdeApplicationMapping.upsert({
+  const mapping = await prisma.cdeApplicationMapping.upsert({
     where: { applicationId: String(applicationId) },
     create: data,
     update: data,
   });
+  return mapping;
 }
 
 async function getMapping(req, applicationId) {
@@ -894,6 +895,23 @@ function validateEnvironmentUrl(value, required) {
   return url.toString().replace(/\/$/, '');
 }
 
+function isCdeEditorUrl(value) {
+  let url;
+  try { url = new URL(String(value || '')); } catch { return false; }
+  if (url.origin !== CDE_EDITOR_ORIGIN) return false;
+  return /^\/(?:front\/directory|dservice\/directory|back)(?:\/|$)/i.test(url.pathname);
+}
+
+function assertRunnableEnvironmentUrl(value) {
+  if (isCdeEditorUrl(value)) {
+    throw new CdeApiError(
+      'PLAYWRIGHT_ENVIRONMENT_EDITOR_URL',
+      'The Web base URL points to a CDE source editor. Configure the deployed or preview runtime URL instead.',
+      422,
+    );
+  }
+}
+
 function serializeEnvironment(row) {
   return {
     id: row.id,
@@ -936,6 +954,7 @@ async function saveEnvironment(req, applicationId, body, environmentId) {
       : existing?.secretReferences || {},
     enabled: body.enabled !== false,
   };
+  assertRunnableEnvironmentUrl(data.webBaseUrl);
   if (!data.name) throw new CdeApiError('ENVIRONMENT_NAME_REQUIRED', 'Environment name is required.', 400);
   const row = environmentId
     ? await prisma.applicationEnvironment.update({ where: { id: environmentId }, data })
@@ -999,7 +1018,21 @@ function couchRevisionManifest(documents, mapping) {
 }
 
 function sameCouchRevisionManifest(left, right) {
-  return hash(JSON.stringify(left || {})) === hash(JSON.stringify(right || {}));
+  const canonical = value => ({
+    provider: String(value?.provider || ''),
+    database: String(value?.database || ''),
+    projectKey: String(value?.projectKey || ''),
+    bindingFingerprint: String(value?.bindingFingerprint || ''),
+    documents: (Array.isArray(value?.documents) ? value.documents : []).map(document => ({
+      id: String(document?.id || ''),
+      revision: String(document?.revision || ''),
+      path: String(document?.path || ''),
+      sourceHash: String(document?.sourceHash || ''),
+    })).sort((leftDocument, rightDocument) =>
+      leftDocument.id.localeCompare(rightDocument.id) || leftDocument.path.localeCompare(rightDocument.path)
+    ),
+  });
+  return hash(JSON.stringify(canonical(left))) === hash(JSON.stringify(canonical(right)));
 }
 
 async function materializeSnapshot(req, applicationId, environment, options = {}) {
@@ -1169,6 +1202,7 @@ async function createRun(req, body) {
     where: { id: String(body.environmentProfileId || ''), applicationId, enabled: true },
   });
   if (!environment) throw new CdeApiError('PLAYWRIGHT_ENVIRONMENT_REQUIRED', 'Select an enabled deployed environment.', 422);
+  assertRunnableEnvironmentUrl(environment.webBaseUrl);
   const testFile = await prisma.playwrightTestFile.findFirst({
     where: { id: String(body.testFileId || ''), applicationId, source: 'COUCHDB' },
   });
@@ -1288,15 +1322,34 @@ async function materializeSnapshotJob(req, snapshotId) {
       }),
       prisma.playwrightRun.update({
         where: { id: run.id },
-        data: { status: 'QUEUED', queueStatus: 'QUEUED' },
+        data: { status: 'QUEUED', queueStatus: 'QUEUED', completedAt: null, logs: null },
       }),
     ]);
     await enqueueRun(run.id, snapshot.id);
     return { snapshotId: snapshot.id, runId: run.id, contentHash: bundle.contentHash };
   } catch (error) {
+    const errorCode = error.category || 'SNAPSHOT_FAILED';
+    const errorMessage = String(error.message || 'Snapshot failed.').slice(0, 4000);
+    const terminalClientError = Number(error.statusCode) >= 400 && Number(error.statusCode) < 500;
     await prisma.$transaction([
-      prisma.cdeSourceSnapshot.update({ where: { id: snapshot.id }, data: { status: 'FAILED', errorCode: error.category || 'SNAPSHOT_FAILED', errorMessage: String(error.message || 'Snapshot failed.').slice(0, 4000), initiatingSessionId: null } }),
-      prisma.playwrightRun.update({ where: { id: run.id }, data: { status: 'ERROR', queueStatus: 'FAILED', completedAt: new Date(), logs: 'CDE snapshot materialization failed.' } }),
+      prisma.cdeSourceSnapshot.update({
+        where: { id: snapshot.id },
+        data: {
+          status: 'FAILED',
+          errorCode,
+          errorMessage,
+          ...(terminalClientError ? { initiatingSessionId: null } : {}),
+        },
+      }),
+      prisma.playwrightRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'ERROR',
+          queueStatus: 'FAILED',
+          completedAt: new Date(),
+          logs: `Snapshot materialization failed [${errorCode}]: ${errorMessage}`,
+        },
+      }),
     ]);
     throw error;
   }
@@ -1390,6 +1443,8 @@ module.exports = {
   handleCde,
   normalizeRemoteFiles,
   materializeSnapshot,
+  sameCouchRevisionManifest,
+  isCdeEditorUrl,
   projectDescriptor,
   projectRepositoryName,
   repositoryBranches,

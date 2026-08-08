@@ -6,6 +6,7 @@ const net = require('node:net');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 const { RedisMemoryServer } = require('redis-memory-server');
+const { HeadBucketCommand, S3Client } = require('@aws-sdk/client-s3');
 
 const repositoryRoot = path.resolve(__dirname, '..', '..');
 const envFile = path.join(repositoryRoot, '.env');
@@ -32,6 +33,10 @@ function configuredRedisUrl() {
 function configuredCouchDbUrl() {
   if (process.env.COUCHDB_URL) return process.env.COUCHDB_URL;
   return `http://127.0.0.1:${positivePort(process.env.COUCHDB_PORT, 5984)}`;
+}
+
+function configuredS3Endpoint() {
+  return process.env.S3_ENDPOINT || `http://127.0.0.1:${positivePort(process.env.MINIO_PORT, 9000)}`;
 }
 
 function redisAddress(redisUrl) {
@@ -73,7 +78,7 @@ function startComposeService(serviceName) {
     cwd: repositoryRoot,
     encoding: 'utf8',
     windowsHide: true,
-    timeout: 30_000,
+    timeout: 180_000,
   });
   if (docker.error || docker.status !== 0) {
     const detail = String(docker.stderr || docker.stdout || docker.error?.message || '').trim();
@@ -192,6 +197,57 @@ async function prepareCouchDb() {
   throw new Error(`The local CouchDB container did not become reachable at ${parsed.origin}. Check "docker compose logs couchdb".`);
 }
 
+async function prepareObjectStorage() {
+  const endpoint = configuredS3Endpoint();
+  let parsed;
+  try {
+    parsed = new URL(endpoint);
+  } catch {
+    throw new Error('S3_ENDPOINT must be a valid http:// or https:// URL.');
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('S3_ENDPOINT must use http:// or https://.');
+  const address = {
+    host: parsed.hostname || '127.0.0.1',
+    port: positivePort(parsed.port, parsed.protocol === 'https:' ? 443 : 80),
+  };
+  if (!(await canConnect(address))) {
+    if (process.env.S3_ENDPOINT || process.env.UTMS_DEV_OBJECT_STORAGE === 'external') {
+      throw new Error(`Object storage is unavailable at ${parsed.origin}. Start the configured S3-compatible service.`);
+    }
+    console.log('[dev:all] MinIO is not running; starting the local Compose minio service.');
+    startComposeService('minio');
+    if (!(await waitForAddress(address))) {
+      throw new Error(`MinIO could not become reachable at ${parsed.origin}. Check "docker compose logs minio".`);
+    }
+  } else {
+    console.log(`[dev:all] Using object storage at ${parsed.origin}.`);
+  }
+
+  startComposeService('minio-init');
+  const bucket = process.env.S3_BUCKET || 'utms-private';
+  const client = new S3Client({
+    region: process.env.S3_REGION || 'us-east-1',
+    endpoint,
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE !== 'false',
+    credentials: {
+      accessKeyId: process.env.S3_ACCESS_KEY_ID || 'utms-minio',
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || 'utms-minio-development',
+    },
+  });
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      await client.send(new HeadBucketCommand({ Bucket: bucket }));
+      client.destroy();
+      console.log(`[dev:all] Object storage bucket ${bucket} is ready.`);
+      return endpoint;
+    } catch {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+  client.destroy();
+  throw new Error(`Object storage bucket ${bucket} was not initialized.`);
+}
+
 function npmInvocation(script) {
   const npmCli = process.env.npm_execpath;
   if (npmCli && npmCli.endsWith('.js')) return [process.execPath, [npmCli, 'run', script]];
@@ -202,11 +258,11 @@ function npmInvocation(script) {
   return [process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', script]];
 }
 
-function startService(name, redisUrl, couchdbUrl) {
+function startService(name, redisUrl, couchdbUrl, s3Endpoint) {
   const [command, args] = npmInvocation(name);
   const child = spawn(command, args, {
     cwd: repositoryRoot,
-    env: { ...process.env, REDIS_URL: redisUrl, COUCHDB_URL: couchdbUrl },
+    env: { ...process.env, REDIS_URL: redisUrl, COUCHDB_URL: couchdbUrl, S3_ENDPOINT: s3Endpoint },
     stdio: 'inherit',
     shell: false,
   });
@@ -259,7 +315,8 @@ async function main() {
   await assertDevelopmentPortsAvailable();
   const redisUrl = await prepareRedis();
   const couchdbUrl = await prepareCouchDb();
-  for (const name of ['dev:web', 'dev:api', 'dev:worker', 'dev:runner']) startService(name, redisUrl, couchdbUrl);
+  const s3Endpoint = await prepareObjectStorage();
+  for (const name of ['dev:web', 'dev:api', 'dev:worker', 'dev:runner']) startService(name, redisUrl, couchdbUrl, s3Endpoint);
 }
 
 process.once('SIGINT', () => void shutdown(0));
