@@ -102,7 +102,16 @@ test('UTMS-RESET-SEC-006 @negative hides the reset route outside test mode', asy
   const child = spawn(process.execPath, ['apps/api/src/main.cjs'], {
     cwd: process.cwd(),
     stdio: 'ignore',
-    env: { ...process.env, NODE_ENV: 'production', API_CONSOLE_PORT: String(port), API_CONSOLE_DATA_DIR: dataDir },
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      API_CONSOLE_PORT: String(port),
+      API_CONSOLE_DATA_DIR: dataDir,
+      CDE_SESSION_ENCRYPTION_KEY: 'test-only-cde-session-encryption-key',
+      UTMS_OBJECT_ENCRYPTION_KEY: 'test-only-object-storage-encryption-key',
+      COUCHDB_USERNAME: 'test-production-user',
+      COUCHDB_PASSWORD: 'test-production-password',
+    },
   });
   try {
     const deadline = Date.now() + 15_000;

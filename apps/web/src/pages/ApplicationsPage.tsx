@@ -67,7 +67,7 @@ const emptyCdeMappingForm = {
 };
 
 export const ApplicationsPage: React.FC = () => {
-  const { activeContext } = useAuthStore();
+  const { activeContext, refreshContexts } = useAuthStore();
   const [applications, setApplications] = useState<Application[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
   const [roleAssignments, setRoleAssignments] = useState<UserRoleAssignment[]>([]);
@@ -266,6 +266,7 @@ export const ApplicationsPage: React.FC = () => {
           ? `سامانه ایجاد شد، اما نگاشت زنده CDE تأیید نشد: ${mappingError.message}`
           : 'سامانه ایجاد شد، اما نگاشت زنده CDE تأیید نشد.');
       }
+      await refreshContexts();
       toast.success(`سامانه «${appForm.name}» با موفقیت ایجاد شد.`);
       setShowCreateModal(false); setAppForm(emptyAppForm); loadData();
     } catch (error) {
@@ -297,6 +298,7 @@ export const ApplicationsPage: React.FC = () => {
           ? `سامانه ویرایش شد، اما نگاشت زنده CDE تأیید نشد: ${mappingError.message}`
           : 'سامانه ویرایش شد، اما نگاشت زنده CDE تأیید نشد.');
       }
+      await refreshContexts();
       toast.success(`سامانه «${appForm.name}» ویرایش شد.`);
       setShowEditModal(false); loadData();
     } catch (error) {
@@ -315,6 +317,7 @@ export const ApplicationsPage: React.FC = () => {
     try {
       const nextActive = !selectedApp.isActive;
       await applicationApi.update(selectedApp.id, { isActive: nextActive });
+      await refreshContexts();
       toast.success(`سامانه «${selectedApp.name}» ${nextActive ? 'فعال' : 'غیرفعال'} شد.`);
       setShowDeleteConfirm(false); loadData();
     } catch { toast.error('خطا.'); }

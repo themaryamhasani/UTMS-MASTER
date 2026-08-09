@@ -348,6 +348,27 @@ SSRF protection شامل این موارد است:
 - redirect destination دوباره validate می‌شود
 - redirect count محدود است
 
+برای APIهای داخلی که DNS آن‌ها به RFC1918 یا IPv6 ULA resolve می‌شود، origin دقیق باید در
+`API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST` ثبت شود. چند origin با ویرگول جدا می‌شوند؛ برای مثال:
+
+```dotenv
+API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST=https://internal-api.example.ir,https://10.20.30.40:8443
+```
+
+این allowlist فقط همان protocol، hostname و port را مجاز می‌کند و wildcard ندارد. مقصدهای
+localhost، loopback، link-local، carrier-grade NAT، multicast و cloud metadata حتی با وجود
+entry در allowlist مسدود می‌مانند. مقصد هر redirect نیز مستقل بررسی می‌شود.
+
+در محیط development می‌توان برای اجرای APIهای همه‌ی شبکه‌های خصوصی سازمانی از تنظیم زیر
+استفاده کرد:
+
+```dotenv
+API_CONSOLE_ALLOW_PRIVATE_DESTINATIONS=true
+```
+
+این گزینه در `NODE_ENV=production` نادیده گرفته می‌شود. محدودیت‌های localhost، loopback،
+link-local، carrier-grade NAT، multicast و cloud metadata در development نیز حذف نمی‌شوند.
+
 اگر certificate با hostname match نباشد، error category برابر `TLS_ERROR` است. `--insecure` یا `tls.verifyCertificate=false` فقط وقتی مجاز است که policy اجازه بدهد؛ Production به صورت default restricted است.
 
 ## Scripts

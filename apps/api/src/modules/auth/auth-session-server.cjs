@@ -84,7 +84,9 @@ async function sessionContext(prisma, session) {
     ? session.scopeApplicationIds
     : [session.applicationId].filter(Boolean);
   const applications = await prisma.application.findMany({
-    where: { id: { in: applicationIds }, isActive: true },
+    where: session.scope === 'APP'
+      ? { isActive: true }
+      : { id: { in: applicationIds }, isActive: true },
     orderBy: { createdAt: 'asc' },
   });
   const application = applications.find(item => item.id === session.applicationId) || applications[0] || null;

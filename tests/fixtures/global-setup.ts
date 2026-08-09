@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { FullConfig } from '@playwright/test';
+import { request, type FullConfig } from '@playwright/test';
 
 const roles = {
   SYSTEM_ADMIN: { id: 'user-admin', phone: '09120000000', name: 'مدیر سیستم', assignment: 'ura-admin', scope: 'APP' },
@@ -43,6 +43,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   }
 
   const origin = process.env.UTMS_WEB_BASE_URL || 'http://127.0.0.1:5173';
+  const apiBaseURL = process.env.UTMS_API_BASE_URL || 'http://127.0.0.1:4174';
   for (const [role, identity] of Object.entries(roles)) {
     const applicationRows = [
       { id: 'app-1', name: 'سامانه بانکداری آنلاین', code: 'BANKING' },
@@ -101,8 +102,25 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
       state: { isAuthenticated: true, user, activeContext, availableContexts: [availableContext] },
       version: 0,
     });
+    const session = await request.newContext({ baseURL: apiBaseURL });
+    let cookies;
+    try {
+      const login = await session.post('/api/auth/login', {
+        data: { phoneNumber: identity.phone, password: '123456' },
+      });
+      if (!login.ok()) throw new Error(`Test login failed for ${role} with HTTP ${login.status()}.`);
+      const loginPayload = await login.json();
+      const selection = await session.post('/api/auth/context', {
+        data: { assignmentId: identity.assignment },
+        headers: { 'x-csrf-token': loginPayload.csrfToken },
+      });
+      if (!selection.ok()) throw new Error(`Test context selection failed for ${role} with HTTP ${selection.status()}.`);
+      cookies = (await session.storageState()).cookies;
+    } finally {
+      await session.dispose();
+    }
     const storageState = {
-      cookies: [],
+      cookies,
       origins: [{ origin, localStorage: [{ name: 'utms-auth', value: persisted }] }],
     };
     fs.writeFileSync(path.join(root, '.auth', `${role}.json`), JSON.stringify(storageState, null, 2));

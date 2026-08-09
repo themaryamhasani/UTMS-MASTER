@@ -19,7 +19,7 @@ import {
   getWorkflowPolicy,
   syncApplicationWorkflowPolicies,
 } from '../services/workflowPolicyStore';
-import { authSessionApi } from '../services/platformApi';
+import { authSessionApi, PlatformApiError } from '../services/platformApi';
 
 interface AuthState {
   isAuthenticated: boolean;
@@ -226,8 +226,10 @@ export const useAuthStore = create<AuthState>()(
 
         try {
           await authSessionApi.current();
-        } catch {
-          set({ isAuthenticated: false, user: null, activeContext: null, availableContexts: [] });
+        } catch (error) {
+          if (error instanceof PlatformApiError && error.status === 401) {
+            set({ isAuthenticated: false, user: null, activeContext: null, availableContexts: [] });
+          }
           return;
         }
         const contexts = await loadAvailableContexts(user);

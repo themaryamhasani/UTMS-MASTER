@@ -97,7 +97,7 @@ const ANALYTICS_COOKIES = new Set(['_ga', '_gid', '_gat', '_gcl_au']);
 const PRODUCTION_KINDS = new Set(['PRODUCTION']);
 const PROTECTED_HOSTS = new Set(['localhost', 'ip6-localhost', 'ip6-loopback']);
 const METADATA_HOSTS = new Set(['metadata.google.internal']);
-const METADATA_IPS = new Set(['169.254.169.254']);
+const METADATA_IPS = new Set(['169.254.169.254', 'fd00:ec2::254']);
 
 const DEFAULT_DOCUMENT_ORGANIZATION = 'وزارت آموزش و پرورش';
 const DEFAULT_DOCUMENT_DEPARTMENT = 'مرکز توسعه آموزش مجازی، فناوری و امنیت اطلاعات';
@@ -2049,7 +2049,10 @@ function findEnvironment(id) {
   return store.environments.find(item => item.id === id) || store.environments[0];
 }
 
-function selectRunner(environment) {
+function selectRunner(environment, resolvedAddress) {
+  if (resolvedAddress && isPrivateNetworkAddress(resolvedAddress)) {
+    return store.runners.find(runner => runner.networkZone === 'INTERNAL') || store.runners[0];
+  }
   if (environment.kind === 'PRODUCTION') return store.runners.find(runner => runner.networkZone === 'RESTRICTED') || store.runners[0];
   if (environment.kind === 'TEST') return store.runners.find(runner => runner.networkZone === 'TEST') || store.runners[0];
   return store.runners.find(runner => runner.networkZone === 'PUBLIC') || store.runners[0];
@@ -2313,28 +2316,87 @@ function ipv4ToNumber(ip) {
   return (((parts[0] * 256 + parts[1]) * 256 + parts[2]) * 256 + parts[3]) >>> 0;
 }
 
-function isPrivateIPv4(host) {
+function isAllowlistEligiblePrivateIPv4(host) {
   const value = ipv4ToNumber(host);
   if (value === null) return false;
   const a = Number(host.split('.')[0]);
   const b = Number(host.split('.')[1]);
   return a === 10 ||
-    a === 127 ||
-    a === 0 ||
-    a >= 224 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168);
 }
 
-function isUnsafeIPv6(host) {
-  const lower = String(host || '').replace(/^\[|\]$/g, '').toLowerCase();
+function isHardBlockedIPv4(host) {
+  const value = ipv4ToNumber(host);
+  if (value === null) return false;
+  const a = Number(host.split('.')[0]);
+  const b = Number(host.split('.')[1]);
+  return a === 127 ||
+    a === 0 ||
+    a >= 224 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254);
+}
+
+function normalizedIPv6(host) {
+  return String(host || '').replace(/^\[|\]$/g, '').toLowerCase();
+}
+
+function isAllowlistEligiblePrivateIPv6(host) {
+  const lower = normalizedIPv6(host);
+  return lower.startsWith('fc') || lower.startsWith('fd');
+}
+
+function isHardBlockedIPv6(host) {
+  const lower = normalizedIPv6(host);
   return lower === '::1' ||
     lower === '::' ||
     lower.startsWith('fe80:') ||
-    lower.startsWith('fc') ||
-    lower.startsWith('fd');
+    lower.startsWith('ff') ||
+    lower.startsWith('::ffff:') ||
+    lower.startsWith('0:0:0:0:0:ffff:');
+}
+
+function configuredPrivateDestinationOrigins() {
+  const origins = new Set();
+  for (const value of String(process.env.API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST || '').split(',')) {
+    const candidate = value.trim();
+    if (!candidate) continue;
+    try {
+      const parsed = new URL(candidate);
+      const isOriginOnly = (parsed.pathname === '/' || parsed.pathname === '') && !parsed.search && !parsed.hash;
+      if (['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password && isOriginOnly) {
+        origins.add(parsed.origin.toLowerCase());
+      }
+    } catch {
+      // Invalid entries never grant network access.
+    }
+  }
+  return origins;
+}
+
+function allowAllPrivateDestinationsInDevelopment() {
+  return process.env.NODE_ENV !== 'production' && process.env.API_CONSOLE_ALLOW_PRIVATE_DESTINATIONS === 'true';
+}
+
+function isPrivateNetworkAddress(host) {
+  return isAllowlistEligiblePrivateIPv4(host) || isAllowlistEligiblePrivateIPv6(host);
+}
+
+function assertDestinationAddressAllowed(address, privateDestinationAllowed, resolvedByDns = false) {
+  const normalized = normalizedIPv6(address);
+  if (METADATA_IPS.has(normalized) || isHardBlockedIPv4(normalized) || isHardBlockedIPv6(normalized)) {
+    throw new ApiConsoleError(
+      'DESTINATION_NOT_ALLOWED',
+      `${resolvedByDns ? 'DNS resolved to' : 'The destination is'} a blocked loopback, link-local, carrier-grade, multicast, or metadata address.`,
+    );
+  }
+  if (isPrivateNetworkAddress(normalized) && !privateDestinationAllowed) {
+    throw new ApiConsoleError(
+      'DESTINATION_NOT_ALLOWED',
+      `${resolvedByDns ? 'DNS resolved to a private network address' : 'Private network destinations'} require an exact approved origin in API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST.`,
+    );
+  }
 }
 
 async function validateDestination(urlText) {
@@ -2347,16 +2409,19 @@ async function validateDestination(urlText) {
   if (!['http:', 'https:'].includes(parsed.protocol)) {
     throw new ApiConsoleError('DESTINATION_NOT_ALLOWED', 'Only HTTP and HTTPS destinations are allowed.');
   }
-  const host = parsed.hostname.toLowerCase();
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
+  const privateDestinationAllowed = allowAllPrivateDestinationsInDevelopment() ||
+    configuredPrivateDestinationOrigins().has(parsed.origin.toLowerCase());
   if (PROTECTED_HOSTS.has(host) || host.endsWith('.local') || host.endsWith('.localhost')) {
     throw new ApiConsoleError('DESTINATION_NOT_ALLOWED', 'Localhost and local-network hostnames are blocked by policy.');
   }
-  if (METADATA_HOSTS.has(host) || METADATA_IPS.has(host) || isPrivateIPv4(host) || isUnsafeIPv6(host)) {
-    throw new ApiConsoleError('DESTINATION_NOT_ALLOWED', 'Private, loopback, and cloud metadata destinations are blocked.');
+  if (METADATA_HOSTS.has(host)) {
+    throw new ApiConsoleError('DESTINATION_NOT_ALLOWED', 'Cloud metadata destinations are blocked by policy.');
   }
+  assertDestinationAddressAllowed(host, privateDestinationAllowed);
 
   const records = /^[0-9.]+$/.test(host) || host.includes(':')
-    ? [{ address: host, family: host.includes(':') ? 6 : 4 }]
+    ? [{ address: host.includes(':') ? normalizedIPv6(host) : host, family: host.includes(':') ? 6 : 4 }]
     : await dns.lookup(host, { all: true, verbatim: false });
 
   if (!records.length) {
@@ -2364,9 +2429,7 @@ async function validateDestination(urlText) {
   }
 
   for (const record of records) {
-    if (METADATA_IPS.has(record.address) || isPrivateIPv4(record.address) || isUnsafeIPv6(record.address)) {
-      throw new ApiConsoleError('DESTINATION_NOT_ALLOWED', 'DNS resolved to a blocked private, loopback, or metadata address.');
-    }
+    assertDestinationAddressAllowed(record.address, privateDestinationAllowed, true);
   }
 
   return { parsed, address: records[0].address, family: records[0].family };
@@ -3901,8 +3964,8 @@ async function executeRequest(requestId, context, options = {}) {
 
   const startedAt = nowIso();
   try {
-    const runner = selectRunner(environment);
     const response = await executeWithRedirects(resolved.transport);
+    const runner = selectRunner(environment, response.resolvedIpAddress);
     const assertionResults = evaluateAssertions(request, response);
     const postScriptResults = runPostResponseScript(executionRequest.scripts, response);
     const scriptAssertionResults = postScriptResults.map(result => ({

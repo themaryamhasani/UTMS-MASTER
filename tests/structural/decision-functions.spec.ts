@@ -268,6 +268,55 @@ test('UTMS-SEC-ERR-013 @error-guessing rejects SSRF-prone destinations', async (
   }
 });
 
+test('UTMS-SEC-ALLOW-023 permits only explicitly approved private origins', async ({}, testInfo) => {
+  annotateTest(testInfo, metadata('UTMS-SEC-ALLOW-023', {
+    requirement: 'Online API Console private destination allowlist', feature: 'Destination validation', level: 'structural', type: 'security',
+    technique: 'Decision Testing', role: 'SYSTEM_ADMIN', scope: 'APP', risk: 'critical',
+    data: 'Exact private origin, scheme mismatch, loopback and metadata origins', expected: 'Only the exact RFC1918 origin is allowed',
+  }));
+  const previous = process.env.API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST;
+  try {
+    process.env.API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST = [
+      'https://10.30.170.246',
+      'http://127.0.0.1:8080',
+      'http://169.254.169.254',
+    ].join(',');
+    await expect(apiServer.validateDestination('https://10.30.170.246/private')).resolves.toMatchObject({ address: '10.30.170.246' });
+    await expect(apiServer.validateDestination('http://10.30.170.246/private')).rejects.toMatchObject({ category: 'DESTINATION_NOT_ALLOWED' });
+    await expect(apiServer.validateDestination('http://127.0.0.1:8080')).rejects.toMatchObject({ category: 'DESTINATION_NOT_ALLOWED' });
+    await expect(apiServer.validateDestination('http://169.254.169.254/latest/meta-data')).rejects.toMatchObject({ category: 'DESTINATION_NOT_ALLOWED' });
+  } finally {
+    if (previous === undefined) delete process.env.API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST;
+    else process.env.API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST = previous;
+  }
+});
+
+test('UTMS-SEC-DEV-024 allows private networks only behind the development switch', async ({}, testInfo) => {
+  annotateTest(testInfo, metadata('UTMS-SEC-DEV-024', {
+    requirement: 'Online API Console development private-network policy', feature: 'Destination validation', level: 'structural', type: 'security',
+    technique: 'Decision Testing', role: 'SYSTEM_ADMIN', scope: 'APP', risk: 'critical',
+    data: 'Development and production modes with the same private-network switch', expected: 'The broad switch is effective only outside production',
+  }));
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousAllowPrivate = process.env.API_CONSOLE_ALLOW_PRIVATE_DESTINATIONS;
+  const previousAllowlist = process.env.API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST;
+  try {
+    process.env.API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST = '';
+    process.env.API_CONSOLE_ALLOW_PRIVATE_DESTINATIONS = 'true';
+    process.env.NODE_ENV = 'development';
+    await expect(apiServer.validateDestination('https://10.40.50.60/internal')).resolves.toMatchObject({ address: '10.40.50.60' });
+    process.env.NODE_ENV = 'production';
+    await expect(apiServer.validateDestination('https://10.40.50.60/internal')).rejects.toMatchObject({ category: 'DESTINATION_NOT_ALLOWED' });
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    if (previousAllowPrivate === undefined) delete process.env.API_CONSOLE_ALLOW_PRIVATE_DESTINATIONS;
+    else process.env.API_CONSOLE_ALLOW_PRIVATE_DESTINATIONS = previousAllowPrivate;
+    if (previousAllowlist === undefined) delete process.env.API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST;
+    else process.env.API_CONSOLE_PRIVATE_DESTINATION_ALLOWLIST = previousAllowlist;
+  }
+});
+
 test('UTMS-API-RND-014 @random uses a reproducible cURL input seed', async ({}, testInfo) => {
   const seed = Number(process.env.UTMS_TEST_SEED || 20260715);
   annotateTest(testInfo, metadata('UTMS-API-RND-014', {

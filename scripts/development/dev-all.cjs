@@ -35,6 +35,13 @@ function configuredCouchDbUrl() {
   return `http://127.0.0.1:${positivePort(process.env.COUCHDB_PORT, 5984)}`;
 }
 
+function configuredCouchDbCredentials() {
+  return {
+    username: String(process.env.COUCHDB_USERNAME || (process.env.NODE_ENV === 'production' ? '' : 'utms')),
+    password: String(process.env.COUCHDB_PASSWORD || (process.env.NODE_ENV === 'production' ? '' : 'utms-couchdb-development')),
+  };
+}
+
 function configuredS3Endpoint() {
   return process.env.S3_ENDPOINT || `http://127.0.0.1:${positivePort(process.env.MINIO_PORT, 9000)}`;
 }
@@ -92,6 +99,43 @@ async function waitForAddress(address, attempts = 40) {
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   return false;
+}
+
+async function couchDbReadiness(origin, timeoutMs = 1_000) {
+  const { username, password } = configuredCouchDbCredentials();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const headers = {};
+  if (username || password) headers.authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+  try {
+    const response = await fetch(`${origin}/_up`, { headers, redirect: 'error', signal: controller.signal });
+    return { reachable: true, ready: response.ok, status: response.status };
+  } catch {
+    return { reachable: false, ready: false };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function waitForCouchDb(origin, attempts = 40) {
+  let readiness = { reachable: false, ready: false };
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    readiness = await couchDbReadiness(origin);
+    if (readiness.ready || readiness.status === 401 || readiness.status === 403) return readiness;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  return readiness;
+}
+
+function assertCouchDbReadiness(readiness, origin) {
+  if (readiness.ready) return;
+  if (readiness.status === 401 || readiness.status === 403) {
+    throw new Error(
+      `CouchDB at ${origin} rejected COUCHDB_USERNAME/COUCHDB_PASSWORD (HTTP ${readiness.status}). Update those values in .env to match the running service.`,
+    );
+  }
+  if (readiness.reachable) throw new Error(`CouchDB readiness check at ${origin}/_up returned HTTP ${readiness.status}.`);
+  throw new Error(`CouchDB is unavailable at ${origin}. Start the configured CouchDB service before running UTMS.`);
 }
 
 async function assertDevelopmentPortsAvailable() {
@@ -174,6 +218,7 @@ async function prepareCouchDb() {
     port: positivePort(parsed.port, parsed.protocol === 'https:' ? 443 : 80),
   };
   if (await canConnect(address)) {
+    assertCouchDbReadiness(await couchDbReadiness(parsed.origin), parsed.origin);
     console.log(`[dev:all] Using CouchDB at ${parsed.origin}.`);
     return requestedUrl;
   }
@@ -191,6 +236,7 @@ async function prepareCouchDb() {
     throw new Error(`CouchDB could not be started. ${errorMessage(error)}`);
   }
   if (await waitForAddress(address)) {
+    assertCouchDbReadiness(await waitForCouchDb(parsed.origin), parsed.origin);
     console.log(`[dev:all] Started CouchDB at ${parsed.origin}.`);
     return requestedUrl;
   }
