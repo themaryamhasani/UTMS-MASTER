@@ -190,7 +190,12 @@ session:
    }
    ```
 
-4. UTMS returns a five-minute encrypted login challenge. The cellphone is not
+4. UTMS advances only when Core explicitly returns `nextStep: "password"` (or
+   reports an authenticated session). Missing steps and registration/signup
+   steps are never guessed as password success; they return
+   `CDE_ACCOUNT_NOT_FOUND`. Iranian `09...`, `9...`, `+98...`, and Persian-digit
+   cellphone input is normalized to Core's ten-digit local form. UTMS then
+   returns a five-minute encrypted login challenge. The cellphone is not
    persisted in PostgreSQL or logs.
 5. The password step sends:
 
@@ -208,7 +213,14 @@ session:
    ```
 
 6. UTMS immediately calls `pages-app/who-am-i` again. Connection succeeds only
-   when `Result.IsUserLogin` is true.
+   when `Result.IsUserLogin` is true. Incorrect-password responses become
+   `CDE_INVALID_CREDENTIALS`; the short-lived login state remains available so
+   the user can correct the password without re-entering the cellphone.
+
+The Playwright-files UI presents this as an accessible two-step Persian form.
+Each step is a real HTML form submission, so Enter moves from cellphone to
+password and then connects. It provides autofocus, inline localized errors, a
+visible step indicator, and a back action to change the cellphone.
 
 The password is forwarded once and is never persisted. Do not add CDE
 credentials, cookies, copied request headers, or live client IDs to source,
@@ -389,6 +401,34 @@ CDE source-management links are not execution environments. In particular,
 before enabling Run. Administrators must configure the actual deployed or CDE
 Preview runtime URL. Mapping an Application no longer auto-creates `develop`
 from the three editor links.
+
+The System Settings cartable exposes these records under an accessible tabbed
+interface. Its Execution Environments tab loads only mapped projects in the
+intersection of the current UTMS scope and the connected CDE account. The
+project control is a searchable combobox: project key, UTMS name, and code are
+all searchable. Changing projects clears the previous project's profiles before
+requesting the new records, so stale URLs are never shown.
+
+Four conventional profiles appear as responsive cards: `develop`, `test`,
+`staging`, and `production`. Administrators can also add custom named profiles.
+The editor stores Web/API/Gateway runtime URLs, an enabled flag, and an optional
+secret reference; it never accepts or displays the secret value. Disabled
+profiles and secret-reference metadata are returned only to a System
+Administrator using `?includeDisabled=true`. Normal run consumers continue to
+receive enabled profiles only.
+
+Custom profiles can be deleted; standard profiles are protected and must be
+disabled instead. Every profile can optionally define `availableFrom` and
+`availableUntil`. A profile is offered for a new Playwright run only when it is
+enabled and the current server time is inside that half-open availability
+window. Both bounds are optional, and the database plus API reject an end time
+that is not later than the start time.
+
+System Administrators can propagate a source environment to every active
+Application with an enabled CDE mapping in one transaction. Existing profiles receive the
+enabled state and availability window. Missing profiles may be created from the
+source. URL and secret-reference replacement is a separate, explicit option
+that defaults off so per-Application endpoints are preserved.
 
 ## 7. CouchDB-Backed Playwright Files
 
@@ -603,8 +643,11 @@ network policies must remain part of production deployment review.
 | `PUT /api/applications/:id/cde/branch-selection` | Persist the exact selected branch |
 | `GET/POST /api/applications/:id/playwright/files` | List or create CouchDB-backed test files |
 | `PATCH /api/applications/:id/playwright/files/:fileId` | Update a CouchDB document with expected `_rev` |
-| `GET/POST /api/applications/:id/environments` | List or create environment profiles |
+| `GET/POST /api/applications/:id/environments` | List enabled profiles or create an environment profile |
+| `GET /api/applications/:id/environments?includeDisabled=true` | System Administrator settings view, including disabled profiles and secret-reference metadata |
 | `PATCH /api/applications/:id/environments/:environmentId` | Update an environment profile |
+| `DELETE /api/applications/:id/environments/:environmentId` | Delete a custom environment; standard environments are protected |
+| `POST /api/applications/bulk/environments` | Apply status/window and optional source cloning across mapped Applications |
 
 ### 10.4 Runs
 
@@ -638,6 +681,28 @@ Application, and destination-folder choices use the shared accessible
 `SearchableSelect` combobox with type-to-filter, empty state, click-outside
 close, and Arrow/Enter/Escape keyboard behavior. The file cartable keeps one
 server-backed search field and disables the table's duplicate client filter.
+
+The CDE source explorer is explicitly RTL while repository/package/file paths
+remain readable as LTR code values. Changing the selected CDE project clears
+the prior catalog, package, source selection, and pending branch prompt before
+showing a loading state. Request sequence guards prevent a slower response from
+the previous project from overwriting the newly selected project.
+
+An opened CDE package now returns a sanitized `branches` summary alongside the
+active `branch`. The source explorer keeps a permanent searchable branch
+selector inside the package card, so the user can move between public,
+personal, editable, and read-only branches without closing/reopening the
+package. The selected branch shows its permission and exact `versionId`;
+switching clears the previous files and displays a package loading state. Only
+selector/version/permission/meta fields are exposed in the branch list—branch
+source remains available solely through the selected package response.
+
+When creating a CouchDB-backed test, the user can either select an existing
+virtual folder or create a nested path such as `e2e/province` beneath a selected
+parent. CouchDB does not store empty directories: the directory hierarchy is
+created authoritatively by saving the file path and is derived again from all
+document paths on reads. Both UI validation and `normalizeTestPath` reject
+unsafe path segments.
 
 The important regression guard is: selecting a direct CDE project must not
 trigger `/api/applications/:id/playwright/files` unless that ID appears in

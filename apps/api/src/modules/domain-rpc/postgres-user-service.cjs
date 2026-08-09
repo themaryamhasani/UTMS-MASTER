@@ -102,7 +102,7 @@ function generateOtpCode() {
 async function getAll() {
   const prisma = getPrismaClient();
   const rows = await prisma.user.findMany({
-    orderBy: [{ isActive: 'desc' }, { fullName: 'asc' }],
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
   });
   return rows.map(toUser);
 }

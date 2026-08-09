@@ -41,6 +41,7 @@ type ApiConsoleRequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown | undefined;
   context?: ActiveContext | undefined;
+  deduplicate?: boolean | undefined;
 };
 
 type CoreValidationResult = {
@@ -234,7 +235,7 @@ async function requestJson<T>(path: string, options: ApiConsoleRequestOptions = 
     requestInit.body = JSON.stringify(options.body || {});
   }
   const url = `${API_BASE}${path}`;
-  const inFlightKey = method === 'GET' ? makeInFlightGetKey(url, headers) : null;
+  const inFlightKey = method === 'GET' && options.deduplicate !== false ? makeInFlightGetKey(url, headers) : null;
   if (inFlightKey) {
     const current = inFlightGetRequests.get(inFlightKey);
     if (current) return current as Promise<T>;
@@ -575,8 +576,11 @@ export const apiConsoleApi = {
     return requestJson(`/executions/${encodeURIComponent(executionId)}`, { context });
   },
 
-  getExecutionHistory(requestId: string, context?: ActiveContext): Promise<ApiRequestExecution[]> {
-    return requestJson(`/requests/${encodeURIComponent(requestId)}/executions`, { context });
+  getExecutionHistory(requestId: string, context?: ActiveContext, options: { fresh?: boolean } = {}): Promise<ApiRequestExecution[]> {
+    return requestJson(`/requests/${encodeURIComponent(requestId)}/executions`, {
+      context,
+      deduplicate: !options.fresh,
+    });
   },
 
   async exportCurl(requestId: string, dialect: ApiExportDialect, options?: { exposeSecrets?: boolean; context?: ActiveContext }): Promise<string> {

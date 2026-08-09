@@ -324,7 +324,12 @@ export const UsersPage: React.FC = () => {
   };
 
   // Filter
-  let filteredUsers = [...users];
+  // Keep pagination deterministic even when the local fallback adapter is in use.
+  // The PostgreSQL service applies the same newest-insert-first ordering.
+  let filteredUsers = [...users].sort((left, right) => {
+    const createdDifference = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    return createdDifference || right.id.localeCompare(left.id);
+  });
   if (filters.search) {
     const s = filters.search.toLowerCase();
     filteredUsers = filteredUsers.filter(u =>

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle, Database, Edit, Eye, FileCode2, FileText, FolderOpen, FolderTree, Link2, LogOut, Plus, Save, Server } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, AlertTriangle, CheckCircle, Database, Edit, Eye, FileCode2, FileText, FolderOpen, FolderPlus, FolderTree, KeyRound, Link2, LockKeyhole, LogOut, Plus, Save, Server, ShieldCheck, Smartphone } from 'lucide-react';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { Card, StatCard } from '../components/ui/Card';
@@ -8,6 +8,7 @@ import { CartableSearchInput } from '../components/ui/CartableToolbar';
 import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { Input, SearchableSelect } from '../components/ui/Input';
+import { LoadingState } from '../components/ui/Loading';
 import { toast } from '../components/ui/Toast';
 import { useAuthStore, canPerformAction, canUseAutomatedTests } from '../stores/authStore';
 import { useDataScope } from '../utils/useDataScope';
@@ -31,6 +32,50 @@ import { PLAYWRIGHT_CDE_ROOT_LABELS } from '../types';
 
 const DESCRIPTION_MAX_LENGTH = 700;
 const PLAYWRIGHT_FILE_NAME_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.spec\.(?:ts|js)|\.test\.(?:ts|js)|\.js)$/;
+const PLAYWRIGHT_FOLDER_PATH_REGEX = /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$/;
+
+function latinDigits(value: string): string {
+  return value
+    .replace(/[۰-۹]/g, digit => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+}
+
+function isValidCdeCellphone(value: string): boolean {
+  const compact = latinDigits(value).replace(/[\s()-]/g, '');
+  return /^(?:\+98|0098|98|0)?9\d{9}$/.test(compact);
+}
+
+function cdeLoginErrorMessage(error: unknown): string {
+  if (!(error instanceof PlatformApiError)) return 'ارتباط با CDE برقرار نشد. دوباره تلاش کنید.';
+  const messages: Record<string, string> = {
+    CDE_LOGIN_NAME_INVALID: 'شماره همراه معتبر نیست. شماره‌ای را وارد کنید که حساب CDE با آن ساخته شده است.',
+    CDE_ACCOUNT_NOT_FOUND: 'حساب CDE با این شماره همراه پیدا نشد. شماره را بررسی یا از مدیر CDE پیگیری کنید.',
+    CDE_INVALID_CREDENTIALS: 'رمز عبور CDE نادرست است. دوباره تلاش کنید.',
+    CDE_LOGIN_CHALLENGE_EXPIRED: 'زمان ورود به پایان رسیده است. شماره همراه را دوباره وارد کنید.',
+    CDE_TIMEOUT: 'پاسخ CDE بیش از حد طول کشید. چند لحظه دیگر دوباره تلاش کنید.',
+    CDE_UNAVAILABLE: 'سرویس CDE در دسترس نیست. اتصال شبکه را بررسی و دوباره تلاش کنید.',
+  };
+  return messages[error.code] || error.message || 'ارتباط با CDE برقرار نشد.';
+}
+
+function cdeBranchKey(selector: CdePackageContent['branch']['selector']): string {
+  if (selector.kind === 'PUBLIC') return 'PUBLIC';
+  return `PERSONAL:${selector.randId || ''}:${Number.isInteger(selector.index) ? selector.index : ''}`;
+}
+
+function cdeBranchLabel(branch: CdePackageContent['branches'][number]): string {
+  const title = typeof branch.meta?.title === 'string' && branch.meta.title.trim() ? branch.meta.title.trim() : '';
+  const personalNumber = branch.selector.kind === 'PERSONAL' && Number.isInteger(branch.selector.index)
+    ? Number(branch.selector.index) + 1
+    : null;
+  const identity = branch.selector.kind === 'PUBLIC'
+    ? 'شاخه عمومی'
+    : title
+      ? `${title}${personalNumber ? ` (شخصی ${personalNumber})` : ''}`
+      : `شاخه شخصی${personalNumber ? ` ${personalNumber}` : ''}`;
+  const permission = branch.editable ? 'قابل ویرایش' : 'فقط‌خواندنی';
+  return `${identity} — ${permission}`;
+}
 
 interface CdeTestFilesResponse {
   files: PaginatedResponse<PlaywrightTestFile>;
@@ -93,6 +138,9 @@ export const PlaywrightFilesPage: React.FC = () => {
   const [cdeLoginStep, setCdeLoginStep] = useState<'phone' | 'password'>('phone');
   const [cdeError, setCdeError] = useState('');
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [packageLoading, setPackageLoading] = useState(false);
+  const [createNewFolder, setCreateNewFolder] = useState(false);
+  const [newFolderPath, setNewFolderPath] = useState('');
   const [editingRevision, setEditingRevision] = useState('');
   const [testStorage, setTestStorage] = useState<CdeTestFilesResponse['storage'] | null>(null);
   const [folders, setFolders] = useState<PlaywrightTestFolder[]>([]);
@@ -119,6 +167,8 @@ export const PlaywrightFilesPage: React.FC = () => {
     description: '',
     script: DEFAULT_SCRIPT,
   });
+  const catalogRequestId = useRef(0);
+  const packageRequestId = useRef(0);
   const mappedApplicationSelected = cdeApplications.some(application => application.id === formData.applicationId);
 
   useEffect(() => {
@@ -139,7 +189,17 @@ export const PlaywrightFilesPage: React.FC = () => {
   }, [activeContext, cdeStatus.connected, formData.applicationId, filters, mappedApplicationSelected]);
 
   useEffect(() => {
-    if (selectedProjectKey && cdeStatus.connected) void loadCatalog(selectedProjectKey);
+    if (selectedProjectKey && cdeStatus.connected) {
+      void loadCatalog(selectedProjectKey);
+    } else {
+      catalogRequestId.current += 1;
+      packageRequestId.current += 1;
+      setCatalog(null);
+      setPackageContent(null);
+      setSelectedSource(null);
+      setCatalogLoading(false);
+      setPackageLoading(false);
+    }
   }, [selectedProjectKey, cdeStatus.connected]);
 
   const loadCdeSession = async () => {
@@ -207,19 +267,39 @@ export const PlaywrightFilesPage: React.FC = () => {
   };
 
   const loadCatalog = async (projectKey: string) => {
+    const requestId = ++catalogRequestId.current;
     setCatalogLoading(true);
+    setCatalog(null);
+    setPackageContent(null);
+    setSelectedSource(null);
+    setPendingBranchSelection(null);
     try {
-      setCatalog(await cdeApi.projectCatalog(projectKey));
-      setPackageContent(null);
+      const nextCatalog = await cdeApi.projectCatalog(projectKey);
+      if (requestId !== catalogRequestId.current) return;
+      setCatalog(nextCatalog);
     } catch (error) {
+      if (requestId !== catalogRequestId.current) return;
       setCatalog(null);
       if (error instanceof PlatformApiError && ['CDE_RECONNECT_REQUIRED', 'CDE_NOT_CONNECTED'].includes(error.code)) {
         setCdeStatus({ connected: false, reconnectRequired: true });
       }
       toast.error('خطا در خواندن فهرست پروژه از CDE.');
     } finally {
-      setCatalogLoading(false);
+      if (requestId === catalogRequestId.current) setCatalogLoading(false);
     }
+  };
+
+  const changeCdeProject = (projectKey: string) => {
+    if (projectKey === selectedProjectKey) return;
+    catalogRequestId.current += 1;
+    packageRequestId.current += 1;
+    setCatalog(null);
+    setPackageContent(null);
+    setSelectedSource(null);
+    setPendingBranchSelection(null);
+    setCatalogLoading(Boolean(projectKey));
+    setPackageLoading(false);
+    setSelectedProjectKey(projectKey);
   };
 
   const loadFiles = async () => {
@@ -251,6 +331,14 @@ export const PlaywrightFilesPage: React.FC = () => {
   };
 
   const handleCdeLogin = async () => {
+    if (cdeLoginStep === 'phone' && !isValidCdeCellphone(cdeLoginName)) {
+      setCdeError('شماره همراه معتبر وارد کنید؛ مانند ۰۹۱۲۱۲۳۴۵۶۷.');
+      return;
+    }
+    if (cdeLoginStep === 'password' && !cdePassword) {
+      setCdeError('رمز عبور CDE را وارد کنید.');
+      return;
+    }
     setActionLoading(true);
     setCdeError('');
     try {
@@ -262,6 +350,9 @@ export const PlaywrightFilesPage: React.FC = () => {
           await loadProjects();
           await loadApplications();
         } else {
+          if (response.nextStep !== 'password' || !response.challenge) {
+            throw new PlatformApiError('CDE_LOGIN_RESPONSE_INVALID', 'CDE login response was incomplete.', 502);
+          }
           setCdeChallenge(response.challenge || '');
           setCdeLoginStep('password');
         }
@@ -274,14 +365,37 @@ export const PlaywrightFilesPage: React.FC = () => {
         await loadApplications();
       }
     } catch (error) {
-      setCdeError(error instanceof PlatformApiError ? error.message : 'ارتباط با CDE ناموفق بود.');
+      if (error instanceof PlatformApiError && error.code === 'CDE_LOGIN_CHALLENGE_EXPIRED') {
+        setCdeLoginStep('phone');
+        setCdeChallenge('');
+        setCdePassword('');
+      }
+      setCdeError(cdeLoginErrorMessage(error));
     } finally {
       setActionLoading(false);
     }
   };
 
+  const openCdeLogin = () => {
+    setCdeLoginStep('phone');
+    setCdePassword('');
+    setCdeChallenge('');
+    setCdeError('');
+    setShowCdeLogin(true);
+  };
+
+  const closeCdeLogin = () => {
+    if (actionLoading) return;
+    setShowCdeLogin(false);
+    setCdePassword('');
+    setCdeChallenge('');
+    setCdeError('');
+  };
+
   const disconnectCde = async () => {
     await cdeApi.disconnect();
+    catalogRequestId.current += 1;
+    packageRequestId.current += 1;
     setCdeStatus({ connected: false });
     setApplications([]);
     setCdeApplications([]);
@@ -300,14 +414,21 @@ export const PlaywrightFilesPage: React.FC = () => {
     branch?: CdePackageContent['branch']['selector']
   ) => {
     if (!selectedProjectKey) return;
-    setCatalogLoading(true);
+    const projectKey = selectedProjectKey;
+    const requestId = ++packageRequestId.current;
+    setPackageLoading(true);
+    setPackageContent(null);
+    setSelectedSource(null);
     try {
-      setPackageContent(await cdeApi.projectPackage(selectedProjectKey, {
+      const nextPackage = await cdeApi.projectPackage(projectKey, {
         repositoryType,
         packId,
         ...(branch ? { branch } : {}),
-      }));
+      });
+      if (requestId !== packageRequestId.current) return;
+      setPackageContent(nextPackage);
     } catch (error) {
+      if (requestId !== packageRequestId.current) return;
       if (error instanceof PlatformApiError && error.code === 'BRANCH_SELECTION_REQUIRED') {
         const branches = (error.details as { branches?: PendingBranchSelection['branches'] } | undefined)?.branches || [];
         setPendingBranchSelection({ repositoryType, repoName, packId, branches });
@@ -315,33 +436,57 @@ export const PlaywrightFilesPage: React.FC = () => {
         toast.error('خطا در خواندن محتوای بسته CDE.');
       }
     } finally {
-      setCatalogLoading(false);
+      if (requestId === packageRequestId.current) setPackageLoading(false);
     }
   };
 
   const selectPackageBranch = async (branch: PendingBranchSelection['branches'][number]) => {
     if (!pendingBranchSelection || !selectedProjectKey) return;
-    setCatalogLoading(true);
+    const projectKey = selectedProjectKey;
+    const requestId = ++packageRequestId.current;
+    setPackageLoading(true);
+    setPackageContent(null);
+    setSelectedSource(null);
     try {
       const request = {
         repositoryType: pendingBranchSelection.repositoryType,
         packId: pendingBranchSelection.packId,
         branch: branch.selector,
       };
-      setPackageContent(await cdeApi.projectPackage(selectedProjectKey, request));
+      const nextPackage = await cdeApi.projectPackage(projectKey, request);
+      if (requestId !== packageRequestId.current) return;
+      setPackageContent(nextPackage);
       setPendingBranchSelection(null);
     } catch {
+      if (requestId !== packageRequestId.current) return;
       toast.error('شاخه CDE دیگر قابل دسترسی نیست؛ فهرست را دوباره بارگذاری کنید.');
     } finally {
-      setCatalogLoading(false);
+      if (requestId === packageRequestId.current) setPackageLoading(false);
     }
+  };
+
+  const switchPackageBranch = (branchKey: string) => {
+    if (!packageContent || packageContent.repositoryType === 'TESTS') return;
+    const target = (packageContent.branches || []).find(branch => cdeBranchKey(branch.selector) === branchKey);
+    if (!target || branchKey === cdeBranchKey(packageContent.branch.selector)) return;
+    void openPackage(
+      packageContent.repositoryType as Exclude<CdeCatalog['repositories'][number]['type'], 'TESTS'>,
+      packageContent.repoName,
+      packageContent.packId,
+      target.selector,
+    );
   };
 
   const selectedApplication = applications.find(app => app.id === formData.applicationId);
   const selectedCdeApplication = cdeApplications.find(app => app.id === formData.applicationId);
-  const selectedFolder = folders.find(folder => folder.fullPath === formData.folderPath);
-  const finalPath = selectedFolder && formData.fileName
-    ? `${selectedFolder.fullPath}/${formData.fileName}`
+  const packageBranches = packageContent?.branches?.length
+    ? packageContent.branches
+    : packageContent ? [packageContent.branch] : [];
+  const effectiveFolderPath = formMode === 'create' && createNewFolder
+    ? [formData.folderPath || 'tests', newFolderPath.trim()].filter(Boolean).join('/')
+    : formData.folderPath;
+  const finalPath = effectiveFolderPath && formData.fileName
+    ? `${effectiveFolderPath}/${formData.fileName}`
     : '';
 
   const foldersByRoot = useMemo(() => {
@@ -361,6 +506,8 @@ export const PlaywrightFilesPage: React.FC = () => {
     });
     setEditingFileId(null);
     setEditingRevision('');
+    setCreateNewFolder(false);
+    setNewFolderPath('');
     setFormErrors({});
   };
 
@@ -378,6 +525,8 @@ export const PlaywrightFilesPage: React.FC = () => {
     setFormMode('edit');
     setEditingFileId(file.id);
     setEditingRevision(file.couchRevision || file.remoteVersionId || '');
+    setCreateNewFolder(false);
+    setNewFolderPath('');
     setFormData({
       applicationId: file.applicationId,
       folderPath: file.folderPath,
@@ -394,6 +543,16 @@ export const PlaywrightFilesPage: React.FC = () => {
     const errors: Record<string, string> = {};
     if (!formData.applicationId) errors.applicationId = 'انتخاب سامانه الزامی است.';
     if (!formData.folderPath) errors.folderPath = 'انتخاب پوشه الزامی است.';
+    if (formMode === 'create' && createNewFolder) {
+      const folderPath = newFolderPath.trim();
+      if (!folderPath) {
+        errors.newFolderPath = 'نام یا مسیر پوشه جدید را وارد کنید.';
+      } else if (!PLAYWRIGHT_FOLDER_PATH_REGEX.test(folderPath)) {
+        errors.newFolderPath = 'مسیر پوشه فقط می‌تواند شامل حروف کوچک انگلیسی، عدد، نقطه، خط تیره، زیرخط و / باشد.';
+      } else if (folders.some(folder => folder.fullPath.toLowerCase() === effectiveFolderPath.toLowerCase())) {
+        errors.newFolderPath = 'این پوشه از قبل وجود دارد؛ حالت «پوشه موجود» را انتخاب کنید.';
+      }
+    }
     if (!formData.fileName.trim()) {
       errors.fileName = 'نام فایل تست الزامی است.';
     } else if (!PLAYWRIGHT_FILE_NAME_REGEX.test(formData.fileName.trim())) {
@@ -412,6 +571,21 @@ export const PlaywrightFilesPage: React.FC = () => {
       ...prev,
       fileName: value.replace(/[^a-zA-Z0-9.-]/g, '').toLowerCase(),
     }));
+  };
+
+  const handleNewFolderPathChange = (value: string) => {
+    const normalized = value
+      .replace(/\\/g, '/')
+      .replace(/\s+/g, '-')
+      .replace(/[^a-zA-Z0-9._/-]/g, '')
+      .replace(/\/{2,}/g, '/')
+      .replace(/^\/+/, '')
+      .toLowerCase()
+      .slice(0, 160);
+    setNewFolderPath(normalized);
+    if (formErrors.newFolderPath) {
+      setFormErrors(previous => ({ ...previous, newFolderPath: '' }));
+    }
   };
 
   const handleSubmit = async () => {
@@ -585,11 +759,7 @@ export const PlaywrightFilesPage: React.FC = () => {
               قطع اتصال CDE
             </Button>
           ) : (
-            <Button icon={<Link2 className="w-4 h-4" />} onClick={() => {
-              setCdeLoginStep('phone');
-              setCdeError('');
-              setShowCdeLogin(true);
-            }}>
+            <Button icon={<Link2 className="w-4 h-4" />} onClick={openCdeLogin}>
               اتصال به CDE
             </Button>
           )}
@@ -692,8 +862,8 @@ export const PlaywrightFilesPage: React.FC = () => {
           </section>
 
           {cdeStatus.connected && (
-            <aside className="min-w-0 2xl:sticky 2xl:top-4">
-              <Card className="relative z-30 overflow-visible">
+            <aside className="min-w-0 text-right 2xl:sticky 2xl:top-4" dir="rtl">
+              <Card className="relative z-30 overflow-visible text-right">
                 <div className="mb-4 border-b border-gray-100 pb-3">
                   <div className="flex items-center gap-2">
                     <FolderOpen className="h-5 w-5 text-blue-600" />
@@ -705,12 +875,12 @@ export const PlaywrightFilesPage: React.FC = () => {
                 <SearchableSelect
                   label="پروژه CDE"
                   value={selectedProjectKey}
-                  onValueChange={setSelectedProjectKey}
+                  onValueChange={changeCdeProject}
                   options={cdeProjects.map(project => ({ value: project.projectKey, label: project.projectKey }))}
                   placeholder="پروژه CDE را انتخاب کنید"
                   searchPlaceholder="جستجوی پروژه CDE..."
                   emptyMessage="پروژه‌ای با این عبارت پیدا نشد."
-                  dir="ltr"
+                  dir="rtl"
                 />
 
                 {cdeProjects.length === 0 && (
@@ -719,6 +889,9 @@ export const PlaywrightFilesPage: React.FC = () => {
                   </div>
                 )}
 
+                {catalogLoading ? (
+                  <LoadingState label={`در حال بارگذاری پروژه ${selectedProjectKey || 'CDE'}…`} className="mt-4 min-h-44" />
+                ) : (<>
                 <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-1">
                   {catalog?.repositories.map(repository => (
                     <div key={`${repository.type}:${repository.repoName}`} className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50/60">
@@ -738,7 +911,7 @@ export const PlaywrightFilesPage: React.FC = () => {
                               repository.repoName,
                               pack.id
                             )}
-                            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left font-mono text-xs text-gray-700 transition-colors hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-right font-mono text-xs text-gray-700 transition-colors hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
                             dir="ltr"
                           >
                             <FileCode2 className="h-3.5 w-3.5 flex-shrink-0" />
@@ -750,22 +923,63 @@ export const PlaywrightFilesPage: React.FC = () => {
                   ))}
                 </div>
 
-                {packageContent && (
+                {packageLoading && (
+                  <LoadingState label="در حال بارگذاری فایل‌های پکیج…" className="mt-4 min-h-28" />
+                )}
+
+                {!packageLoading && packageContent && (
                   <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/50 p-3">
                     <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate font-mono text-xs font-semibold text-gray-900" dir="ltr">{packageContent.packId}</p>
-                        <p className="mt-1 text-xs text-gray-500">نسخه {packageContent.branch.versionId || 'نامشخص'} · {packageContent.branch.editable ? 'قابل ویرایش' : 'فقط‌خواندنی'}</p>
+                        <p className="mt-1 text-xs text-gray-500">پکیج انتخاب‌شده · {packageBranches.length} شاخه در دسترس</p>
                       </div>
                       <Badge variant="secondary">{packageContent.files.length} فایل</Badge>
                     </div>
-                    <div className="max-h-52 space-y-1 overflow-y-auto">
+
+                    <div className="mb-3 rounded-xl border border-blue-100 bg-white p-3 shadow-sm">
+                      <SearchableSelect
+                        label="شاخه فعال"
+                        value={cdeBranchKey(packageContent.branch.selector)}
+                        onValueChange={switchPackageBranch}
+                        options={packageBranches.map(branch => ({
+                          value: cdeBranchKey(branch.selector),
+                          label: cdeBranchLabel(branch),
+                          keywords: `${branch.selector.kind} ${branch.selector.kind === 'PERSONAL' ? `${branch.selector.randId || ''} ${branch.selector.index ?? ''}` : ''} ${branch.versionId || ''} ${branch.editable ? 'editable قابل ویرایش' : 'read-only فقط خواندنی'}`,
+                        }))}
+                        placeholder="شاخه را انتخاب کنید"
+                        searchPlaceholder="جستجوی نام، نسخه یا دسترسی شاخه..."
+                        emptyMessage="شاخه‌ای با این مشخصات پیدا نشد."
+                        disabled={packageBranches.length <= 1}
+                        dir="rtl"
+                      />
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-3">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={packageContent.branch.editable ? 'success' : 'secondary'}>
+                            {packageContent.branch.editable ? 'قابل ویرایش' : 'فقط‌خواندنی'}
+                          </Badge>
+                          <span className="text-xs text-gray-500">
+                            {packageContent.branch.selector.kind === 'PUBLIC' ? 'شاخه عمومی' : 'شاخه شخصی'}
+                          </span>
+                        </div>
+                        <span className="font-mono text-[11px] text-gray-500" dir="ltr">
+                          version: {packageContent.branch.versionId || 'unknown'}
+                        </span>
+                      </div>
+                      {packageBranches.length > 1 && (
+                        <p className="mt-2 text-xs leading-5 text-blue-700">
+                          برای مشاهده نسخه دیگری از همین پکیج، شاخه را از فهرست بالا تغییر دهید.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="max-h-52 space-y-1 overflow-y-auto border-t border-blue-100 pt-3">
                       {packageContent.files.map(file => (
                         <button
                           key={file.path}
                           type="button"
                           onClick={() => setSelectedSource(file)}
-                          className="block w-full truncate rounded-lg bg-white px-2.5 py-2 text-left font-mono text-xs text-gray-700 shadow-sm transition hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          className="block w-full truncate rounded-lg bg-white px-2.5 py-2 text-right font-mono text-xs text-gray-700 shadow-sm transition hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
                           dir="ltr"
                         >
                           {file.path}
@@ -774,8 +988,7 @@ export const PlaywrightFilesPage: React.FC = () => {
                     </div>
                   </div>
                 )}
-
-                {catalogLoading && <p className="mt-4 text-sm text-gray-500">در حال بارگذاری داده‌های CDE…</p>}
+                </>)}
               </Card>
             </aside>
           )}
@@ -798,7 +1011,11 @@ export const PlaywrightFilesPage: React.FC = () => {
             <SearchableSelect
               label="سامانه *"
               value={formData.applicationId}
-              onValueChange={(applicationId) => setFormData({ ...formData, applicationId, folderPath: '' })}
+              onValueChange={(applicationId) => {
+                setFormData({ ...formData, applicationId, folderPath: '' });
+                setCreateNewFolder(false);
+                setNewFolderPath('');
+              }}
               options={applications.map(app => ({
                 value: app.id,
                 label: `${app.name} (${app.code})`,
@@ -819,13 +1036,49 @@ export const PlaywrightFilesPage: React.FC = () => {
               </div>
             )}
 
+            {formMode === 'create' && (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-gray-800">
+                  <FolderPlus className="h-4 w-4 text-blue-600" />
+                  <span>روش انتخاب پوشه</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateNewFolder(false);
+                      setNewFolderPath('');
+                      setFormErrors(previous => ({ ...previous, newFolderPath: '' }));
+                    }}
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${!createNewFolder ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
+                  >
+                    پوشه موجود
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateNewFolder(true);
+                      setFormData(previous => ({ ...previous, folderPath: previous.folderPath || 'tests' }));
+                      setFormErrors(previous => ({ ...previous, folderPath: '' }));
+                    }}
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${createNewFolder ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'}`}
+                  >
+                    ساخت پوشه جدید
+                  </button>
+                </div>
+              </div>
+            )}
+
             <SearchableSelect
-              label="پوشه مقصد *"
+              label={formMode === 'create' && createNewFolder ? 'پوشه والد *' : 'پوشه مقصد *'}
               value={formData.folderPath}
-              onValueChange={(folderPath) => setFormData({ ...formData, folderPath })}
+              onValueChange={(folderPath) => {
+                setFormData({ ...formData, folderPath });
+                if (formErrors.folderPath) setFormErrors(previous => ({ ...previous, folderPath: '' }));
+              }}
               options={folders.map(folder => ({
                 value: folder.fullPath,
-                label: `${PLAYWRIGHT_CDE_ROOT_LABELS[folder.rootKind]} / ${folder.relativePath}`,
+                label: folder.relativePath ? `tests / ${folder.relativePath}` : 'tests (ریشه)',
                 keywords: `${folder.fullPath} ${folder.rootKind}`,
               }))}
               placeholder={folders.length ? 'پوشه را انتخاب کنید' : 'پوشه‌ای در CouchDB وجود ندارد'}
@@ -834,6 +1087,19 @@ export const PlaywrightFilesPage: React.FC = () => {
               disabled={folders.length === 0}
               dir="ltr"
             />
+
+            {formMode === 'create' && createNewFolder && (
+              <Input
+                label="نام یا مسیر پوشه جدید *"
+                value={newFolderPath}
+                onChange={(event) => handleNewFolderPathChange(event.target.value)}
+                placeholder="e2e/province"
+                hint="برای ساخت چند سطح پوشه از / استفاده کنید؛ پوشه هنگام ذخیره فایل ایجاد می‌شود."
+                error={formErrors.newFolderPath}
+                dir="ltr"
+                autoFocus
+              />
+            )}
 
             <Input
               label="نام فایل تست *"
@@ -937,51 +1203,115 @@ export const PlaywrightFilesPage: React.FC = () => {
 
       <Modal
         isOpen={showCdeLogin}
-        onClose={() => !actionLoading && setShowCdeLogin(false)}
-        title="Connect CDE account"
-        size="sm"
+        onClose={closeCdeLogin}
+        title="اتصال حساب CDE"
+        size="md"
       >
-        <div className="space-y-4">
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-            UTMS keeps only the encrypted CDE cookie jar. Your password is forwarded once through Core's POST form endpoint and is not stored.
+        <form className="space-y-5" onSubmit={(event) => {
+          event.preventDefault();
+          if (!actionLoading) void handleCdeLogin();
+        }}>
+          <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-gray-200 bg-gray-50 p-1" aria-label="مراحل اتصال CDE">
+            <div className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium ${cdeLoginStep === 'phone' ? 'bg-white text-blue-700 shadow-sm' : 'text-emerald-700'}`}>
+              {cdeLoginStep === 'password' ? <CheckCircle className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
+              <span>۱. شماره همراه</span>
+            </div>
+            <div className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium ${cdeLoginStep === 'password' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-400'}`}>
+              <KeyRound className="h-4 w-4" />
+              <span>۲. رمز عبور</span>
+            </div>
           </div>
+
+          <div className="rounded-xl border border-blue-100 bg-gradient-to-l from-blue-50 to-white p-4">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-blue-100 p-2 text-blue-700"><ShieldCheck className="h-5 w-5" /></div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">اتصال امن به حساب شخصی CDE</p>
+                <p className="mt-1 text-xs leading-6 text-gray-600">
+                  رمز عبور فقط برای ورود به Core ارسال می‌شود و در UTMS ذخیره نخواهد شد. تنها نشست رمزنگاری‌شده نگهداری می‌شود.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {cdeLoginStep === 'phone' ? (
-            <Input
-              label="CDE cellphone"
-              value={cdeLoginName}
-              onChange={(event) => setCdeLoginName(event.target.value.replace(/\D/g, '').slice(0, 13))}
-              placeholder="9020000000"
-              dir="ltr"
-            />
+            <div className="space-y-2">
+              <Input
+                key="cde-phone"
+                label="شماره همراه حساب CDE"
+                value={cdeLoginName}
+                onChange={(event) => {
+                  setCdeLoginName(event.target.value.slice(0, 18));
+                  if (cdeError) setCdeError('');
+                }}
+                placeholder="۰۹۱۲۱۲۳۴۵۶۷"
+                hint="شماره ثبت‌شده در CDE را با یا بدون صفر ابتدایی وارد کنید."
+                dir="ltr"
+                inputMode="tel"
+                autoComplete="tel"
+                autoFocus
+                disabled={actionLoading}
+              />
+            </div>
           ) : (
-            <Input
-              label="CDE password"
-              type="password"
-              value={cdePassword}
-              onChange={(event) => setCdePassword(event.target.value)}
-              dir="ltr"
-            />
+            <div className="space-y-4">
+              <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+                <span className="text-gray-500">شماره حساب</span>
+                <span className="font-mono font-medium text-gray-900" dir="ltr">{cdeLoginName}</span>
+              </div>
+              <Input
+                key="cde-password"
+                label="رمز عبور CDE"
+                type="password"
+                value={cdePassword}
+                onChange={(event) => {
+                  setCdePassword(event.target.value);
+                  if (cdeError) setCdeError('');
+                }}
+                placeholder="رمز عبور خود را وارد کنید"
+                dir="ltr"
+                autoComplete="current-password"
+                autoFocus
+                disabled={actionLoading}
+              />
+            </div>
           )}
-          {cdeError && <p className="text-sm text-red-600">{cdeError}</p>}
-          <div className="flex justify-end gap-2 border-t pt-4">
-            {cdeLoginStep === 'password' && (
-              <Button variant="secondary" onClick={() => {
-                setCdeLoginStep('phone');
-                setCdePassword('');
-                setCdeChallenge('');
-              }}>
-                Back
+
+          {cdeError && (
+            <div role="alert" aria-live="polite" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm leading-6 text-red-700">
+              <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <span>{cdeError}</span>
+            </div>
+          )}
+
+          <div className="flex flex-col-reverse gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:justify-between">
+            <div>
+              {cdeLoginStep === 'password' && (
+                <Button type="button" variant="ghost" disabled={actionLoading} onClick={() => {
+                  setCdeLoginStep('phone');
+                  setCdePassword('');
+                  setCdeChallenge('');
+                  setCdeError('');
+                }}>
+                  تغییر شماره همراه
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2 sm:justify-end">
+              <Button type="button" variant="secondary" disabled={actionLoading} onClick={closeCdeLogin}>انصراف</Button>
+              <Button
+                type="submit"
+                icon={cdeLoginStep === 'phone' ? <Smartphone className="h-4 w-4" /> : <LockKeyhole className="h-4 w-4" />}
+                loading={actionLoading}
+                disabled={actionLoading}
+                className="flex-1 sm:flex-none"
+              >
+                {cdeLoginStep === 'phone' ? 'ادامه' : 'اتصال به CDE'}
               </Button>
-            )}
-            <Button
-              onClick={() => void handleCdeLogin()}
-              loading={actionLoading}
-              disabled={actionLoading || (cdeLoginStep === 'phone' ? cdeLoginName.length < 10 : !cdePassword)}
-            >
-              {cdeLoginStep === 'phone' ? 'Continue' : 'Connect'}
-            </Button>
+            </div>
           </div>
-        </div>
+          <p className="text-center text-xs text-gray-400">برای ادامه می‌توانید کلید Enter را فشار دهید.</p>
+        </form>
       </Modal>
 
       <Modal
@@ -999,7 +1329,7 @@ export const PlaywrightFilesPage: React.FC = () => {
               key={`${branch.selector.kind}-${branch.selector.kind === 'PERSONAL' ? branch.selector.randId || branch.selector.index : 'public'}-${index}`}
               type="button"
               onClick={() => void selectPackageBranch(branch)}
-              disabled={catalogLoading}
+              disabled={packageLoading}
               className="flex w-full items-center justify-between gap-4 rounded-lg border border-gray-200 bg-white p-4 text-right transition hover:border-blue-400 hover:bg-blue-50 disabled:opacity-50"
             >
               <span>

@@ -1316,14 +1316,18 @@ export const OnlineApiConsolePage: React.FC = () => {
     }
   };
 
-  const refreshDerivedViews = async (request: ApiRequestDefinition, showLoading = false) => {
+  const refreshDerivedViews = async (
+    request: ApiRequestDefinition,
+    showLoading = false,
+    preferredExecution: ApiRequestExecution | null = null,
+  ) => {
     if (!activeContext) return;
     const requestSeq = ++derivedRequestSeqRef.current;
     if (showLoading) setDetailsLoading(true);
     try {
       const [effective, history, manual, bash, cmd, ps] = await Promise.all([
         apiConsoleApi.getEffectiveRequest(request.id, request.environmentId, request.executionMode, activeContext),
-        apiConsoleApi.getExecutionHistory(request.id, activeContext),
+        apiConsoleApi.getExecutionHistory(request.id, activeContext, { fresh: Boolean(preferredExecution) }),
         apiConsoleApi.getManualResponses(request.id, activeContext),
         apiConsoleApi.exportCurl(request.id, 'bash', { context: activeContext }).catch(() => ''),
         apiConsoleApi.exportCurl(request.id, 'windows-cmd', { context: activeContext }).catch(() => ''),
@@ -1331,16 +1335,21 @@ export const OnlineApiConsolePage: React.FC = () => {
       ]);
       if (requestSeq !== derivedRequestSeqRef.current) return;
       setEffectiveRequest(effective);
-      setHistoryRows(history);
+      const nextHistory = preferredExecution && !history.some(execution => execution.id === preferredExecution.id)
+        ? [preferredExecution, ...history]
+        : history;
+      setHistoryRows(nextHistory);
       setManualResponses(manual);
       setExports({ bash, 'windows-cmd': cmd, powershell: ps });
-      setSelectedExecution(history[0] || null);
+      setSelectedExecution(preferredExecution || nextHistory[0] || null);
     } catch (error) {
       if (requestSeq !== derivedRequestSeqRef.current) return;
       toast.error(error instanceof Error ? error.message : 'بارگذاری جزئیات Request ناموفق بود.');
     } finally {
       if (requestSeq !== derivedRequestSeqRef.current) return;
-      if (showLoading) setDetailsLoading(false);
+      // A non-blocking refresh can supersede a loading refresh. The newest
+      // request always owns the final loading state, regardless of how it began.
+      setDetailsLoading(false);
       setSelectingRequestId(prev => prev === request.id ? null : prev);
     }
   };
@@ -1718,12 +1727,12 @@ export const OnlineApiConsolePage: React.FC = () => {
       };
       const execution = await apiConsoleApi.executeRequest(requestToExecute.id, activeContext, executionOptions);
       setSelectedExecution(execution);
-      await refreshDerivedViews(requestToExecute);
+      setDetailsLoading(false);
+      setActiveTab('response');
+      await refreshDerivedViews(requestToExecute, false, execution);
       if (execution.transportResult === 'SUCCESS') {
-        setActiveTab('response');
         toast.success('Request اجرا شد.');
       } else {
-        setActiveTab('response');
         toast.warning(execution.sanitizedError || 'Execution با warning تمام شد.');
       }
     } catch (error) {
@@ -1768,8 +1777,9 @@ export const OnlineApiConsolePage: React.FC = () => {
         executionMode: saved.executionMode,
       });
       setSelectedExecution(execution);
-      await refreshDerivedViews(saved);
+      setDetailsLoading(false);
       setActiveTab('response');
+      await refreshDerivedViews(saved, false, execution);
       if (execution.transportResult === 'SUCCESS') {
         toast.success('Request با Verify TLS certificate خاموش اجرا شد.');
       } else {

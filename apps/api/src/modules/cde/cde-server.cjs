@@ -72,6 +72,32 @@ function displayCdeUser(loginUser) {
   };
 }
 
+function normalizeCdeLoginName(value) {
+  const latinDigits = String(value || '')
+    .trim()
+    .replace(/[۰-۹]/g, digit => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .replace(/[٠-٩]/g, digit => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/[\s()-]/g, '');
+  const local = latinDigits
+    .replace(/^\+98/, '')
+    .replace(/^0098/, '')
+    .replace(/^98/, '')
+    .replace(/^0(?=9)/, '');
+  return /^9\d{9}$/.test(local) ? local : '';
+}
+
+function requireCdePasswordStep(response) {
+  const result = resultOf(response);
+  const nextStep = typeof result.nextStep === 'string' ? result.nextStep.trim().toLowerCase() : '';
+  if (nextStep === 'password') return 'password';
+  throw new CdeApiError(
+    'CDE_ACCOUNT_NOT_FOUND',
+    'This cellphone is not registered for the selected CDE user source.',
+    404,
+    nextStep ? { nextStep } : undefined,
+  );
+}
+
 function assertApplicationScope(req, applicationId) {
   const { context } = requireUtmsSession(req);
   if (context.role === 'SYSTEM_ADMIN') return context;
@@ -143,10 +169,9 @@ async function cdeStatus(req) {
 async function startCdeLogin(req, body) {
   assertCsrf(req);
   const { session } = requireUtmsSession(req);
-  const userLoginName = String(body.userLoginName || '').trim();
-  if (!/^\d{10,13}$/.test(userLoginName)) {
-    throw new CdeApiError('CDE_LOGIN_NAME_INVALID', 'Enter the cellphone format accepted by CDE.', 400);
-  }
+  const userLoginName = normalizeCdeLoginName(body.userLoginName);
+  if (!userLoginName) throw new CdeApiError('CDE_LOGIN_NAME_INVALID', 'Enter a valid Iranian cellphone number.', 400);
+  await deleteCdeSession(session.id);
   let state = createCdeState();
   let callResult = await getDataSource(state, 'pages-app/who-am-i', {});
   state = callResult.state;
@@ -159,10 +184,16 @@ async function startCdeLogin(req, body) {
     userLoginName,
   });
   assertLogicalSuccess(callResult.response);
+  const loginResult = resultOf(callResult.response);
+  if (loginResult.IsUserLogin === true) {
+    await setCdeSession(session.id, callResult.state);
+    return { connected: true, user: displayCdeUser(loginResult.LoginUser), ecreq: Boolean(loginResult.ecreq) };
+  }
+  const nextStep = requireCdePasswordStep(callResult.response);
   await setCdeSession(session.id, callResult.state, 5 * 60);
   return {
     connected: false,
-    nextStep: resultOf(callResult.response).nextStep || 'password',
+    nextStep,
     challenge: createLoginChallenge(session.id, userLoginName),
   };
 }
@@ -185,12 +216,20 @@ async function finishCdePassword(req, body) {
     contact: 'iran-cellphone',
     password,
   });
-  assertLogicalSuccess(callResult.response);
+  try {
+    assertLogicalSuccess(callResult.response);
+  } catch (error) {
+    await setCdeSession(session.id, callResult.state, 5 * 60);
+    if (error.category === 'CDE_LOGICAL_ERROR') {
+      throw new CdeApiError('CDE_INVALID_CREDENTIALS', 'The CDE password is incorrect.', 401);
+    }
+    throw error;
+  }
   callResult = await getDataSource(callResult.state, 'pages-app/who-am-i', {});
   const result = resultOf(callResult.response);
   if (!result.IsUserLogin) {
-    await deleteCdeSession(session.id);
-    throw new CdeApiError('CDE_LOGIN_FAILED', 'CDE did not establish an authenticated session.', 401);
+    await setCdeSession(session.id, callResult.state, 5 * 60);
+    throw new CdeApiError('CDE_INVALID_CREDENTIALS', 'The CDE password is incorrect.', 401);
   }
   await setCdeSession(session.id, callResult.state);
   return { connected: true, user: displayCdeUser(result.LoginUser), ecreq: Boolean(result.ecreq) };
@@ -302,6 +341,10 @@ function repositoryBranches(item, repositoryType) {
   return branches.map(branch => ({ ...branch, repositoryType }));
 }
 
+function branchSummaries(branches) {
+  return branches.map(({ selector, versionId, editable, meta }) => ({ selector, versionId, editable, meta }));
+}
+
 function publicBranch(branch) {
   return branch.selector.kind === 'PUBLIC';
 }
@@ -410,7 +453,10 @@ async function visibleApplications(req) {
       ...(applicationIds ? { id: { in: applicationIds } } : {}),
       cdeMapping: { is: { enabled: true } },
     },
-    include: { cdeMapping: true, applicationEnvironments: { where: { enabled: true }, orderBy: { name: 'asc' } } },
+    include: {
+      cdeMapping: true,
+      applicationEnvironments: { where: environmentAvailabilityWhere(), orderBy: { name: 'asc' } },
+    },
     orderBy: { name: 'asc' },
   });
   return applications.filter(application => projects.has(application.cdeMapping.projectKey)).map(application => ({
@@ -425,7 +471,7 @@ async function visibleApplications(req) {
       messageConsumer: application.cdeMapping.messageConsumerRepoName,
       tests: `couchdb://${couchStoreDescriptor().database}/${application.cdeMapping.projectKey}`,
     },
-    environments: application.applicationEnvironments.map(serializeEnvironment),
+    environments: application.applicationEnvironments.map(row => serializeEnvironment(row)),
   }));
 }
 
@@ -518,6 +564,7 @@ async function browseProjectPackage(req, projectKey, body) {
     repositoryType,
     repoName,
     packId,
+    branches: branchSummaries(branches),
     branch: { selector: branch.selector, versionId: branch.versionId, editable: branch.editable, meta: branch.meta },
     files: normalizeRemoteFiles(branch, repositoryType, packId),
   };
@@ -530,11 +577,13 @@ async function packageContent(req, applicationId, body) {
   const packId = String(body.packId || '');
   const item = await loadPackageItem(req, mapping, repositoryType, repoName, packId);
   const branch = await resolveBranch(req, String(applicationId), repositoryType, repoName, packId, item, body.branch || null);
+  const branches = repositoryBranches(item, repositoryType);
   return {
     applicationId,
     repositoryType,
     repoName,
     packId,
+    branches: branchSummaries(branches),
     branch: { selector: branch.selector, versionId: branch.versionId, editable: branch.editable, meta: branch.meta },
     files: normalizeRemoteFiles(branch, repositoryType, packId),
   };
@@ -912,8 +961,62 @@ function assertRunnableEnvironmentUrl(value) {
   }
 }
 
-function serializeEnvironment(row) {
+const STANDARD_ENVIRONMENT_NAMES = new Set([
+  'dev', 'develop', 'development', 'توسعه',
+  'test', 'testing', 'qa', 'تست',
+  'stage', 'staging', 'preproduction', 'پیشانتشار',
+  'prod', 'production', 'تولید',
+]);
+
+function normalizedEnvironmentName(value) {
+  return String(value || '').trim().toLocaleLowerCase('fa-IR').replace(/[\s_-]+/g, '');
+}
+
+function isStandardEnvironmentName(value) {
+  return STANDARD_ENVIRONMENT_NAMES.has(normalizedEnvironmentName(value));
+}
+
+function parseOptionalEnvironmentDate(value, fieldName) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new CdeApiError('ENVIRONMENT_AVAILABILITY_INVALID', `${fieldName} must be a valid date and time.`, 400);
+  }
+  return date;
+}
+
+function validateEnvironmentAvailability(availableFromValue, availableUntilValue) {
+  const availableFrom = parseOptionalEnvironmentDate(availableFromValue, 'availableFrom');
+  const availableUntil = parseOptionalEnvironmentDate(availableUntilValue, 'availableUntil');
+  if (availableFrom && availableUntil && availableUntil <= availableFrom) {
+    throw new CdeApiError(
+      'ENVIRONMENT_AVAILABILITY_INVALID',
+      'availableUntil must be later than availableFrom.',
+      400,
+    );
+  }
+  return { availableFrom, availableUntil };
+}
+
+function environmentAvailableNow(row, now = new Date()) {
+  if (!row.enabled) return false;
+  if (row.availableFrom && row.availableFrom > now) return false;
+  if (row.availableUntil && row.availableUntil <= now) return false;
+  return true;
+}
+
+function environmentAvailabilityWhere(now = new Date()) {
   return {
+    enabled: true,
+    AND: [
+      { OR: [{ availableFrom: null }, { availableFrom: { lte: now } }] },
+      { OR: [{ availableUntil: null }, { availableUntil: { gt: now } }] },
+    ],
+  };
+}
+
+function serializeEnvironment(row, includeSecretReferences = false) {
+  const serialized = {
     id: row.id,
     applicationId: row.applicationId,
     name: row.name,
@@ -921,15 +1024,29 @@ function serializeEnvironment(row) {
     apiBaseUrl: row.apiBaseUrl,
     gatewayBaseUrl: row.gatewayBaseUrl,
     enabled: row.enabled,
+    availableFrom: row.availableFrom?.toISOString() || null,
+    availableUntil: row.availableUntil?.toISOString() || null,
+    availableNow: environmentAvailableNow(row),
   };
+  if (includeSecretReferences) {
+    serialized.secretReferences = row.secretReferences && typeof row.secretReferences === 'object'
+      ? row.secretReferences
+      : {};
+  }
+  return serialized;
 }
 
 async function environments(req, applicationId) {
   assertApplicationScope(req, applicationId);
+  const includeDisabled = new URL(req.url, 'http://localhost').searchParams.get('includeDisabled') === 'true';
+  if (includeDisabled) assertSystemAdmin(req);
   return (await getPrismaClient().applicationEnvironment.findMany({
-    where: { applicationId: String(applicationId), enabled: true },
+    where: {
+      applicationId: String(applicationId),
+      ...(includeDisabled ? {} : environmentAvailabilityWhere()),
+    },
     orderBy: { name: 'asc' },
-  })).map(serializeEnvironment);
+  })).map(row => serializeEnvironment(row, includeDisabled));
 }
 
 async function saveEnvironment(req, applicationId, body, environmentId) {
@@ -943,16 +1060,21 @@ async function saveEnvironment(req, applicationId, body, environmentId) {
       throw new CdeApiError('ENVIRONMENT_NOT_FOUND', 'Environment profile was not found for this Application.', 404);
     }
   }
+  const availability = validateEnvironmentAvailability(
+    body.availableFrom === undefined ? existing?.availableFrom : body.availableFrom,
+    body.availableUntil === undefined ? existing?.availableUntil : body.availableUntil,
+  );
   const data = {
     applicationId: String(applicationId),
-    name: String(body.name || '').trim().slice(0, 120),
-    webBaseUrl: validateEnvironmentUrl(body.webBaseUrl, true),
-    apiBaseUrl: validateEnvironmentUrl(body.apiBaseUrl, false),
-    gatewayBaseUrl: validateEnvironmentUrl(body.gatewayBaseUrl, false),
+    name: String(body.name === undefined ? existing?.name || '' : body.name).trim().slice(0, 120),
+    webBaseUrl: validateEnvironmentUrl(body.webBaseUrl === undefined ? existing?.webBaseUrl : body.webBaseUrl, true),
+    apiBaseUrl: validateEnvironmentUrl(body.apiBaseUrl === undefined ? existing?.apiBaseUrl : body.apiBaseUrl, false),
+    gatewayBaseUrl: validateEnvironmentUrl(body.gatewayBaseUrl === undefined ? existing?.gatewayBaseUrl : body.gatewayBaseUrl, false),
     secretReferences: body.secretReferences && typeof body.secretReferences === 'object'
       ? body.secretReferences
       : existing?.secretReferences || {},
-    enabled: body.enabled !== false,
+    enabled: body.enabled === undefined ? existing?.enabled !== false : body.enabled !== false,
+    ...availability,
   };
   assertRunnableEnvironmentUrl(data.webBaseUrl);
   if (!data.name) throw new CdeApiError('ENVIRONMENT_NAME_REQUIRED', 'Environment name is required.', 400);
@@ -960,6 +1082,109 @@ async function saveEnvironment(req, applicationId, body, environmentId) {
     ? await prisma.applicationEnvironment.update({ where: { id: environmentId }, data })
     : await prisma.applicationEnvironment.create({ data });
   return serializeEnvironment(row);
+}
+
+async function deleteEnvironment(req, applicationId, environmentId) {
+  assertSystemAdmin(req);
+  assertCsrf(req);
+  const prisma = getPrismaClient();
+  const environment = await prisma.applicationEnvironment.findUnique({ where: { id: String(environmentId) } });
+  if (!environment || environment.applicationId !== String(applicationId)) {
+    throw new CdeApiError('ENVIRONMENT_NOT_FOUND', 'Environment profile was not found for this Application.', 404);
+  }
+  if (isStandardEnvironmentName(environment.name)) {
+    throw new CdeApiError(
+      'STANDARD_ENVIRONMENT_DELETE_FORBIDDEN',
+      'Standard environments cannot be deleted. Disable them instead.',
+      409,
+    );
+  }
+  await prisma.applicationEnvironment.delete({ where: { id: environment.id } });
+  return { deleted: true, id: environment.id };
+}
+
+async function bulkConfigureEnvironments(req, body) {
+  assertSystemAdmin(req);
+  assertCsrf(req);
+  const prisma = getPrismaClient();
+  let applicationIds = Array.from(new Set(
+    (Array.isArray(body.applicationIds) ? body.applicationIds : []).map(value => String(value || '').trim()).filter(Boolean),
+  ));
+  if (body.allMapped === true) {
+    applicationIds = (await prisma.application.findMany({
+      where: { isActive: true, cdeMapping: { is: { enabled: true } } },
+      select: { id: true },
+    })).map(application => application.id);
+  }
+  if (!applicationIds.length || applicationIds.length > 500) {
+    throw new CdeApiError('ENVIRONMENT_BULK_TARGETS_INVALID', 'Select between 1 and 500 Applications.', 400);
+  }
+  const source = await prisma.applicationEnvironment.findFirst({
+    where: {
+      id: String(body.sourceEnvironmentId || ''),
+      applicationId: String(body.sourceApplicationId || ''),
+    },
+  });
+  if (!source) throw new CdeApiError('ENVIRONMENT_NOT_FOUND', 'The source environment profile was not found.', 404);
+  const applications = await prisma.application.findMany({
+    where: { id: { in: applicationIds }, isActive: true, cdeMapping: { is: { enabled: true } } },
+    select: { id: true },
+  });
+  if (applications.length !== applicationIds.length) {
+    throw new CdeApiError(
+      'ENVIRONMENT_BULK_TARGETS_INVALID',
+      'Every target must be an active Application with an enabled CDE mapping.',
+      422,
+    );
+  }
+  const availability = validateEnvironmentAvailability(body.availableFrom, body.availableUntil);
+  const existingRows = await prisma.applicationEnvironment.findMany({
+    where: { applicationId: { in: applicationIds }, name: source.name },
+  });
+  const existingByApplication = new Map(existingRows.map(row => [row.applicationId, row]));
+  const createMissing = body.createMissing === true;
+  const overwriteUrls = body.overwriteUrls === true;
+  const operations = [];
+  let updated = 0;
+  let created = 0;
+  let skipped = 0;
+  for (const applicationId of applicationIds) {
+    const existing = existingByApplication.get(applicationId);
+    if (existing) {
+      operations.push(prisma.applicationEnvironment.update({
+        where: { id: existing.id },
+        data: {
+          enabled: body.enabled !== false,
+          ...availability,
+          ...(overwriteUrls ? {
+            webBaseUrl: source.webBaseUrl,
+            apiBaseUrl: source.apiBaseUrl,
+            gatewayBaseUrl: source.gatewayBaseUrl,
+            secretReferences: source.secretReferences,
+          } : {}),
+        },
+      }));
+      updated += 1;
+    } else if (createMissing) {
+      operations.push(prisma.applicationEnvironment.create({
+        data: {
+          applicationId,
+          name: source.name,
+          webBaseUrl: source.webBaseUrl,
+          apiBaseUrl: source.apiBaseUrl,
+          gatewayBaseUrl: source.gatewayBaseUrl,
+          secretReferences: source.secretReferences,
+          enabled: body.enabled !== false,
+          ...availability,
+        },
+      }));
+      created += 1;
+    } else {
+      skipped += 1;
+    }
+  }
+  if (operations.length) await prisma.$transaction(operations);
+  return { updated, created, skipped, total: applicationIds.length };
 }
 
 function sourceRoot(repositoryType) {
@@ -1199,9 +1424,13 @@ async function createRun(req, body) {
   const mapping = await mappingForApplication(req, applicationId);
   const prisma = getPrismaClient();
   const environment = await prisma.applicationEnvironment.findFirst({
-    where: { id: String(body.environmentProfileId || ''), applicationId, enabled: true },
+    where: {
+      id: String(body.environmentProfileId || ''),
+      applicationId,
+      ...environmentAvailabilityWhere(),
+    },
   });
-  if (!environment) throw new CdeApiError('PLAYWRIGHT_ENVIRONMENT_REQUIRED', 'Select an enabled deployed environment.', 422);
+  if (!environment) throw new CdeApiError('PLAYWRIGHT_ENVIRONMENT_REQUIRED', 'Select an enabled environment within its availability window.', 422);
   assertRunnableEnvironmentUrl(environment.webBaseUrl);
   const testFile = await prisma.playwrightTestFile.findFirst({
     where: { id: String(body.testFileId || ''), applicationId, source: 'COUCHDB' },
@@ -1409,6 +1638,10 @@ async function handleCde(req, parsedUrl, body) {
   if (match && req.method === 'POST') return browseProjectPackage(req, decodeURIComponent(match[1]), body);
   if (pathname === '/api/cde/applications' && req.method === 'GET') return visibleApplications(req);
 
+  if (pathname === '/api/applications/bulk/environments' && req.method === 'POST') {
+    return bulkConfigureEnvironments(req, body);
+  }
+
   match = routeMatch(pathname, /^\/api\/applications\/([^/]+)\/cde\/mapping$/);
   if (match && req.method === 'GET') return getMapping(req, decodeURIComponent(match[1]));
   if (match && req.method === 'PUT') return putMapping(req, decodeURIComponent(match[1]), body);
@@ -1432,21 +1665,31 @@ async function handleCde(req, parsedUrl, body) {
   if (match && req.method === 'POST') return saveEnvironment(req, decodeURIComponent(match[1]), body, null);
   match = routeMatch(pathname, /^\/api\/applications\/([^/]+)\/environments\/([^/]+)$/);
   if (match && req.method === 'PATCH') return saveEnvironment(req, decodeURIComponent(match[1]), body, decodeURIComponent(match[2]));
+  if (match && req.method === 'DELETE') return deleteEnvironment(req, decodeURIComponent(match[1]), decodeURIComponent(match[2]));
 
   throw new CdeApiError('CDE_ENDPOINT_NOT_FOUND', 'CDE endpoint not found.', 404);
 }
 
 module.exports = {
   CdeApiError,
+  branchSummaries,
   canHandleCde,
   catalog,
+  derivedTestFolders,
   handleCde,
+  environmentAvailableNow,
+  isStandardEnvironmentName,
+  normalizeTestPath,
   normalizeRemoteFiles,
   materializeSnapshot,
   sameCouchRevisionManifest,
   isCdeEditorUrl,
+  normalizeCdeLoginName,
   projectDescriptor,
   projectRepositoryName,
+  requireCdePasswordStep,
   repositoryBranches,
   selectorMatches,
+  serializeEnvironment,
+  validateEnvironmentAvailability,
 };

@@ -1,154 +1,98 @@
 import { useEffect, useState } from 'react';
-import { Bell, Shield, Terminal, Database, Globe } from 'lucide-react';
+import { Bell, Boxes, Database, Globe2, Settings2, Shield, Terminal } from 'lucide-react';
 import { Header } from '../components/layout/Header';
-import { Card } from '../components/ui/Card';
+import { EnvironmentSettingsPanel } from '../components/settings/EnvironmentSettingsPanel';
+import { SettingsTabs, type SettingsTabItem } from '../components/settings/SettingsTabs';
 import { Button } from '../components/ui/Button';
-import { useAuthStore } from '../stores/authStore';
+import { Card } from '../components/ui/Card';
+import { Input, Select } from '../components/ui/Input';
+import { toast } from '../components/ui/Toast';
 import { applicationApi, systemSettingsApi, workflowPolicyApi } from '../services/api';
 import { syncApplicationWorkflowPolicies } from '../services/workflowPolicyStore';
-import { toast } from '../components/ui/Toast';
-import type {
-  Application,
-  IntegrationAdapterConfig,
-  IntegrationProvider,
-  PlaywrightRunnerConfig,
-  WorkflowPolicy,
-} from '../types';
+import { useAuthStore } from '../stores/authStore';
+import type { Application, IntegrationAdapterConfig, IntegrationProvider, PlaywrightRunnerConfig, WorkflowPolicy } from '../types';
 
-interface SettingSection {
-  id: string;
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-  settings: SettingItem[];
-}
+type SettingsTabId = 'environments' | 'automation' | 'integrations' | 'workflow' | 'general';
 
-interface SettingItem {
-  id: string;
-  label: string;
-  description?: string;
-  type: 'toggle' | 'select' | 'input';
-  value: boolean | string;
-  options?: { value: string; label: string }[];
-}
+const tabs: SettingsTabItem[] = [
+  { id: 'environments', label: 'محیط‌های اجرا', description: 'توسعه، تست و تولید', icon: <Boxes className="h-5 w-5" /> },
+  { id: 'automation', label: 'اجرای خودکار', description: 'Runner و Playwright', icon: <Terminal className="h-5 w-5" /> },
+  { id: 'integrations', label: 'یکپارچه‌سازی‌ها', description: 'CDE و FAVA', icon: <Globe2 className="h-5 w-5" /> },
+  { id: 'workflow', label: 'گردش‌کار', description: 'سیاست انتشار سامانه‌ها', icon: <Shield className="h-5 w-5" /> },
+  { id: 'general', label: 'عمومی', description: 'اعلان، امنیت و سیستم', icon: <Settings2 className="h-5 w-5" /> },
+];
 
-const ToggleSwitch: React.FC<{ checked: boolean; label: string; onChange: () => void }> = ({
-  checked,
-  label,
-  onChange,
-}) => (
+const ToggleSwitch: React.FC<{ checked: boolean; label: string; onChange: () => void; disabled?: boolean | undefined }> = ({ checked, label, onChange, disabled }) => (
   <button
     type="button"
     role="switch"
     aria-checked={checked}
     aria-label={label}
     onClick={onChange}
-    className={`relative h-7 w-14 flex-shrink-0 rounded-full transition-colors ${
-      checked ? 'bg-blue-600' : 'bg-gray-300'
-    }`}
+    disabled={disabled}
+    className={`relative h-7 w-14 flex-shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-50 ${checked ? 'bg-blue-600' : 'bg-gray-300'}`}
   >
-    <span
-      className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${
-        checked ? 'right-8' : 'right-1'
-      }`}
-    />
+    <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${checked ? 'right-8' : 'right-1'}`} />
   </button>
+);
+
+const SectionHeader: React.FC<{ icon: React.ReactNode; title: string; description: string }> = ({ icon, title, description }) => (
+  <div className="mb-5 flex items-start gap-3">
+    <span className="rounded-xl bg-gray-100 p-2.5 text-gray-700">{icon}</span>
+    <div><h2 className="font-semibold text-gray-900">{title}</h2><p className="mt-0.5 text-sm text-gray-500">{description}</p></div>
+  </div>
+);
+
+const SettingToggle: React.FC<{ title: string; description: string; checked: boolean; onChange: () => void; disabled?: boolean | undefined }> = ({ title, description, checked, onChange, disabled }) => (
+  <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-100 bg-gray-50/60 p-4">
+    <div className="min-w-0"><p className="font-medium text-gray-900">{title}</p><p className="mt-1 text-sm leading-6 text-gray-500">{description}</p></div>
+    <ToggleSwitch checked={checked} label={title} onChange={onChange} disabled={disabled} />
+  </div>
 );
 
 export const SettingsPage: React.FC = () => {
   const { activeContext, refreshContexts } = useAuthStore();
+  const [activeTab, setActiveTab] = useState<SettingsTabId>('environments');
   const [applications, setApplications] = useState<Application[]>([]);
   const [workflowPolicies, setWorkflowPolicies] = useState<WorkflowPolicy[]>([]);
-  const [workflowLoading, setWorkflowLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [runnerDraft, setRunnerDraft] = useState<PlaywrightRunnerConfig | null>(null);
   const [adapterDrafts, setAdapterDrafts] = useState<Record<IntegrationProvider, IntegrationAdapterConfig> | null>(null);
-  const [settingsSaving, setSettingsSaving] = useState(false);
-  const [settings, setSettings] = useState<Record<string, boolean | string>>({
-    'notifications.email': true,
-    'notifications.browser': true,
-    'notifications.assignments': true,
-    'notifications.statusChanges': true,
-    'security.twoFactor': false,
-    'security.sessionTimeout': '30',
-    'playwright.enabled': true,
-    'playwright.autoDiscovery': true,
-    'integrations.cde': false,
-    'integrations.fava': false,
-  });
-
-  const handleToggle = (key: string) => {
-    if (key === 'playwright.enabled' || key === 'playwright.autoDiscovery') {
-      const field = key === 'playwright.enabled' ? 'enabled' : 'autoDiscovery';
-      setRunnerDraft(prev => prev ? { ...prev, [field]: !prev[field] } : prev);
-      return;
-    }
-    if (key === 'integrations.cde' || key === 'integrations.fava') {
-      const provider: IntegrationProvider = key === 'integrations.cde' ? 'CDE' : 'FAVA';
-      setAdapterDrafts(prev => prev ? {
-        ...prev,
-        [provider]: {
-          ...prev[provider],
-          enabled: !prev[provider].enabled,
-        },
-      } : prev);
-      return;
-    }
-    setSettings(prev => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
-  };
+  const [saving, setSaving] = useState(false);
+  const [preferences, setPreferences] = useState({ email: true, browser: true, assignments: true, statusChanges: true, twoFactor: false });
 
   useEffect(() => {
-    if (activeContext) {
-      loadWorkflowSettings();
-    }
+    if (!activeContext) return;
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([applicationApi.getAll(), workflowPolicyApi.getAll(), systemSettingsApi.getIntegrationSettings()])
+      .then(([apps, policies, integrationSettings]) => {
+        if (cancelled) return;
+        syncApplicationWorkflowPolicies(apps);
+        setApplications(apps);
+        setWorkflowPolicies(policies);
+        setRunnerDraft(integrationSettings.playwright);
+        setAdapterDrafts({
+          CDE: integrationSettings.adapters.find(adapter => adapter.provider === 'CDE')!,
+          FAVA: integrationSettings.adapters.find(adapter => adapter.provider === 'FAVA')!,
+        });
+      })
+      .catch(() => !cancelled && toast.error('بارگذاری تنظیمات سیستم انجام نشد.'))
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
   }, [activeContext]);
 
-  const loadWorkflowSettings = async () => {
-    setWorkflowLoading(true);
-    try {
-      const [apps, policies] = await Promise.all([
-        applicationApi.getAll(),
-        workflowPolicyApi.getAll(),
-      ]);
-      const integrationSettings = await systemSettingsApi.getIntegrationSettings();
-      syncApplicationWorkflowPolicies(apps);
-      setApplications(apps);
-      setWorkflowPolicies(policies);
-      setRunnerDraft(integrationSettings.playwright);
-      setAdapterDrafts({
-        CDE: integrationSettings.adapters.find(adapter => adapter.provider === 'CDE')!,
-        FAVA: integrationSettings.adapters.find(adapter => adapter.provider === 'FAVA')!,
-      });
-    } catch {
-      toast.error('خطا در بارگذاری سیاست‌های گردش‌کار.');
-    } finally {
-      setWorkflowLoading(false);
-    }
+  const updateRunner = <K extends keyof PlaywrightRunnerConfig>(field: K, value: PlaywrightRunnerConfig[K]) => {
+    setRunnerDraft(previous => previous ? { ...previous, [field]: value } : previous);
   };
 
-  const updateRunnerDraft = (field: keyof PlaywrightRunnerConfig, value: string | boolean | number) => {
-    setRunnerDraft(prev => prev ? { ...prev, [field]: value } : prev);
+  const updateAdapter = <K extends keyof IntegrationAdapterConfig>(provider: IntegrationProvider, field: K, value: IntegrationAdapterConfig[K]) => {
+    setAdapterDrafts(previous => previous ? { ...previous, [provider]: { ...previous[provider], [field]: value } } : previous);
   };
 
-  const updateAdapterDraft = (
-    provider: IntegrationProvider,
-    field: keyof IntegrationAdapterConfig,
-    value: string | boolean
-  ) => {
-    setAdapterDrafts(prev => prev ? {
-      ...prev,
-      [provider]: {
-        ...prev[provider],
-        [field]: value,
-      },
-    } : prev);
-  };
-
-  const saveSystemSettings = async () => {
+  const saveExecutionSettings = async () => {
     if (!activeContext || !runnerDraft || !adapterDrafts) return;
-    setSettingsSaving(true);
+    setSaving(true);
     try {
       const [runner, cde, fava] = await Promise.all([
         systemSettingsApi.updatePlaywrightRunner(runnerDraft, activeContext.userId),
@@ -156,365 +100,145 @@ export const SettingsPage: React.FC = () => {
         systemSettingsApi.updateIntegrationAdapter('FAVA', adapterDrafts.FAVA, activeContext.userId),
       ]);
       setRunnerDraft(runner);
-      setAdapterDrafts({
-        CDE: cde || adapterDrafts.CDE,
-        FAVA: fava || adapterDrafts.FAVA,
-      });
-      toast.success('تنظیمات Runner و Integration ذخیره شد.');
+      setAdapterDrafts({ CDE: cde || adapterDrafts.CDE, FAVA: fava || adapterDrafts.FAVA });
+      toast.success('تنظیمات اجرا و یکپارچه‌سازی ذخیره شد.');
     } catch {
-      toast.error('خطا در ذخیره تنظیمات Runner و Integration.');
+      toast.error('ذخیره تنظیمات اجرا و یکپارچه‌سازی انجام نشد.');
     } finally {
-      setSettingsSaving(false);
+      setSaving(false);
     }
   };
 
-  const handleWorkflowPolicyChange = async (applicationId: string, policyId: string) => {
+  const changeWorkflowPolicy = async (applicationId: string, policyId: string) => {
     try {
       const updated = await workflowPolicyApi.updateApplicationPolicy(applicationId, policyId);
-      if (!updated) {
-        toast.error('سامانه یافت نشد.');
-        return;
-      }
+      if (!updated) return toast.error('سامانه پیدا نشد.');
       syncApplicationWorkflowPolicies([updated]);
-      setApplications(prev => prev.map(app => app.id === applicationId ? updated : app));
+      setApplications(previous => previous.map(application => application.id === applicationId ? updated : application));
       await refreshContexts();
-      toast.success('سیاست گردش‌کار انتشار به‌روزرسانی شد.');
+      toast.success('سیاست گردش‌کار به‌روزرسانی شد.');
     } catch {
-      toast.error('خطا در به‌روزرسانی سیاست گردش‌کار.');
+      toast.error('به‌روزرسانی سیاست گردش‌کار انجام نشد.');
     }
   };
 
   if (!activeContext) return null;
 
-  const sections: SettingSection[] = [
-    {
-      id: 'notifications',
-      title: 'اعلان‌ها',
-      description: 'تنظیمات اعلان‌ها و هشدارها',
-      icon: <Bell className="w-5 h-5 text-blue-500" />,
-      settings: [
-        { id: 'notifications.email', label: 'اعلان ایمیلی', description: 'دریافت اعلان از طریق ایمیل', type: 'toggle', value: settings['notifications.email'] ?? false },
-        { id: 'notifications.browser', label: 'اعلان مرورگر', description: 'نمایش اعلان در مرورگر', type: 'toggle', value: settings['notifications.browser'] ?? false },
-        { id: 'notifications.assignments', label: 'ارجاعات', description: 'اعلان هنگام ارجاع کار', type: 'toggle', value: settings['notifications.assignments'] ?? false },
-        { id: 'notifications.statusChanges', label: 'تغییر وضعیت', description: 'اعلان هنگام تغییر وضعیت', type: 'toggle', value: settings['notifications.statusChanges'] ?? false },
-      ],
-    },
-    {
-      id: 'security',
-      title: 'امنیت',
-      description: 'تنظیمات امنیتی سیستم',
-      icon: <Shield className="w-5 h-5 text-green-500" />,
-      settings: [
-        { id: 'security.twoFactor', label: 'احراز هویت دو مرحله‌ای', description: 'فعال‌سازی 2FA (به زودی)', type: 'toggle', value: settings['security.twoFactor'] ?? false },
-      ],
-    },
-    {
-      id: 'playwright',
-      title: 'Playwright',
-      description: 'تنظیمات تست خودکار',
-      icon: <Terminal className="w-5 h-5 text-purple-500" />,
-      settings: [
-        { id: 'playwright.enabled', label: 'فعال‌سازی Playwright', description: 'امکان اجرای تست‌های خودکار', type: 'toggle', value: runnerDraft?.enabled ?? settings['playwright.enabled'] ?? false },
-        { id: 'playwright.autoDiscovery', label: 'کشف خودکار فایل‌ها', description: 'جستجوی خودکار فایل‌های تست', type: 'toggle', value: runnerDraft?.autoDiscovery ?? settings['playwright.autoDiscovery'] ?? false },
-      ],
-    },
-    {
-      id: 'integrations',
-      title: 'یکپارچه‌سازی',
-      description: 'اتصال به سیستم‌های خارجی',
-      icon: <Globe className="w-5 h-5 text-amber-500" />,
-      settings: [
-        { id: 'integrations.cde', label: 'اتصال به CDE', description: 'یکپارچه‌سازی با CDE از طریق Adapter و Feature Flag', type: 'toggle', value: adapterDrafts?.CDE.enabled ?? settings['integrations.cde'] ?? false },
-        { id: 'integrations.fava', label: 'اتصال به Fava', description: 'یکپارچه‌سازی با Fava از طریق Adapter و Feature Flag', type: 'toggle', value: adapterDrafts?.FAVA.enabled ?? settings['integrations.fava'] ?? false },
-      ],
-    },
-  ];
-
-  const renderSettingSection = (section: SettingSection) => (
-    <Card key={section.id}>
-      <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 bg-gray-100 rounded-lg">
-          {section.icon}
-        </div>
-        <div className="min-w-0">
-          <h3 className="font-semibold text-gray-900">{section.title}</h3>
-          <p className="text-sm text-gray-500">{section.description}</p>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        {section.settings.map((setting) => (
-          <div
-            key={setting.id}
-            className="flex items-center justify-between gap-4 py-3 border-b border-gray-100 last:border-0"
-          >
-            <div className="min-w-0">
-              <p className="font-medium text-gray-900">{setting.label}</p>
-              {setting.description && (
-                <p className="text-sm text-gray-500">{setting.description}</p>
-              )}
-            </div>
-            {setting.type === 'toggle' && (
-              <ToggleSwitch
-                checked={Boolean(setting.value)}
-                label={setting.label}
-                onChange={() => handleToggle(setting.id)}
-              />
-            )}
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
+  const panelProps = (id: SettingsTabId) => ({
+    id: `settings-panel-${id}`,
+    role: 'tabpanel',
+    'aria-labelledby': `settings-tab-${id}`,
+    tabIndex: 0,
+  } as const);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header
-        title="تنظیمات سیستم"
-        subtitle="پیکربندی دسته‌بندی‌شده سامانه، اجرا و سیاست انتشار"
-      />
-
+    <div className="min-h-screen bg-gray-50" dir="rtl">
+      <Header title="تنظیمات سیستم" subtitle="مدیریت متمرکز محیط‌های اجرا، آزمون خودکار و سیاست‌های سامانه" />
       <main className="p-4 sm:p-6">
-        <div className="max-w-6xl mx-auto space-y-6">
-          <section className="space-y-3">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">اعلان و امنیت</h2>
-              <p className="text-sm text-gray-500">تنظیمات رفتار حساب، اعلان‌ها و کنترل‌های امنیتی.</p>
-            </div>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {sections
-                .filter(section => ['notifications', 'security'].includes(section.id))
-                .map(renderSettingSection)}
-            </div>
-          </section>
+        <div className="mx-auto max-w-7xl space-y-5">
+          <SettingsTabs items={tabs} activeId={activeTab} onChange={id => setActiveTab(id as SettingsTabId)} />
 
-          <section className="space-y-3">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">اجرای تست و اتصال‌ها</h2>
-              <p className="text-sm text-gray-500">تنظیمات Playwright، Adapterها و اتصال به سامانه‌های بیرونی.</p>
-            </div>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {sections
-                .filter(section => ['playwright', 'integrations'].includes(section.id))
-                .map(renderSettingSection)}
-            </div>
-          </section>
+          {activeTab === 'environments' && <section {...panelProps('environments')}><EnvironmentSettingsPanel /></section>}
 
-          {runnerDraft && adapterDrafts && (
-            <Card>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 bg-gray-100 rounded-lg">
-                  <Terminal className="w-5 h-5 text-purple-500" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">جزئیات Runner و Adapterها</h3>
-                  <p className="text-sm text-gray-500">پیکربندی اجرای Playwright و اتصال‌های CDE/FAVA</p>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                <div className="p-4 border border-gray-200 rounded-lg">
-                  <h4 className="font-medium text-gray-900 mb-3">Playwright Runner</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <label className="block">
-                      <span className="text-sm text-gray-600">Runner ID</span>
-                      <input
-                        value={runnerDraft.runnerId}
-                        onChange={(e) => updateRunnerDraft('runnerId', e.target.value)}
-                        className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-sm text-gray-600">Timeout پیش‌فرض</span>
-                      <input
-                        type="number"
-                        min={30}
-                        max={900}
-                        value={runnerDraft.defaultTimeoutSeconds}
-                        onChange={(e) => updateRunnerDraft('defaultTimeoutSeconds', Number(e.target.value) || 120)}
-                        className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
-                      />
-                    </label>
-                    <label className="block md:col-span-2">
-                      <span className="text-sm text-gray-600">Command Template</span>
-                      <input
-                        value={runnerDraft.commandTemplate}
-                        onChange={(e) => updateRunnerDraft('commandTemplate', e.target.value)}
-                        className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono"
-                      />
-                      <span className="text-xs text-gray-500">متغیرهای مجاز: {'{testFilePath}'} و {'{environment}'}</span>
-                    </label>
-                    <label className="block">
-                      <span className="text-sm text-gray-600">Working Directory</span>
-                      <input
-                        value={runnerDraft.defaultWorkingDirectory}
-                        onChange={(e) => updateRunnerDraft('defaultWorkingDirectory', e.target.value)}
-                        className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-sm text-gray-600">Artifact Root</span>
-                      <input
-                        value={runnerDraft.artifactRoot}
-                        onChange={(e) => updateRunnerDraft('artifactRoot', e.target.value)}
-                        className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono"
-                      />
-                    </label>
-                    <label className="block md:col-span-2">
-                      <span className="text-sm text-gray-600">Secret Reference</span>
-                      <input
-                        value={runnerDraft.secretReference || ''}
-                        onChange={(e) => updateRunnerDraft('secretReference', e.target.value)}
-                        className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono"
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                {(['CDE', 'FAVA'] as IntegrationProvider[]).map(provider => {
-                  const adapter = adapterDrafts[provider];
-                  return (
-                    <div key={provider} className="p-4 border border-gray-200 rounded-lg">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-medium text-gray-900">{provider} Adapter</h4>
-                        <span className={`px-2 py-0.5 text-xs rounded-full ${adapter.enabled ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
-                          {adapter.enabled ? 'فعال' : 'غیرفعال'}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <label className="block">
-                          <span className="text-sm text-gray-600">Base URL</span>
-                          <input
-                            value={adapter.baseUrl}
-                            onChange={(e) => updateAdapterDraft(provider, 'baseUrl', e.target.value)}
-                            className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono"
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="text-sm text-gray-600">Credential Reference</span>
-                          <input
-                            value={adapter.credentialReference || ''}
-                            onChange={(e) => updateAdapterDraft(provider, 'credentialReference', e.target.value)}
-                            className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg font-mono"
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="text-sm text-gray-600">Sync Direction</span>
-                          <select
-                            value={adapter.syncDirection}
-                            onChange={(e) => updateAdapterDraft(provider, 'syncDirection', e.target.value)}
-                            className="mt-1 w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white"
-                          >
-                            <option value="PULL">PULL</option>
-                            <option value="PUSH">PUSH</option>
-                            <option value="BIDIRECTIONAL">BIDIRECTIONAL</option>
-                          </select>
-                        </label>
-                        <div>
-                          <span className="text-sm text-gray-600">Health</span>
-                          <p className="mt-1 px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg">
-                            {adapter.lastHealthStatus}
-                          </p>
-                        </div>
-                      </div>
+          {activeTab === 'automation' && (
+            <section {...panelProps('automation')} className="space-y-5">
+              <Card>
+                <SectionHeader icon={<Terminal className="h-5 w-5 text-violet-600" />} title="Playwright Runner" description="رفتار پیش‌فرض صف و فرایند اجرای تست‌های مرورگر را کنترل کنید." />
+                {runnerDraft ? (
+                  <div className="space-y-5">
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <SettingToggle title="فعال‌سازی Playwright" description="امکان ثبت و اجرای تست‌های خودکار برای کاربران مجاز." checked={runnerDraft.enabled} onChange={() => updateRunner('enabled', !runnerDraft.enabled)} />
+                      <SettingToggle title="کشف خودکار فایل‌ها" description="شناسایی خودکار فایل‌های تست پشتیبانی‌شده در مخزن CouchDB." checked={runnerDraft.autoDiscovery} onChange={() => updateRunner('autoDiscovery', !runnerDraft.autoDiscovery)} />
                     </div>
-                  );
-                })}
-              </div>
-            </Card>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Input label="Runner ID" value={runnerDraft.runnerId} onChange={event => updateRunner('runnerId', event.target.value)} dir="ltr" />
+                      <Input label="Timeout پیش‌فرض (ثانیه)" type="number" min={30} max={900} value={runnerDraft.defaultTimeoutSeconds} onChange={event => updateRunner('defaultTimeoutSeconds', Number(event.target.value) || 120)} dir="ltr" />
+                      <Input className="font-mono" label="Working Directory" value={runnerDraft.defaultWorkingDirectory} onChange={event => updateRunner('defaultWorkingDirectory', event.target.value)} dir="ltr" />
+                      <Input className="font-mono" label="Artifact Root" value={runnerDraft.artifactRoot} onChange={event => updateRunner('artifactRoot', event.target.value)} dir="ltr" />
+                      <div className="md:col-span-2"><Input className="font-mono" label="Command Template" value={runnerDraft.commandTemplate} onChange={event => updateRunner('commandTemplate', event.target.value)} hint="متغیرهای مجاز: {testFilePath} و {environment}" dir="ltr" /></div>
+                      <div className="md:col-span-2"><Input className="font-mono" label="Secret Reference" value={runnerDraft.secretReference || ''} onChange={event => updateRunner('secretReference', event.target.value)} dir="ltr" /></div>
+                    </div>
+                  </div>
+                ) : <p className="text-sm text-gray-500">{loading ? 'در حال بارگذاری...' : 'تنظیمات Runner در دسترس نیست.'}</p>}
+              </Card>
+              <div className="flex justify-end"><Button onClick={() => void saveExecutionSettings()} loading={saving}>ذخیره تنظیمات اجرا</Button></div>
+            </section>
           )}
 
-          <Card>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-gray-100 rounded-lg">
-                <Shield className="w-5 h-5 text-indigo-500" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">سیاست گردش‌کار انتشار</h3>
-                <p className="text-sm text-gray-500">تعیین اینکه تصمیم نهایی VersionHistory در هر سامانه با چه نقشی باشد</p>
-              </div>
-            </div>
-
-            {workflowLoading ? (
-              <p className="text-sm text-gray-500">در حال بارگذاری...</p>
-            ) : (
-              <div className="space-y-3">
-                {applications.map(app => {
-                  const selectedPolicy = workflowPolicies.find(policy => policy.id === app.workflowPolicyId) || workflowPolicies[0];
+          {activeTab === 'integrations' && (
+            <section {...panelProps('integrations')} className="space-y-5">
+              <div className="grid gap-4 lg:grid-cols-2">
+                {adapterDrafts && (['CDE', 'FAVA'] as IntegrationProvider[]).map(provider => {
+                  const adapter = adapterDrafts[provider];
                   return (
-                    <div key={app.id} className="p-3 border border-gray-200 rounded-lg">
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                        <div>
-                          <p className="font-medium text-gray-900">{app.name}</p>
-                          <p className="text-xs text-gray-500">{app.code}</p>
-                        </div>
-                        <select
-                          value={app.workflowPolicyId || workflowPolicies[0]?.id || ''}
-                          onChange={(e) => handleWorkflowPolicyChange(app.id, e.target.value)}
-                          className="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white"
-                        >
-                          {workflowPolicies.map(policy => (
-                            <option key={policy.id} value={policy.id}>{policy.name}</option>
-                          ))}
-                        </select>
+                    <Card key={provider}>
+                      <SectionHeader icon={<Globe2 className="h-5 w-5 text-blue-600" />} title={`${provider} Adapter`} description={`تنظیم اتصال و همگام‌سازی ${provider}`} />
+                      <div className="space-y-4">
+                        <SettingToggle title={`اتصال ${provider} فعال باشد`} description="Feature flag مربوط به این آداپتر را کنترل می‌کند." checked={adapter.enabled} onChange={() => updateAdapter(provider, 'enabled', !adapter.enabled)} />
+                        <Input className="font-mono" label="Base URL" value={adapter.baseUrl} onChange={event => updateAdapter(provider, 'baseUrl', event.target.value)} dir="ltr" />
+                        <Input className="font-mono" label="Credential Reference" value={adapter.credentialReference || ''} onChange={event => updateAdapter(provider, 'credentialReference', event.target.value)} dir="ltr" />
+                        <Select label="جهت همگام‌سازی" value={adapter.syncDirection} onChange={event => updateAdapter(provider, 'syncDirection', event.target.value as IntegrationAdapterConfig['syncDirection'])} options={[{ value: 'PULL', label: 'PULL — دریافت' }, { value: 'PUSH', label: 'PUSH — ارسال' }, { value: 'BIDIRECTIONAL', label: 'BIDIRECTIONAL — دوطرفه' }]} />
+                        <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm"><span className="text-gray-500">وضعیت سلامت</span><code className="text-gray-800">{adapter.lastHealthStatus}</code></div>
                       </div>
-                      {selectedPolicy && (
-                        <p className="text-xs text-gray-500 mt-2">
-                          اعلام نظر کیفیت: {selectedPolicy.versionHistory.qaReviewOwnerLabel} | تصمیم نهایی: {selectedPolicy.versionHistory.decisionOwnerLabel}
-                        </p>
-                      )}
-                    </div>
+                    </Card>
                   );
                 })}
               </div>
-            )}
-          </Card>
+              <div className="flex justify-end"><Button onClick={() => void saveExecutionSettings()} loading={saving}>ذخیره یکپارچه‌سازی‌ها</Button></div>
+            </section>
+          )}
 
-          {/* System Info */}
-          <Card>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-gray-100 rounded-lg">
-                <Database className="w-5 h-5 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-gray-900">اطلاعات سیستم</h3>
-                <p className="text-sm text-gray-500">مشخصات فنی سیستم</p>
-              </div>
-            </div>
+          {activeTab === 'workflow' && (
+            <section {...panelProps('workflow')}>
+              <Card>
+                <SectionHeader icon={<Shield className="h-5 w-5 text-indigo-600" />} title="سیاست گردش‌کار انتشار" description="مسئول بازبینی کیفیت و تصمیم نهایی هر سامانه را تعیین کنید." />
+                {loading ? <p className="text-sm text-gray-500">در حال بارگذاری...</p> : (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {applications.map(application => {
+                      const selectedPolicy = workflowPolicies.find(policy => policy.id === application.workflowPolicyId) || workflowPolicies[0];
+                      return (
+                        <div key={application.id} className="rounded-xl border border-gray-200 p-4">
+                          <div className="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(220px,auto)]">
+                            <div><p className="font-medium text-gray-900">{application.name}</p><p className="text-xs text-gray-500">{application.code}</p></div>
+                            <Select aria-label={`سیاست ${application.name}`} value={application.workflowPolicyId || workflowPolicies[0]?.id || ''} onChange={event => void changeWorkflowPolicy(application.id, event.target.value)} options={workflowPolicies.map(policy => ({ value: policy.id, label: policy.name }))} />
+                          </div>
+                          {selectedPolicy && <p className="mt-3 border-t border-gray-100 pt-3 text-xs leading-5 text-gray-500">بازبینی کیفیت: {selectedPolicy.versionHistory.qaReviewOwnerLabel} · تصمیم نهایی: {selectedPolicy.versionHistory.decisionOwnerLabel}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+            </section>
+          )}
 
-            <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-              <div>
-                <p className="text-gray-500">نسخه Workspace</p>
-                <p className="font-mono font-medium">utms 0.0.0</p>
+          {activeTab === 'general' && (
+            <section {...panelProps('general')} className="space-y-5">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <Card>
+                  <SectionHeader icon={<Bell className="h-5 w-5 text-blue-600" />} title="اعلان‌ها" description="کانال‌ها و رویدادهای موردنظر برای دریافت اعلان." />
+                  <div className="space-y-3">
+                    <SettingToggle title="اعلان ایمیلی" description="دریافت اعلان‌های مهم از طریق ایمیل." checked={preferences.email} onChange={() => setPreferences(previous => ({ ...previous, email: !previous.email }))} />
+                    <SettingToggle title="اعلان مرورگر" description="نمایش اعلان در مرورگر هنگام باز بودن سامانه." checked={preferences.browser} onChange={() => setPreferences(previous => ({ ...previous, browser: !previous.browser }))} />
+                    <SettingToggle title="ارجاع کار" description="هشدار هنگام ارجاع یک مورد جدید." checked={preferences.assignments} onChange={() => setPreferences(previous => ({ ...previous, assignments: !previous.assignments }))} />
+                    <SettingToggle title="تغییر وضعیت" description="هشدار هنگام تغییر مرحله یا نتیجه." checked={preferences.statusChanges} onChange={() => setPreferences(previous => ({ ...previous, statusChanges: !previous.statusChanges }))} />
+                  </div>
+                </Card>
+                <div className="space-y-4">
+                  <Card>
+                    <SectionHeader icon={<Shield className="h-5 w-5 text-emerald-600" />} title="امنیت" description="کنترل‌های امنیتی حساب و نشست کاربر." />
+                    <SettingToggle title="احراز هویت دومرحله‌ای" description="این قابلیت پس از اتصال سرویس هویت فعال خواهد شد." checked={preferences.twoFactor} onChange={() => setPreferences(previous => ({ ...previous, twoFactor: !previous.twoFactor }))} disabled />
+                  </Card>
+                  <Card>
+                    <SectionHeader icon={<Database className="h-5 w-5 text-gray-600" />} title="اطلاعات سیستم" description="نسخه اجزای اصلی محیط فعلی." />
+                    <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                      {[['Workspace', 'utms 0.0.0'], ['محیط', 'Local development'], ['Frontend', 'React 19 + Vite 7'], ['Playwright', '1.55.0']].map(([label, value]) => <div key={label} className="rounded-lg bg-gray-50 p-3"><dt className="text-xs text-gray-500">{label}</dt><dd className="mt-1 font-mono text-gray-900" dir="ltr">{value}</dd></div>)}
+                    </dl>
+                  </Card>
+                </div>
               </div>
-              <div>
-                <p className="text-gray-500">محیط</p>
-                <p className="font-mono font-medium">Local development</p>
-              </div>
-              <div>
-                <p className="text-gray-500">Frontend</p>
-                <p className="font-mono font-medium">React 19.2.6 + Vite 7.3.6</p>
-              </div>
-              <div>
-                <p className="text-gray-500">Backend</p>
-                <p className="font-mono font-medium">Domain RPC + API Console server</p>
-              </div>
-              <div>
-                <p className="text-gray-500">TypeScript</p>
-                <p className="font-mono font-medium">5.9.3</p>
-              </div>
-              <div>
-                <p className="text-gray-500">Playwright</p>
-                <p className="font-mono font-medium">1.55.0</p>
-              </div>
-            </div>
-          </Card>
-
-          <div className="flex justify-end">
-            <Button onClick={saveSystemSettings} loading={settingsSaving}>
-              ذخیره تنظیمات اجرا و اتصال‌ها
-            </Button>
-          </div>
+            </section>
+          )}
         </div>
       </main>
     </div>

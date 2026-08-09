@@ -15,13 +15,49 @@ const {
 const { decryptObject, encryptObject } = require('../src/modules/playwright/object-store.cjs');
 const { createLoginChallenge, readLoginChallenge } = require('../src/modules/cde/cde-session-store.cjs');
 const {
+  branchSummaries,
+  derivedTestFolders,
+  environmentAvailableNow,
+  isStandardEnvironmentName,
+  normalizeTestPath,
   normalizeRemoteFiles,
   projectDescriptor,
   projectRepositoryName,
   repositoryBranches,
   sameCouchRevisionManifest,
   isCdeEditorUrl,
+  normalizeCdeLoginName,
+  requireCdePasswordStep,
+  serializeEnvironment,
+  validateEnvironmentAvailability,
 } = require('../src/modules/cde/cde-server.cjs');
+
+test('nested Playwright folder paths remain safe and are derived as virtual CouchDB folders', () => {
+  const path = normalizeTestPath('tests/e2e/province/province-ask.spec.js');
+  assert.equal(path, 'tests/e2e/province/province-ask.spec.js');
+  assert.deepEqual(
+    derivedTestFolders([{ fullPath: path }]).map(folder => folder.fullPath),
+    ['tests', 'tests/e2e', 'tests/e2e/province'],
+  );
+  assert.throws(() => normalizeTestPath('tests/../private/secret.spec.js'), error => error.category === 'PLAYWRIGHT_PATH_INVALID');
+});
+
+test('CDE login accepts Iranian cellphone formats and never guesses the password step', () => {
+  assert.equal(normalizeCdeLoginName('0912 123 4567'), '9121234567');
+  assert.equal(normalizeCdeLoginName('+98-912-123-4567'), '9121234567');
+  assert.equal(normalizeCdeLoginName('۰۹۱۲۱۲۳۴۵۶۷'), '9121234567');
+  assert.equal(normalizeCdeLoginName('12345'), '');
+
+  assert.equal(requireCdePasswordStep({ Result: { nextStep: 'password' } }), 'password');
+  assert.throws(
+    () => requireCdePasswordStep({ Result: { nextStep: 'signup' } }),
+    error => error.category === 'CDE_ACCOUNT_NOT_FOUND' && error.statusCode === 404,
+  );
+  assert.throws(
+    () => requireCdePasswordStep({ Result: { IsUserLogin: false } }),
+    error => error.category === 'CDE_ACCOUNT_NOT_FOUND',
+  );
+});
 
 test('CDE source-management links are never accepted as Playwright runtime URLs', () => {
   assert.equal(isCdeEditorUrl('https://cde.edus.ir/front/directory/medu-inquiry%3EApp'), true);
@@ -29,6 +65,40 @@ test('CDE source-management links are never accepted as Playwright runtime URLs'
   assert.equal(isCdeEditorUrl('https://cde.edus.ir/back/medu-inquiry/medu-inquiry%3E'), true);
   assert.equal(isCdeEditorUrl('https://inquiry.edus.ir/'), false);
   assert.equal(isCdeEditorUrl('https://example.test/front/directory/app'), false);
+});
+
+test('environment secret references are visible only in the explicit administrator projection', () => {
+  const row = {
+    id: 'env-1',
+    applicationId: 'app-1',
+    name: 'develop',
+    webBaseUrl: 'https://develop.example.test',
+    apiBaseUrl: null,
+    gatewayBaseUrl: null,
+    secretReferences: { runtime: 'vault://utms/app/develop' },
+    enabled: true,
+  };
+  assert.equal('secretReferences' in serializeEnvironment(row), false);
+  assert.deepEqual(
+    serializeEnvironment(row, true).secretReferences,
+    { runtime: 'vault://utms/app/develop' },
+  );
+});
+
+test('environment availability windows and standard-name deletion guard are deterministic', () => {
+  const now = new Date('2026-08-09T08:00:00.000Z');
+  assert.equal(environmentAvailableNow({ enabled: true, availableFrom: null, availableUntil: null }, now), true);
+  assert.equal(environmentAvailableNow({ enabled: false, availableFrom: null, availableUntil: null }, now), false);
+  assert.equal(environmentAvailableNow({ enabled: true, availableFrom: new Date('2026-08-09T09:00:00.000Z'), availableUntil: null }, now), false);
+  assert.equal(environmentAvailableNow({ enabled: true, availableFrom: null, availableUntil: new Date('2026-08-09T07:00:00.000Z') }, now), false);
+  assert.equal(environmentAvailableNow({ enabled: true, availableFrom: new Date('2026-08-09T07:00:00.000Z'), availableUntil: new Date('2026-08-09T09:00:00.000Z') }, now), true);
+
+  assert.equal(isStandardEnvironmentName('pre-production'), true);
+  assert.equal(isStandardEnvironmentName('Demo 1405'), false);
+  assert.throws(
+    () => validateEnvironmentAvailability('2026-08-09T10:00:00.000Z', '2026-08-09T09:00:00.000Z'),
+    error => error.category === 'ENVIRONMENT_AVAILABILITY_INVALID',
+  );
 });
 
 test('CouchDB snapshot manifests compare semantically after JSONB key reordering', () => {
@@ -186,6 +256,25 @@ test('project browsing derives allowlisted repository names and normalizes neste
     code: 'function Card() {}',
     readOnly: true,
   }]);
+});
+
+test('package responses expose every safe branch selector for post-open branch switching', () => {
+  const branches = repositoryBranches({
+    public: { versionId: 'public-v1', content: { type: 'REACT', content: [] } },
+    personal: [
+      { rand_id: 'personal-editable', index: 0, versionId: 'personal-v2', editable: true, meta: { title: 'main' } },
+      { rand_id: 'personal-readonly', index: 1, versionId: 'personal-v1', editable: false },
+    ],
+  }, 'WEB_UI');
+  const summaries = branchSummaries(branches);
+  assert.equal(summaries.length, 3);
+  assert.deepEqual(summaries.map(branch => branch.selector), [
+    { kind: 'PUBLIC' },
+    { kind: 'PERSONAL', randId: 'personal-editable', index: 0 },
+    { kind: 'PERSONAL', randId: 'personal-readonly', index: 1 },
+  ]);
+  assert.deepEqual(summaries.map(branch => branch.editable), [false, true, false]);
+  assert.equal('value' in summaries[1], false);
 });
 
 test('ecreq encrypts requests and decrypts double-encoded Core responses', async t => {

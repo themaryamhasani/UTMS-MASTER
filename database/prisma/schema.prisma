@@ -1362,12 +1362,15 @@ model ApplicationEnvironment {
   gatewayBaseUrl   String?         @map("gateway_base_url") @db.Text
   secretReferences Json            @default("{}") @map("secret_references")
   enabled          Boolean         @default(true)
+  availableFrom    DateTime?       @map("available_from") @db.Timestamptz(6)
+  availableUntil   DateTime?       @map("available_until") @db.Timestamptz(6)
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
   playwrightRuns   PlaywrightRun[]
 
   @@unique([applicationId, name])
   @@index([applicationId, enabled])
+  @@index([applicationId, availableFrom, availableUntil])
   @@map("application_environments")
 }
 

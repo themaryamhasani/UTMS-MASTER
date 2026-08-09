@@ -45,6 +45,12 @@ export interface CdePackageContent {
   repositoryType: CdeCatalogRepository['type'];
   repoName: string;
   packId: string;
+  branches: Array<{
+    selector: CdeBranchSelector;
+    versionId?: string | null;
+    editable?: boolean;
+    meta?: Record<string, unknown>;
+  }>;
   branch: {
     selector: CdeBranchSelector;
     versionId?: string | null;
@@ -73,6 +79,9 @@ export interface ApplicationEnvironmentProfile {
   gatewayBaseUrl?: string | null;
   secretReferences?: Record<string, string>;
   enabled: boolean;
+  availableFrom?: string | null;
+  availableUntil?: string | null;
+  availableNow?: boolean;
 }
 
 export interface CdeVisibleApplication {
@@ -226,7 +235,10 @@ export const cdeApi = {
   updateTestFile: <T>(applicationId: string, fileId: string, data: unknown) => request<T>(`/api/applications/${encodeURIComponent(applicationId)}/playwright/files/${encodeURIComponent(fileId)}`, {
     method: 'PATCH', body: JSON.stringify(data),
   }),
-  environments: (applicationId: string) => request<ApplicationEnvironmentProfile[]>(`/api/applications/${encodeURIComponent(applicationId)}/environments`),
+  environments: (applicationId: string, options: { includeDisabled?: boolean } = {}) => {
+    const query = options.includeDisabled ? '?includeDisabled=true' : '';
+    return request<ApplicationEnvironmentProfile[]>(`/api/applications/${encodeURIComponent(applicationId)}/environments${query}`);
+  },
   saveEnvironment: (applicationId: string, data: Omit<ApplicationEnvironmentProfile, 'id' | 'applicationId'>) =>
     request<ApplicationEnvironmentProfile>(`/api/applications/${encodeURIComponent(applicationId)}/environments`, {
       method: 'POST', body: JSON.stringify(data),
@@ -235,6 +247,23 @@ export const cdeApi = {
     request<ApplicationEnvironmentProfile>(`/api/applications/${encodeURIComponent(applicationId)}/environments/${encodeURIComponent(environmentId)}`, {
       method: 'PATCH', body: JSON.stringify(data),
     }),
+  deleteEnvironment: (applicationId: string, environmentId: string) =>
+    request<{ deleted: true; id: string }>(`/api/applications/${encodeURIComponent(applicationId)}/environments/${encodeURIComponent(environmentId)}`, {
+      method: 'DELETE', body: '{}',
+    }),
+  bulkConfigureEnvironments: (data: {
+    sourceApplicationId: string;
+    sourceEnvironmentId: string;
+    applicationIds?: string[];
+    allMapped?: boolean;
+    enabled: boolean;
+    availableFrom?: string | null;
+    availableUntil?: string | null;
+    createMissing: boolean;
+    overwriteUrls: boolean;
+  }) => request<{ updated: number; created: number; skipped: number; total: number }>('/api/applications/bulk/environments', {
+    method: 'POST', body: JSON.stringify(data),
+  }),
   runs: (filters: { applicationId?: string; page?: number; limit?: number } = {}) => {
     const query = new URLSearchParams();
     if (filters.applicationId && filters.applicationId !== 'ALL') query.set('applicationId', filters.applicationId);

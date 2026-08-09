@@ -9,6 +9,7 @@ interface JalaliDateTimePickerProps {
   label: string;
   error?: string | undefined;
   disabled?: boolean | undefined;
+  hint?: string | undefined;
 }
 
 function pad(value: number): string {
@@ -31,6 +32,7 @@ export const JalaliDateTimePicker: React.FC<JalaliDateTimePickerProps> = ({
   label,
   error,
   disabled,
+  hint,
 }) => {
   const storedDate = parseStoredValue(value);
   const storedJalaliValue = storedDate ? formatJalaliDate(storedDate) : '';
@@ -86,7 +88,7 @@ export const JalaliDateTimePicker: React.FC<JalaliDateTimePickerProps> = ({
         />
       </div>
       {error && <p role="alert" className="mt-1 text-sm text-red-600">{error}</p>}
-      {!error && <p className="mt-1 text-xs text-gray-500">تاریخ بر اساس تقویم شمسی است.</p>}
+      {!error && <p className="mt-1 text-xs text-gray-500">{hint || 'تاریخ بر اساس تقویم شمسی است.'}</p>}
     </div>
   );
 };
