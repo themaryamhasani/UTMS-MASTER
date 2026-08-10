@@ -55,11 +55,6 @@ const READ_OPERATION_POLICIES = new Set([
   'checklistApi.getById',
   'checklistApi.getPending',
   'dashboardApi.getStats',
-  'playwrightApi.getAll',
-  'playwrightApi.getById',
-  'playwrightApi.getTestFiles',
-  'playwrightApi.discoverFolders',
-  'playwrightApi.discoverFiles',
   'releasePublishApi.getAll',
   'releasePublishApi.getById',
   'releasePublishApi.getByPrimaryTestRequest',
@@ -121,7 +116,6 @@ const READ_OPERATION_POLICIES = new Set([
   'reportsApi.getUsersRolesReport',
   'reportsApi.getAuditReport',
   'reportsApi.getAttachmentReport',
-  'reportsApi.getPlaywrightReport',
   'reportsApi.getProductQualityOverview',
   'reportsApi.getOpenBugsList',
   'reportsApi.getCommentReport',
@@ -237,7 +231,6 @@ function readActiveContextSnapshot(): Record<string, unknown> | undefined {
       scopeApplicationIds: context.scopeApplicationIds,
       role: context.role,
       scope: context.scope,
-      automatedTestsEnabled: context.automatedTestsEnabled ?? null,
     };
   } catch {
     return undefined;

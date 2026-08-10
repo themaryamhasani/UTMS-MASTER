@@ -1,778 +1,132 @@
-import { useState, useEffect } from 'react';
-import { Search, Building2, Users, Plus, Edit, Power, Eye, Link2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Building2, Edit, Eye, Plus, Power, Users } from 'lucide-react';
 import { Header } from '../components/layout/Header';
+import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Table, Pagination } from '../components/ui/Table';
-import { Badge } from '../components/ui/Badge';
-import { Modal, ConfirmModal } from '../components/ui/Modal';
-import { Input, Select, Textarea } from '../components/ui/Input';
-import { useAuthStore, canPerformAction } from '../stores/authStore';
-import { applicationApi, userApi } from '../services/api';
+import { Input, Textarea } from '../components/ui/Input';
+import { ConfirmModal, Modal } from '../components/ui/Modal';
+import { Pagination, Table } from '../components/ui/Table';
 import { toast } from '../components/ui/Toast';
-import type { Application, CartableFilterParams, User as UserType, UserRoleAssignment } from '../types';
-import { ROLE_LABELS } from '../types';
-import { cdeApi, PlatformApiError, type CdeProjectDescriptor } from '../services/platformApi';
+import { applicationApi, userApi } from '../services/api';
+import { canPerformAction, useAuthStore } from '../stores/authStore';
+import { ROLE_LABELS, type Application, type User, type UserRoleAssignment } from '../types';
 
-const CDE_BASE_URL = 'https://cde.edus.ir/';
-const CDE_ROOT_RULES = {
-  cdeFrontUrl: {
-    prefix: `${CDE_BASE_URL}front/`,
-    label: 'فرانت سامانه',
-  },
-  cdeDataServiceUrl: {
-    prefix: `${CDE_BASE_URL}dservice/`,
-    label: 'Back NodeJS / DataService',
-  },
-  cdeGatewayUrl: {
-    prefix: `${CDE_BASE_URL}back/`,
-    label: 'Gateway',
-  },
-} as const;
-
-type CdeRootField = keyof typeof CDE_ROOT_RULES;
-
-const emptyAppForm = {
-  name: '',
-  code: '',
-  description: '',
-  cdeProjectKey: '',
-  cdeFrontUrl: '',
-  cdeDataServiceUrl: '',
-  cdeGatewayUrl: '',
-};
-
-function projectKeyFromCdeRoot(value?: string) {
-  if (!value) return '';
-  try {
-    const decodedPath = decodeURIComponent(new URL(value).pathname);
-    const match = decodedPath.match(/^\/(?:front|dservice)\/directory\/([^>]+)>/);
-    return match?.[1] || '';
-  } catch {
-    return '';
-  }
-}
-
-const emptyCdeMappingForm = {
-  projectKey: '',
-  webUiRepoName: '',
-  dataServiceRepoName: '',
-  apiModuleRepoName: '',
-  messageConsumerRepoName: '',
-  enabled: true,
-  environmentName: 'develop',
-  webBaseUrl: '',
-  apiBaseUrl: '',
-  gatewayBaseUrl: '',
-};
+const emptyForm = { name: '', code: '', description: '' };
 
 export const ApplicationsPage: React.FC = () => {
   const { activeContext, refreshContexts } = useAuthStore();
   const [applications, setApplications] = useState<Application[]>([]);
-  const [users, setUsers] = useState<UserType[]>([]);
-  const [roleAssignments, setRoleAssignments] = useState<UserRoleAssignment[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [assignments, setAssignments] = useState<UserRoleAssignment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState<CartableFilterParams>({ page: 1, limit: 10, search: '' });
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Application | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [mode, setMode] = useState<'create' | 'edit' | 'detail' | null>(null);
+  const [confirmToggle, setConfirmToggle] = useState(false);
+  const canManage = Boolean(activeContext && canPerformAction(activeContext.role, 'admin:manage-apps'));
+  const pageSize = 10;
 
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showCdeMappingModal, setShowCdeMappingModal] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [selectedApp, setSelectedApp] = useState<Application | null>(null);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [appForm, setAppForm] = useState(emptyAppForm);
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const [cdeMappingForm, setCdeMappingForm] = useState(emptyCdeMappingForm);
-  const [cdeProjects, setCdeProjects] = useState<CdeProjectDescriptor[]>([]);
-  const [cdeProjectsLoading, setCdeProjectsLoading] = useState(false);
-  const [cdeProjectsError, setCdeProjectsError] = useState('');
-
-  const role = activeContext?.role;
-  const canManage = canPerformAction(role!, 'admin:manage-apps');
-
-  useEffect(() => { if (activeContext) loadData(); }, [activeContext]);
-
-  useEffect(() => {
-    if (showCreateModal || showEditModal || showCdeMappingModal) void loadCdeProjects();
-  }, [showCreateModal, showEditModal, showCdeMappingModal]);
-
-  const loadData = async () => {
+  const load = async () => {
     setLoading(true);
     try {
-      const [apps, allUsers, assignments] = await Promise.all([
-        applicationApi.getAll(),
-        userApi.getAll(),
-        userApi.getRoleAssignments(),
+      const [apps, allUsers, roleAssignments] = await Promise.all([
+        applicationApi.getAll(), userApi.getAll(), userApi.getRoleAssignments(),
       ]);
-      setApplications(apps);
-      setUsers(allUsers);
-      setRoleAssignments(assignments);
-    }
-    catch { toast.error('خطا.'); }
+      setApplications(apps); setUsers(allUsers); setAssignments(roleAssignments);
+    } catch { toast.error('بارگذاری سامانه‌ها انجام نشد.'); }
     finally { setLoading(false); }
   };
 
-  const getAppUsers = (appId: string) => {
-    const assignments = roleAssignments.filter(a => {
-      const assignmentApplicationIds = a.applicationIds?.length ? a.applicationIds : [a.applicationId];
-      return a.isActive && (a.scope === 'APP' || assignmentApplicationIds.includes(appId));
-    });
-    const userIds = [...new Set(assignments.map(a => a.userId))];
-    return userIds.map(uid => {
-      const user = users.find(u => u.id === uid);
-      const roles = assignments.filter(a => a.userId === uid).map(a => a.role);
-      return { user, roles };
-    }).filter(u => u.user);
+  useEffect(() => { if (activeContext) void load(); }, [activeContext]);
+  useEffect(() => setPage(1), [search]);
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return applications.filter(item => !query || `${item.name} ${item.code} ${item.description || ''}`.toLowerCase().includes(query));
+  }, [applications, search]);
+  const visible = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  const usersFor = (applicationId: string) => {
+    const scoped = assignments.filter(item => item.isActive && (item.scope === 'APP' || (item.applicationIds?.length ? item.applicationIds : [item.applicationId]).includes(applicationId)));
+    return [...new Set(scoped.map(item => item.userId))].map(userId => ({
+      user: users.find(item => item.id === userId),
+      roles: scoped.filter(item => item.userId === userId).map(item => item.role),
+    })).filter(item => item.user);
   };
 
-  const loadCdeProjects = async () => {
-    setCdeProjectsLoading(true);
-    setCdeProjectsError('');
+  const openCreate = () => { setSelected(null); setForm(emptyForm); setMode('create'); };
+  const openEdit = (application: Application) => {
+    setSelected(application);
+    setForm({ name: application.name, code: application.code, description: application.description || '' });
+    setMode('edit');
+  };
+
+  const save = async () => {
+    if (!form.name.trim() || !form.code.trim()) return toast.error('نام و کد سامانه الزامی است.');
+    setSaving(true);
     try {
-      setCdeProjects(await cdeApi.projects());
-    } catch (error) {
-      setCdeProjects([]);
-      if (error instanceof PlatformApiError && ['CDE_NOT_CONNECTED', 'CDE_RECONNECT_REQUIRED'].includes(error.code)) {
-        setCdeProjectsError('ابتدا در کارتابل Playwright حساب CDE خود را متصل کنید.');
-      } else {
-        setCdeProjectsError(error instanceof Error ? error.message : 'فهرست پروژه‌های CDE بارگذاری نشد.');
-      }
-    } finally {
-      setCdeProjectsLoading(false);
-    }
+      const data = { name: form.name.trim(), code: form.code.trim(), description: form.description.trim() };
+      if (mode === 'edit' && selected) await applicationApi.update(selected.id, data);
+      else await applicationApi.create(data);
+      await refreshContexts();
+      toast.success(mode === 'edit' ? 'سامانه ویرایش شد.' : 'سامانه ایجاد شد.');
+      setMode(null); await load();
+    } catch { toast.error('ذخیره سامانه انجام نشد.'); }
+    finally { setSaving(false); }
   };
 
-  const selectApplicationCdeProject = (projectKey: string) => {
-    const project = cdeProjects.find(item => item.projectKey === projectKey);
-    setAppForm(previous => ({
-      ...previous,
-      cdeProjectKey: projectKey,
-      ...(project ? {
-        cdeFrontUrl: project.editorUrls.webUi,
-        cdeDataServiceUrl: project.editorUrls.dataService,
-        cdeGatewayUrl: project.editorUrls.gateway,
-      } : {
-        cdeFrontUrl: '',
-        cdeDataServiceUrl: '',
-        cdeGatewayUrl: '',
-      }),
-    }));
-    setFormErrors(previous => {
-      const next = { ...previous };
-      delete next.cdeFrontUrl;
-      delete next.cdeDataServiceUrl;
-      delete next.cdeGatewayUrl;
-      return next;
-    });
+  const toggleActive = async () => {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      await applicationApi.update(selected.id, { isActive: !selected.isActive });
+      await refreshContexts();
+      toast.success(`سامانه ${selected.isActive ? 'غیرفعال' : 'فعال'} شد.`);
+      setConfirmToggle(false); await load();
+    } catch { toast.error('تغییر وضعیت سامانه انجام نشد.'); }
+    finally { setSaving(false); }
   };
 
-  const saveApplicationCdeMapping = async (applicationId: string) => {
-    const project = cdeProjects.find(item => item.projectKey === appForm.cdeProjectKey);
-    if (!project) return;
-    await cdeApi.saveMapping(applicationId, {
-      projectKey: project.projectKey,
-      webUiRepoName: project.repositories.WEB_UI,
-      dataServiceRepoName: project.repositories.DATA_SERVICE,
-      apiModuleRepoName: project.repositories.API_MODULE,
-      messageConsumerRepoName: project.repositories.MESSAGE_CONSUMER || null,
-      testRepoName: null,
-      testPackId: null,
-      testBranchRandId: null,
-      testBranchIndex: null,
-      enabled: true,
-    });
-    await cdeApi.validateMapping(applicationId);
-  };
-
-  const renderCdeProjectPicker = () => {
-    const project = cdeProjects.find(item => item.projectKey === appForm.cdeProjectKey);
-    return (
-      <div className="space-y-3">
-        <div className="flex items-end gap-2">
-          <Select
-            label="پروژه CDE"
-            value={appForm.cdeProjectKey}
-            onChange={(event) => selectApplicationCdeProject(event.target.value)}
-            options={cdeProjects.map(item => ({ value: item.projectKey, label: item.projectKey }))}
-            placeholder={cdeProjectsLoading ? 'در حال بارگذاری پروژه‌ها…' : 'یک پروژه CDE انتخاب کنید'}
-            disabled={cdeProjectsLoading}
-            className="font-mono"
-            dir="ltr"
-          />
-          <Button type="button" variant="secondary" onClick={() => void loadCdeProjects()} loading={cdeProjectsLoading} disabled={cdeProjectsLoading}>
-            بروزرسانی
-          </Button>
-        </div>
-        {cdeProjectsError && <p className="rounded-lg bg-amber-100 px-3 py-2 text-xs text-amber-800">{cdeProjectsError}</p>}
-        {project && (
-          <div className="grid grid-cols-1 gap-2 text-xs text-blue-800 md:grid-cols-2" dir="ltr">
-            <span className="rounded bg-white/70 px-2 py-1 font-mono">{project.repositories.WEB_UI}</span>
-            <span className="rounded bg-white/70 px-2 py-1 font-mono">{project.repositories.DATA_SERVICE}</span>
-            <span className="rounded bg-white/70 px-2 py-1 font-mono">{project.repositories.API_MODULE}</span>
-            <span className="rounded bg-white/70 px-2 py-1 font-mono">{project.repositories.MESSAGE_CONSUMER}</span>
-          </div>
-        )}
+  return <div className="min-h-screen bg-gray-50" dir="rtl">
+    <Header title="سامانه‌ها" subtitle="مدیریت سامانه‌های تحت پوشش UTMS" />
+    <main className="space-y-5 p-4 sm:p-6">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card><div className="flex items-center gap-3"><Building2 className="h-6 w-6 text-blue-600" /><div><strong className="text-2xl">{applications.length.toLocaleString('fa-IR')}</strong><p className="text-sm text-gray-500">کل سامانه‌ها</p></div></div></Card>
+        <Card><div className="flex items-center gap-3"><Power className="h-6 w-6 text-emerald-600" /><div><strong className="text-2xl">{applications.filter(item => item.isActive).length.toLocaleString('fa-IR')}</strong><p className="text-sm text-gray-500">سامانه فعال</p></div></div></Card>
+        <Card><div className="flex items-center gap-3"><Users className="h-6 w-6 text-violet-600" /><div><strong className="text-2xl">{users.length.toLocaleString('fa-IR')}</strong><p className="text-sm text-gray-500">کاربر</p></div></div></Card>
       </div>
-    );
-  };
-
-  const validateCdeRoot = (field: CdeRootField): string | undefined => {
-    const value = appForm[field].trim();
-    if (!value) return undefined;
-    const rule = CDE_ROOT_RULES[field];
-    if (!value.startsWith(CDE_BASE_URL)) {
-      return `آدرس ${rule.label} باید با ${CDE_BASE_URL} شروع شود.`;
-    }
-    if (!value.startsWith(rule.prefix)) {
-      return `آدرس ${rule.label} باید مطابق هینت همین فیلد باشد.`;
-    }
-    try {
-      new URL(value);
-    } catch {
-      return `آدرس ${rule.label} معتبر نیست.`;
-    }
-    return undefined;
-  };
-
-  const validateForm = () => {
-    const errors: Record<string, string> = {};
-    if (!appForm.name.trim()) errors.name = 'نام سامانه الزامی است.';
-    if (!appForm.code.trim()) errors.code = 'کد سامانه الزامی است.';
-    (Object.keys(CDE_ROOT_RULES) as CdeRootField[]).forEach(field => {
-      const error = validateCdeRoot(field);
-      if (error) errors[field] = error;
-    });
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleCreate = async () => {
-    if (!validateForm()) return;
-    setActionLoading(true);
-    try {
-      const application = await applicationApi.create({
-        name: appForm.name.trim(),
-        code: appForm.code.trim(),
-        description: appForm.description.trim(),
-        cdeFrontUrl: appForm.cdeFrontUrl.trim(),
-        cdeDataServiceUrl: appForm.cdeDataServiceUrl.trim(),
-        cdeGatewayUrl: appForm.cdeGatewayUrl.trim(),
-      });
-      try {
-        await saveApplicationCdeMapping(application.id);
-      } catch (mappingError) {
-        toast.warning(mappingError instanceof Error
-          ? `سامانه ایجاد شد، اما نگاشت زنده CDE تأیید نشد: ${mappingError.message}`
-          : 'سامانه ایجاد شد، اما نگاشت زنده CDE تأیید نشد.');
-      }
-      await refreshContexts();
-      toast.success(`سامانه «${appForm.name}» با موفقیت ایجاد شد.`);
-      setShowCreateModal(false); setAppForm(emptyAppForm); loadData();
-    } catch (error) {
-      if (error instanceof Error && error.message === 'APPLICATION_CDE_ROOT_INVALID') {
-        toast.error('آدرس‌های CDE باید مطابق هینت و با https://cde.edus.ir/ باشند.');
-      } else {
-        toast.error('خطا در ایجاد سامانه.');
-      }
-    }
-    finally { setActionLoading(false); }
-  };
-
-  const handleEdit = async () => {
-    if (!validateForm() || !selectedApp) return;
-    setActionLoading(true);
-    try {
-      await applicationApi.update(selectedApp.id, {
-        name: appForm.name.trim(),
-        code: appForm.code.trim(),
-        description: appForm.description.trim(),
-        cdeFrontUrl: appForm.cdeFrontUrl.trim(),
-        cdeDataServiceUrl: appForm.cdeDataServiceUrl.trim(),
-        cdeGatewayUrl: appForm.cdeGatewayUrl.trim(),
-      });
-      try {
-        await saveApplicationCdeMapping(selectedApp.id);
-      } catch (mappingError) {
-        toast.warning(mappingError instanceof Error
-          ? `سامانه ویرایش شد، اما نگاشت زنده CDE تأیید نشد: ${mappingError.message}`
-          : 'سامانه ویرایش شد، اما نگاشت زنده CDE تأیید نشد.');
-      }
-      await refreshContexts();
-      toast.success(`سامانه «${appForm.name}» ویرایش شد.`);
-      setShowEditModal(false); loadData();
-    } catch (error) {
-      if (error instanceof Error && error.message === 'APPLICATION_CDE_ROOT_INVALID') {
-        toast.error('آدرس‌های CDE باید مطابق هینت و با https://cde.edus.ir/ باشند.');
-      } else {
-        toast.error('خطا در ویرایش.');
-      }
-    }
-    finally { setActionLoading(false); }
-  };
-
-  const handleToggleActive = async () => {
-    if (!selectedApp) return;
-    setActionLoading(true);
-    try {
-      const nextActive = !selectedApp.isActive;
-      await applicationApi.update(selectedApp.id, { isActive: nextActive });
-      await refreshContexts();
-      toast.success(`سامانه «${selectedApp.name}» ${nextActive ? 'فعال' : 'غیرفعال'} شد.`);
-      setShowDeleteConfirm(false); loadData();
-    } catch { toast.error('خطا.'); }
-    finally { setActionLoading(false); }
-  };
-
-  const openCdeMapping = async (application: Application) => {
-    setSelectedApp(application);
-    setActionLoading(true);
-    try {
-      const [mapping, environments] = await Promise.all([
-        cdeApi.mapping(application.id).catch(error => {
-          if (error instanceof PlatformApiError && error.status === 404) return null;
-          throw error;
-        }),
-        cdeApi.environments(application.id),
-      ]);
-      const environment = environments[0];
-      setCdeMappingForm(mapping ? {
-        projectKey: mapping.projectKey,
-        webUiRepoName: mapping.webUiRepoName || '',
-        dataServiceRepoName: mapping.dataServiceRepoName || '',
-        apiModuleRepoName: mapping.apiModuleRepoName || '',
-        messageConsumerRepoName: mapping.messageConsumerRepoName || '',
-        enabled: mapping.enabled,
-        environmentName: environment?.name || 'develop',
-        webBaseUrl: environment?.webBaseUrl || '',
-        apiBaseUrl: environment?.apiBaseUrl || '',
-        gatewayBaseUrl: environment?.gatewayBaseUrl || '',
-      } : {
-        ...emptyCdeMappingForm,
-      });
-      setShowCdeMappingModal(true);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'خطا در بارگذاری نگاشت CDE.');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const updateProjectKey = (projectKey: string) => {
-    const project = cdeProjects.find(item => item.projectKey === projectKey);
-    setCdeMappingForm(previous => {
-      const previousKey = previous.projectKey;
-      const derived = (value: string, suffix: string) => !value || value === `${previousKey}/${suffix}`;
-      return {
-        ...previous,
-        projectKey,
-        webUiRepoName: project?.repositories.WEB_UI || (derived(previous.webUiRepoName, 'web-ui') ? `${projectKey}/web-ui` : previous.webUiRepoName),
-        dataServiceRepoName: project?.repositories.DATA_SERVICE || (derived(previous.dataServiceRepoName, 'data-service') ? `${projectKey}/data-service` : previous.dataServiceRepoName),
-        apiModuleRepoName: project?.repositories.API_MODULE || (derived(previous.apiModuleRepoName, 'api-module') ? `${projectKey}/api-module` : previous.apiModuleRepoName),
-        messageConsumerRepoName: project?.repositories.MESSAGE_CONSUMER || previous.messageConsumerRepoName,
-        environmentName: previous.environmentName || 'develop',
-        webBaseUrl: previous.webBaseUrl,
-        apiBaseUrl: previous.apiBaseUrl,
-        gatewayBaseUrl: previous.gatewayBaseUrl,
-      };
-    });
-  };
-
-  const saveCdeMapping = async () => {
-    if (!selectedApp) return;
-    setActionLoading(true);
-    try {
-      await cdeApi.saveMapping(selectedApp.id, {
-        projectKey: cdeMappingForm.projectKey.trim(),
-        webUiRepoName: cdeMappingForm.webUiRepoName.trim() || null,
-        dataServiceRepoName: cdeMappingForm.dataServiceRepoName.trim() || null,
-        apiModuleRepoName: cdeMappingForm.apiModuleRepoName.trim() || null,
-        messageConsumerRepoName: cdeMappingForm.messageConsumerRepoName.trim() || null,
-        testRepoName: null,
-        testPackId: null,
-        testBranchRandId: null,
-        testBranchIndex: null,
-        enabled: cdeMappingForm.enabled,
-      });
-      if (cdeMappingForm.environmentName.trim() && cdeMappingForm.webBaseUrl.trim()) {
-        const existing = await cdeApi.environments(selectedApp.id);
-        const sameName = existing.find(item => item.name === cdeMappingForm.environmentName.trim());
-        const environmentData = {
-          name: cdeMappingForm.environmentName.trim(),
-          webBaseUrl: cdeMappingForm.webBaseUrl.trim(),
-          apiBaseUrl: cdeMappingForm.apiBaseUrl.trim() || null,
-          gatewayBaseUrl: cdeMappingForm.gatewayBaseUrl.trim() || null,
-          enabled: true,
-        };
-        if (sameName) await cdeApi.updateEnvironment(selectedApp.id, sameName.id, environmentData);
-        else await cdeApi.saveEnvironment(selectedApp.id, environmentData);
-      }
-      try {
-        await cdeApi.validateMapping(selectedApp.id);
-        toast.success('نگاشت CDE و شاخه قابل ویرایش با موفقیت تأیید شد.');
-      } catch (validationError) {
-        toast.warning(validationError instanceof Error
-          ? `نگاشت ذخیره شد، اما اعتبارسنجی زنده ناموفق بود: ${validationError.message}`
-          : 'نگاشت ذخیره شد، اما اعتبارسنجی زنده ناموفق بود.');
-      }
-      setShowCdeMappingModal(false);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'خطا در ذخیره نگاشت CDE.');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // Filter
-  let filteredApps = [...applications];
-  if (filters.search) {
-    const s = filters.search.toLowerCase();
-    filteredApps = filteredApps.filter(a => a.name.toLowerCase().includes(s) || a.code.toLowerCase().includes(s));
-  }
-  const total = filteredApps.length;
-  const totalPages = Math.ceil(total / filters.limit);
-  const start = (filters.page - 1) * filters.limit;
-  const paginatedApps = filteredApps.slice(start, start + filters.limit);
-
-  const columns = [
-    {
-      key: 'name', title: 'نام سامانه',
-      render: (item: Application) => (
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center"><Building2 className="w-5 h-5 text-purple-600" /></div>
-          <div>
-            <p className="font-medium text-gray-900">{item.name}</p>
-            <p className="text-xs text-gray-500 font-mono">{item.code}</p>
-          </div>
+      <Card>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Input aria-label="جستجوی سامانه" value={search} onChange={event => setSearch(event.target.value)} placeholder="جستجو در نام، کد یا توضیح…" />
+          {canManage && <Button icon={<Plus className="h-4 w-4" />} onClick={openCreate}>سامانه جدید</Button>}
         </div>
-      ),
-    },
-    { key: 'description', title: 'توضیحات', render: (item: Application) => <p className="text-sm text-gray-600 line-clamp-1">{item.description || '-'}</p> },
-    {
-      key: 'cdeRoots',
-      title: 'CDE',
-      render: (item: Application) => {
-        const configuredCount = [item.cdeFrontUrl, item.cdeDataServiceUrl, item.cdeGatewayUrl].filter(Boolean).length;
-        return (
-          <Badge variant={configuredCount === 3 ? 'success' : configuredCount > 0 ? 'warning' : 'default'} size="sm">
-            {configuredCount === 3 ? 'متصل به CDE' : `${configuredCount}/3 آدرس CDE`}
-          </Badge>
-        );
-      },
-    },
-    {
-      key: 'users', title: 'کاربران',
-      render: (item: Application) => {
-        const users = getAppUsers(item.id);
-        return <div className="flex items-center gap-1"><Users className="w-4 h-4 text-gray-400" /><span className="text-sm">{users.length} کاربر</span></div>;
-      },
-    },
-    { key: 'isActive', title: 'وضعیت', render: (item: Application) => <Badge variant={item.isActive ? 'success' : 'danger'}>{item.isActive ? 'فعال' : 'غیرفعال'}</Badge> },
-    {
-      key: 'actions', title: 'عملیات',
-      render: (item: Application) => (
-        <div className="flex gap-1">
-          <Button size="sm" variant="ghost" icon={<Eye className="w-3.5 h-3.5" />}
-            onClick={(e) => { e.stopPropagation(); setSelectedApp(item); setShowDetailModal(true); }}>مشاهده</Button>
-          {canManage && (
-            <>
-              <Button size="sm" variant="ghost" icon={<Edit className="w-3.5 h-3.5" />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedApp(item);
-                  setFormErrors({});
-                  setAppForm({
-                    name: item.name,
-                    code: item.code,
-                    description: item.description || '',
-                    cdeProjectKey: projectKeyFromCdeRoot(item.cdeFrontUrl) || projectKeyFromCdeRoot(item.cdeDataServiceUrl),
-                    cdeFrontUrl: item.cdeFrontUrl || '',
-                    cdeDataServiceUrl: item.cdeDataServiceUrl || '',
-                    cdeGatewayUrl: item.cdeGatewayUrl || '',
-                  });
-                  setShowEditModal(true);
-                }}>ویرایش</Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={<Link2 className="w-3.5 h-3.5" />}
-                onClick={(e) => { e.stopPropagation(); void openCdeMapping(item); }}
-              >
-                نگاشت CDE
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className={item.isActive ? 'text-amber-700' : 'text-green-700'}
-                icon={<Power className="w-3.5 h-3.5" />}
-                onClick={(e) => { e.stopPropagation(); setSelectedApp(item); setShowDeleteConfirm(true); }}
-              >
-                {item.isActive ? 'غیرفعال' : 'فعال‌سازی'}
-              </Button>
-            </>
-          )}
-        </div>
-      ),
-    },
-  ];
+        <Table loading={loading} columns={[
+          { key: 'name', title: 'سامانه', render: (row: Application) => <div><p className="font-medium text-gray-900">{row.name}</p><code className="text-xs text-gray-500">{row.code}</code></div> },
+          { key: 'users', title: 'کاربران', render: (row: Application) => usersFor(row.id).length.toLocaleString('fa-IR') },
+          { key: 'status', title: 'وضعیت', render: (row: Application) => <Badge variant={row.isActive ? 'success' : 'secondary'}>{row.isActive ? 'فعال' : 'غیرفعال'}</Badge> },
+          { key: 'actions', title: '', render: (row: Application) => <div className="flex gap-2"><Button size="sm" variant="secondary" icon={<Eye className="h-4 w-4" />} onClick={() => { setSelected(row); setMode('detail'); }}>مشاهده</Button>{canManage && <Button size="sm" variant="secondary" icon={<Edit className="h-4 w-4" />} onClick={() => openEdit(row)}>ویرایش</Button>}</div> },
+        ]} data={visible} emptyMessage="سامانه‌ای پیدا نشد." />
+        <Pagination page={page} totalPages={Math.max(1, Math.ceil(filtered.length / pageSize))} total={filtered.length} limit={pageSize} onPageChange={setPage} />
+      </Card>
+    </main>
 
-  if (!activeContext) return null;
+    <Modal isOpen={mode === 'create' || mode === 'edit'} onClose={() => !saving && setMode(null)} title={mode === 'edit' ? 'ویرایش سامانه' : 'ایجاد سامانه'}>
+      <div className="space-y-4">
+        <Input label="نام سامانه *" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} />
+        <Input label="کد سامانه *" value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} dir="ltr" />
+        <Textarea label="توضیح" value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} rows={4} />
+        <div className="flex justify-end gap-3 border-t pt-4"><Button variant="secondary" onClick={() => setMode(null)} disabled={saving}>انصراف</Button><Button onClick={() => void save()} loading={saving}>ذخیره</Button></div>
+      </div>
+    </Modal>
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Header title="مدیریت سامانه‌ها" subtitle={`${applications.length} سامانه`} onRefresh={loadData} refreshing={loading}
-        actions={canManage && <Button icon={<Plus className="w-4 h-4" />} onClick={() => { setAppForm(emptyAppForm); setFormErrors({}); setShowCreateModal(true); }}>سامانه جدید</Button>} />
+    <Modal isOpen={mode === 'detail'} onClose={() => setMode(null)} title={selected?.name || 'جزئیات سامانه'}>
+      {selected && <div className="space-y-4"><dl className="grid gap-3 sm:grid-cols-2"><div><dt className="text-xs text-gray-500">کد</dt><dd className="font-mono">{selected.code}</dd></div><div><dt className="text-xs text-gray-500">وضعیت</dt><dd>{selected.isActive ? 'فعال' : 'غیرفعال'}</dd></div><div className="sm:col-span-2"><dt className="text-xs text-gray-500">توضیح</dt><dd>{selected.description || '—'}</dd></div></dl><div><h3 className="mb-2 font-medium">کاربران دارای دسترسی</h3><div className="space-y-2">{usersFor(selected.id).map(item => <div key={item.user!.id} className="flex justify-between rounded-lg bg-gray-50 p-2"><span>{item.user!.fullName}</span><span className="text-xs text-gray-500">{item.roles.map(role => ROLE_LABELS[role]).join('، ')}</span></div>)}</div></div>{canManage && <div className="flex justify-end gap-3 border-t pt-4"><Button variant="secondary" onClick={() => openEdit(selected)}>ویرایش</Button><Button variant="secondary" className={selected.isActive ? 'text-amber-700' : 'text-green-700'} onClick={() => { setMode(null); setConfirmToggle(true); }}>{selected.isActive ? 'غیرفعال‌سازی' : 'فعال‌سازی'}</Button></div>}</div>}
+    </Modal>
 
-      <main className="p-4 sm:p-6">
-        <Card className="mb-6" padding="sm">
-          <div className="flex flex-wrap gap-4 items-center">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" placeholder="جستجو سامانه..." value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value, page: 1 })}
-                className="w-full pr-10 pl-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-          </div>
-        </Card>
-        <Table columns={columns} data={paginatedApps} loading={loading} emptyMessage="سامانه‌ای یافت نشد"
-          onRowClick={(item) => { setSelectedApp(item); setShowDetailModal(true); }} />
-        {total > 0 && <Pagination page={filters.page} totalPages={totalPages || 1} total={total} limit={filters.limit}
-          onPageChange={(page) => setFilters({ ...filters, page })}
-          onLimitChange={(limit) => setFilters({ ...filters, limit, page: 1 })} />}
-      </main>
-
-      {/* Create Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title="ایجاد سامانه جدید" size="lg">
-        <div className="space-y-4">
-          <Input label="نام سامانه *" placeholder="نام سامانه را وارد کنید" value={appForm.name}
-            onChange={(e) => setAppForm({ ...appForm, name: e.target.value })} error={formErrors.name} />
-          <Input label="کد سامانه *" placeholder="مثال: ONLINE_BANKING" value={appForm.code} dir="ltr"
-            onChange={(e) => setAppForm({ ...appForm, code: e.target.value.toUpperCase() })} error={formErrors.code} />
-          <Textarea label="توضیحات" placeholder="توضیحات سامانه" value={appForm.description}
-            onChange={(e) => setAppForm({ ...appForm, description: e.target.value })} />
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
-            <div>
-              <h4 className="font-medium text-blue-900">پروژه مبدأ در CDE</h4>
-              <p className="text-xs text-blue-700 mt-1">پروژه را از فهرست زنده CDE انتخاب کنید؛ آدرس‌های Front، DataService و Gateway و repositoryهای نگاشت به‌صورت خودکار ساخته می‌شوند.</p>
-            </div>
-            {renderCdeProjectPicker()}
-            <Input
-              label="آدرس فرانت سامانه در CDE"
-              placeholder="https://cde.edus.ir/front/directory/medu-community%3EApp"
-              value={appForm.cdeFrontUrl}
-              error={formErrors.cdeFrontUrl}
-              readOnly
-              className="bg-gray-100 font-mono"
-              dir="ltr"
-            />
-            <Input
-              label="آدرس Back NodeJS / DataService در CDE"
-              placeholder="https://cde.edus.ir/dservice/directory/medu-community%3EApp"
-              value={appForm.cdeDataServiceUrl}
-              error={formErrors.cdeDataServiceUrl}
-              readOnly
-              className="bg-gray-100 font-mono"
-              dir="ltr"
-            />
-            <Input
-              label="آدرس Gateway در CDE"
-              placeholder="https://cde.edus.ir/back/medu-ai/medu-community%3E?return=/workspace/medu-ai"
-              value={appForm.cdeGatewayUrl}
-              error={formErrors.cdeGatewayUrl}
-              readOnly
-              className="bg-gray-100 font-mono"
-              dir="ltr"
-            />
-          </div>
-          <div className="flex gap-3 justify-end pt-4">
-            <Button variant="secondary" onClick={() => setShowCreateModal(false)}>انصراف</Button>
-            <Button onClick={handleCreate} loading={actionLoading} disabled={actionLoading}>ایجاد</Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Edit Modal */}
-      <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="ویرایش سامانه" size="lg">
-        <div className="space-y-4">
-          <Input label="نام سامانه *" value={appForm.name}
-            onChange={(e) => setAppForm({ ...appForm, name: e.target.value })} error={formErrors.name} />
-          <Input label="کد سامانه *" value={appForm.code} dir="ltr"
-            onChange={(e) => setAppForm({ ...appForm, code: e.target.value.toUpperCase() })} error={formErrors.code} />
-          <Textarea label="توضیحات" value={appForm.description}
-            onChange={(e) => setAppForm({ ...appForm, description: e.target.value })} />
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
-            <div>
-              <h4 className="font-medium text-blue-900">پروژه مبدأ در CDE</h4>
-              <p className="text-xs text-blue-700 mt-1">پروژه را از فهرست زنده CDE انتخاب کنید؛ آدرس‌های Front، DataService و Gateway و repositoryهای نگاشت به‌صورت خودکار ساخته می‌شوند.</p>
-            </div>
-            {renderCdeProjectPicker()}
-            <Input
-              label="آدرس فرانت سامانه در CDE"
-              value={appForm.cdeFrontUrl}
-              error={formErrors.cdeFrontUrl}
-              readOnly
-              className="bg-gray-100 font-mono"
-              dir="ltr"
-            />
-            <Input
-              label="آدرس Back NodeJS / DataService در CDE"
-              value={appForm.cdeDataServiceUrl}
-              error={formErrors.cdeDataServiceUrl}
-              readOnly
-              className="bg-gray-100 font-mono"
-              dir="ltr"
-            />
-            <Input
-              label="آدرس Gateway در CDE"
-              value={appForm.cdeGatewayUrl}
-              error={formErrors.cdeGatewayUrl}
-              readOnly
-              className="bg-gray-100 font-mono"
-              dir="ltr"
-            />
-          </div>
-          <div className="flex gap-3 justify-end pt-4">
-            <Button variant="secondary" onClick={() => setShowEditModal(false)}>انصراف</Button>
-            <Button onClick={handleEdit} loading={actionLoading} disabled={actionLoading}>ذخیره</Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Detail Modal */}
-      <Modal isOpen={showDetailModal} onClose={() => setShowDetailModal(false)} title="جزئیات سامانه" size="lg">
-        {selectedApp && (
-          <div className="space-y-6">
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 bg-purple-100 rounded-xl flex items-center justify-center"><Building2 className="w-8 h-8 text-purple-600" /></div>
-              <div>
-                <h3 className="text-xl font-semibold">{selectedApp.name}</h3>
-                <p className="font-mono text-gray-500">{selectedApp.code}</p>
-              </div>
-              <Badge variant={selectedApp.isActive ? 'success' : 'danger'} className="mr-auto">{selectedApp.isActive ? 'فعال' : 'غیرفعال'}</Badge>
-            </div>
-            {selectedApp.description && <div className="p-4 bg-gray-50 rounded-lg"><p className="text-sm">{selectedApp.description}</p></div>}
-            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <h4 className="font-medium text-blue-900 mb-3">آدرس‌های پروژه مبدأ در CDE</h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                <div>
-                  <p className="text-xs text-blue-700 mb-1">فرانت سامانه</p>
-                  <p className="font-mono text-xs text-gray-800 break-all">{selectedApp.cdeFrontUrl || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-blue-700 mb-1">Back NodeJS / DataService</p>
-                  <p className="font-mono text-xs text-gray-800 break-all">{selectedApp.cdeDataServiceUrl || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-blue-700 mb-1">Gateway</p>
-                  <p className="font-mono text-xs text-gray-800 break-all">{selectedApp.cdeGatewayUrl || '-'}</p>
-                </div>
-              </div>
-            </div>
-            <div>
-              <h4 className="font-medium mb-3 flex items-center gap-2"><Users className="w-5 h-5 text-blue-500" /> کاربران</h4>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {getAppUsers(selectedApp.id).map(({ user, roles }, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
-                    <div><p className="font-medium">{user?.fullName}</p><p className="text-sm text-gray-500">{user?.phoneNumber}</p></div>
-                    <div className="flex gap-1">{roles.map((r, j) => <Badge key={j} variant="secondary" size="sm">{ROLE_LABELS[r]}</Badge>)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="flex gap-3 justify-end pt-4 border-t">
-              {canManage && <Button variant="secondary" icon={<Edit className="w-4 h-4" />}
-                onClick={() => {
-                  setShowDetailModal(false);
-                  setFormErrors({});
-                  setAppForm({
-                    name: selectedApp.name,
-                    code: selectedApp.code,
-                    description: selectedApp.description || '',
-                    cdeProjectKey: projectKeyFromCdeRoot(selectedApp.cdeFrontUrl) || projectKeyFromCdeRoot(selectedApp.cdeDataServiceUrl),
-                    cdeFrontUrl: selectedApp.cdeFrontUrl || '',
-                    cdeDataServiceUrl: selectedApp.cdeDataServiceUrl || '',
-                    cdeGatewayUrl: selectedApp.cdeGatewayUrl || '',
-                  });
-                  setShowEditModal(true);
-                }}>ویرایش</Button>}
-              {canManage && <Button
-                variant="secondary"
-                className={selectedApp.isActive ? 'text-amber-700' : 'text-green-700'}
-                icon={<Power className="w-4 h-4" />}
-                onClick={() => {
-                  setShowDetailModal(false);
-                  setShowDeleteConfirm(true);
-                }}
-              >
-                {selectedApp.isActive ? 'غیرفعال کردن' : 'فعال‌سازی'}
-              </Button>}
-              <Button variant="secondary" onClick={() => setShowDetailModal(false)}>بستن</Button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      <Modal
-        isOpen={showCdeMappingModal}
-        onClose={() => !actionLoading && setShowCdeMappingModal(false)}
-        title={`نگاشت زنده CDE${selectedApp ? ` — ${selectedApp.name}` : ''}`}
-        size="xl"
-      >
-        <div className="space-y-5">
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-            این نگاشت نام پروژه و repositoryهای واقعی CDE را ذخیره می‌کند. فایل‌های Playwright در CouchDB و با همین نگاشت پروژه نگهداری می‌شوند؛ URLهای قدیمی Application در این مسیر استفاده نمی‌شوند.
-          </div>
-          {cdeProjectsError && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{cdeProjectsError}</p>}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Select
-              label="CDE project *"
-              value={cdeMappingForm.projectKey}
-              onChange={(event) => updateProjectKey(event.target.value)}
-              options={cdeProjects.map(item => ({ value: item.projectKey, label: item.projectKey }))}
-              placeholder={cdeProjectsLoading ? 'Loading CDE projects…' : 'Select a CDE project'}
-              disabled={cdeProjectsLoading}
-              className="font-mono"
-              dir="ltr"
-            />
-            <Input label="Web UI repository" value={cdeMappingForm.webUiRepoName} readOnly className="bg-gray-100 font-mono" dir="ltr" />
-            <Input label="Data Service repository" value={cdeMappingForm.dataServiceRepoName} readOnly className="bg-gray-100 font-mono" dir="ltr" />
-            <Input label="API Module repository" value={cdeMappingForm.apiModuleRepoName} readOnly className="bg-gray-100 font-mono" dir="ltr" />
-            <Input label="Message Consumer repository (optional)" value={cdeMappingForm.messageConsumerRepoName} readOnly className="bg-gray-100 font-mono" dir="ltr" />
-          </div>
-
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-            <h3 className="font-medium text-emerald-900">Playwright storage: UTMS CouchDB</h3>
-            <p className="mt-1 text-xs text-emerald-700">
-              فایل‌های تست دیگر داخل CDE ذخیره نمی‌شوند. UTMS آن‌ها را در CouchDB نگه می‌دارد و هر سند را به همین project key و repositoryهای CDE متصل می‌کند.
-            </p>
-          </div>
-
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <h3 className="font-medium text-gray-900">Deployed environment profile</h3>
-            <p className="mt-1 text-xs text-gray-500">Runner tests this deployed target; it never starts Raya Core locally.</p>
-            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Input label="Environment name" value={cdeMappingForm.environmentName} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, environmentName: event.target.value })} />
-              <Input label="Web base URL" value={cdeMappingForm.webBaseUrl} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, webBaseUrl: event.target.value })} dir="ltr" />
-              <Input label="API base URL" value={cdeMappingForm.apiBaseUrl} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, apiBaseUrl: event.target.value })} dir="ltr" />
-              <Input label="Gateway base URL" value={cdeMappingForm.gatewayBaseUrl} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, gatewayBaseUrl: event.target.value })} dir="ltr" />
-            </div>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={cdeMappingForm.enabled} onChange={(event) => setCdeMappingForm({ ...cdeMappingForm, enabled: event.target.checked })} />
-            نگاشت فعال باشد
-          </label>
-          <div className="flex justify-end gap-3 border-t pt-4">
-            <Button variant="secondary" onClick={() => setShowCdeMappingModal(false)} disabled={actionLoading}>انصراف</Button>
-            <Button onClick={() => void saveCdeMapping()} loading={actionLoading} disabled={actionLoading}>ذخیره و اعتبارسنجی</Button>
-          </div>
-        </div>
-      </Modal>
-
-      <ConfirmModal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={handleToggleActive} title={selectedApp?.isActive ? 'غیرفعال کردن سامانه' : 'فعال‌سازی سامانه'}
-        message={`آیا از ${selectedApp?.isActive ? 'غیرفعال کردن' : 'فعال‌سازی'} سامانه «${selectedApp?.name}» اطمینان دارید؟`}
-        variant={selectedApp?.isActive ? 'warning' : 'primary'} confirmText={selectedApp?.isActive ? 'غیرفعال کردن' : 'فعال‌سازی'} loading={actionLoading} />
-    </div>
-  );
+    <ConfirmModal isOpen={confirmToggle} onClose={() => setConfirmToggle(false)} onConfirm={() => void toggleActive()} title={selected?.isActive ? 'غیرفعال‌سازی سامانه' : 'فعال‌سازی سامانه'} message={`آیا از تغییر وضعیت «${selected?.name || ''}» اطمینان دارید؟`} confirmText="تأیید" loading={saving} />
+  </div>;
 };

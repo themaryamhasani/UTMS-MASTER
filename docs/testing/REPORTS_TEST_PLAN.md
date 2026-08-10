@@ -1,5 +1,7 @@
 # UTMS Reports Test Plan
 
+> Scope update 2026-08-10: the Playwright report was removed from UTMS. Any older Playwright row below is historical and excluded from current execution.
+
 Source-verified: 2026-07-22
 
 This plan matches `apps/web/src/pages/ReportsPage.tsx` and `apps/web/src/services/reportsApi.ts`. In backend mode the read models execute through `reportsApi` on domain RPC, using transitional domain state rather than PostgreSQL report repositories.

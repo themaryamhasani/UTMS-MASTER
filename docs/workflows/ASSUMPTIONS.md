@@ -1,5 +1,7 @@
 # UTMS - Implementation Assumptions (Updated)
 
+> Scope update 2026-08-10: assumptions about CDE, product Playwright execution, its worker/runner and storage are superseded by the standalone Playwright Studio documentation.
+
 Source-verified: 2026-07-26
 
 The word “mock” in the phase-by-phase notes below refers to the transitional

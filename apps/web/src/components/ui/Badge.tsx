@@ -55,7 +55,6 @@ const statusColors: Record<string, BadgeProps['variant']> = {
     FAILED: 'danger',
     BLOCKED: 'warning',
     SKIPPED: 'default',
-    // Playwright
     RUNNING: 'info',
     ERROR: 'danger',
     // Release
@@ -99,4 +98,3 @@ export const PriorityBadge: React.FC<PriorityBadgeProps> = ({ priority, classNam
       {priorityLabels[priority] || priority}
     </Badge>);
 };
-

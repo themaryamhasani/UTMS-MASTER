@@ -156,22 +156,6 @@ for (const filePath of sourceFiles) {
     }
   }
 
-  if (rel.startsWith('apps/api/src/')) {
-    for (const specifier of imports) {
-      if (specifier.includes('@utms/playwright-runner') || specifier.includes('apps/playwright-runner')) {
-        addFailure(filePath, `API cannot import Playwright runner implementation (${specifier})`);
-      }
-    }
-  }
-
-  if (rel.startsWith('apps/worker/src/')) {
-    for (const specifier of imports) {
-      if (specifier.includes('@utms/web') || specifier.includes('apps/web')) {
-        addFailure(filePath, `worker cannot import frontend code (${specifier})`);
-      }
-    }
-  }
-
   if ((rel.startsWith('packages/shared/src/') || rel.startsWith('packages/contracts/src/')) && content.includes('process.env')) {
     addFailure(filePath, 'shared contracts/utilities cannot access environment variables');
   }

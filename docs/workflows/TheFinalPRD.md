@@ -1,5 +1,7 @@
 # UTMS - سند جامع نیازمندی محصول
 
+> به‌روزرسانی دامنه 2026-08-10: تمام بخش‌های CDE و کارتابل‌های مدیریت/اجرای Playwright از دامنه UTMS خارج و به [Playwright Studio](https://github.com/themaryamhasani/playwright-studio) منتقل شده‌اند. آن بخش‌های این PRD فقط سابقهٔ پیش از extraction هستند و نیازمندی جاری UTMS محسوب نمی‌شوند.
+
 > وضعیت: مبنای نیازمندی و طراحی محصول. این سند شامل دامنه نهایی و Production-grade است و به معنی پیاده‌سازی کامل همه موارد در checkout فعلی نیست. برای وضعیت واقعی source، routeها و persistence به [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md) و برای راهنمای فارسی رفتار جاری به [Current System Guide](CURRENT_SYSTEM_GUIDE_FA.md) مراجعه کنید. بازبینی مرز پیاده‌سازی: 2026-07-26.
 
 UTMS

@@ -38,7 +38,7 @@ The bridge registers:
 
 - `testRequestApi`, `requirementApi`, `flowApi`, `testCaseApi` and `testRunApi`
 - `bugApi`, `retestTaskApi`, `runIssueApi` and `checklistApi`
-- `playwrightApi`, `releasePublishApi` and `versionHistoryApi`
+- `releasePublishApi` and `versionHistoryApi`
 - `commandTraceApi`, `auditLogApi`, `commentApi`, `notificationApi` and `attachmentApi`
 - `dashboardApi`, `reportsApi` and `securityChecklistApi`
 - `userApi`, `applicationApi`, `workflowPolicyApi` and `systemSettingsApi`

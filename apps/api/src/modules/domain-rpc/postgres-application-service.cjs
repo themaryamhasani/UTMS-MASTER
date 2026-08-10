@@ -2,27 +2,6 @@ const { randomUUID } = require('crypto');
 const { getPrismaClient } = require('../../database/prisma-client.cjs');
 
 const DEFAULT_WORKFLOW_POLICY_ID = 'standard-tech-lead';
-const APPLICATION_CDE_ROOT_PREFIXES = {
-  cdeFrontUrl: 'https://cde.edus.ir/front/',
-  cdeDataServiceUrl: 'https://cde.edus.ir/dservice/',
-  cdeGatewayUrl: 'https://cde.edus.ir/back/',
-};
-
-function assertApplicationCdeRoots(data) {
-  for (const [field, prefix] of Object.entries(APPLICATION_CDE_ROOT_PREFIXES)) {
-    const value = typeof data?.[field] === 'string' ? data[field].trim() : '';
-    if (!value) continue;
-    if (!value.startsWith('https://cde.edus.ir/') || !value.startsWith(prefix)) {
-      throw new Error('APPLICATION_CDE_ROOT_INVALID');
-    }
-    try {
-      new URL(value);
-    } catch {
-      throw new Error('APPLICATION_CDE_ROOT_INVALID');
-    }
-  }
-}
-
 function nullableText(value) {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
@@ -36,9 +15,6 @@ function toApplication(row) {
     name: row.name,
     code: row.code,
     description: row.description || undefined,
-    cdeFrontUrl: row.cdeFrontUrl || undefined,
-    cdeDataServiceUrl: row.cdeDataServiceUrl || undefined,
-    cdeGatewayUrl: row.cdeGatewayUrl || undefined,
     workflowPolicyId: row.workflowPolicyId || undefined,
     isActive: row.isActive,
     createdAt: row.createdAt.toISOString(),
@@ -70,7 +46,6 @@ async function getById(id) {
 }
 
 async function create(data = {}) {
-  assertApplicationCdeRoots(data);
   const prisma = getPrismaClient();
   const workflowPolicyId = await resolveWorkflowPolicyId(prisma, data.workflowPolicyId);
 
@@ -80,9 +55,6 @@ async function create(data = {}) {
       name: String(data.name || '').trim(),
       code: String(data.code || '').trim(),
       description: nullableText(data.description),
-      cdeFrontUrl: nullableText(data.cdeFrontUrl),
-      cdeDataServiceUrl: nullableText(data.cdeDataServiceUrl),
-      cdeGatewayUrl: nullableText(data.cdeGatewayUrl),
       workflowPolicyId,
       isActive: data.isActive ?? true,
     },
@@ -91,7 +63,6 @@ async function create(data = {}) {
 }
 
 async function update(id, data = {}) {
-  assertApplicationCdeRoots(data);
   const prisma = getPrismaClient();
   const existing = await prisma.application.findUnique({ where: { id: String(id) } });
   if (!existing) return null;
@@ -100,9 +71,6 @@ async function update(id, data = {}) {
   if ('name' in data) patch.name = String(data.name || '').trim();
   if ('code' in data) patch.code = String(data.code || '').trim();
   if ('description' in data) patch.description = nullableText(data.description);
-  if ('cdeFrontUrl' in data) patch.cdeFrontUrl = nullableText(data.cdeFrontUrl);
-  if ('cdeDataServiceUrl' in data) patch.cdeDataServiceUrl = nullableText(data.cdeDataServiceUrl);
-  if ('cdeGatewayUrl' in data) patch.cdeGatewayUrl = nullableText(data.cdeGatewayUrl);
   if ('isActive' in data) patch.isActive = Boolean(data.isActive);
   if ('workflowPolicyId' in data) {
     patch.workflowPolicyId = await resolveWorkflowPolicyId(prisma, data.workflowPolicyId);

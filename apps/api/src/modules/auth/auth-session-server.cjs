@@ -4,7 +4,7 @@ const { getPrismaClient } = require('../../database/prisma-client.cjs');
 
 const SESSION_COOKIE = process.env.UTMS_SESSION_COOKIE || 'utms_session';
 const SESSION_TTL_MS = Number(process.env.UTMS_SESSION_TTL_MS || 12 * 60 * 60 * 1000);
-const CSRF_SECRET = process.env.UTMS_CSRF_SECRET || process.env.CDE_SESSION_ENCRYPTION_KEY || 'utms-development-csrf-secret-change-me';
+const CSRF_SECRET = process.env.UTMS_CSRF_SECRET || 'utms-development-csrf-secret-change-me';
 const LEGACY_CONTEXT_ENABLED = ['test', 'development'].includes(process.env.NODE_ENV || 'development') &&
   process.env.UTMS_ALLOW_LEGACY_CONTEXT !== 'false';
 
@@ -102,9 +102,6 @@ async function sessionContext(prisma, session) {
     applications: applications.map(serializeApplication),
     role: session.role,
     scope: session.scope,
-    automatedTestsEnabled: session.assignment?.role === 'QA_SPECIALIST'
-      ? session.assignment.automatedTestsEnabled
-      : undefined,
   };
 }
 
@@ -114,9 +111,6 @@ function serializeApplication(application) {
     name: application.name,
     code: application.code,
     description: application.description || undefined,
-    cdeFrontUrl: application.cdeFrontUrl || undefined,
-    cdeDataServiceUrl: application.cdeDataServiceUrl || undefined,
-    cdeGatewayUrl: application.cdeGatewayUrl || undefined,
     workflowPolicyId: application.workflowPolicyId || undefined,
     isActive: application.isActive,
     createdAt: application.createdAt.toISOString(),

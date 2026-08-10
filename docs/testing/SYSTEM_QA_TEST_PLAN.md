@@ -1,5 +1,7 @@
 # UTMS System QA Test Plan
 
+> Scope update 2026-08-10: product Playwright/CDE cases moved to the standalone repository. Their older sections below are historical and must not be executed against UTMS.
+
 Source-verified: 2026-07-22
 
 This manual test plan covers the current UI and domain-service behavior. In backend mode, service calls use domain RPC; only users, applications and workflow policies are currently PostgreSQL-backed.

@@ -49,7 +49,7 @@ export interface CommandTrace {
     createdAt: string;
     replayedAt?: string | undefined;
 }
-export type IntegrationProvider = 'CDE' | 'FAVA';
+export type IntegrationProvider = 'FAVA';
 export type IntegrationHealthStatus = 'DISABLED' | 'UNKNOWN' | 'HEALTHY' | 'DEGRADED';
 export interface IntegrationAdapterConfig {
     provider: IntegrationProvider;
@@ -60,19 +60,7 @@ export interface IntegrationAdapterConfig {
     lastHealthStatus: IntegrationHealthStatus;
     updatedAt: string;
 }
-export interface PlaywrightRunnerConfig {
-    enabled: boolean;
-    autoDiscovery: boolean;
-    runnerId: string;
-    commandTemplate: string;
-    defaultWorkingDirectory: string;
-    defaultTimeoutSeconds: number;
-    artifactRoot: string;
-    secretReference?: string | undefined;
-    updatedAt: string;
-}
 export interface SystemIntegrationSettings {
-    playwright: PlaywrightRunnerConfig;
     adapters: IntegrationAdapterConfig[];
     updatedAt: string;
     updatedById?: string | undefined;
@@ -83,9 +71,6 @@ export interface Application {
     name: string;
     code: string;
     description?: string | undefined;
-    cdeFrontUrl?: string | undefined;
-    cdeDataServiceUrl?: string | undefined;
-    cdeGatewayUrl?: string | undefined;
     workflowPolicyId?: string | undefined;
     isActive: boolean;
     createdAt: string;
@@ -113,7 +98,6 @@ export interface UserRoleAssignment {
     applicationIds?: string[] | undefined; // SYSTEMS scope can include multiple applications
     role: UserRole;
     scope: AccessScope; // APP = all systems, SYSTEMS = selected systems
-    automatedTestsEnabled?: boolean | undefined; // Meaningful for QA_SPECIALIST access to automated-test cartables.
     isActive: boolean;
 }
 // A selectable working context. Assignments with the same role are grouped so
@@ -127,7 +111,6 @@ export interface AvailableContext {
     role: UserRole;
     scope: AccessScope;
     scopeApplicationIds: string[];
-    automatedTestsEnabled?: boolean | undefined;
 }
 // Active Context (Session)
 export interface ActiveContext {
@@ -142,7 +125,6 @@ export interface ActiveContext {
     applications: Application[];
     role: UserRole;
     scope: AccessScope; // APP = sees all systems, SYSTEMS = selected systems
-    automatedTestsEnabled?: boolean | undefined;
     token: string;
 }
 // Test Request Status
@@ -613,7 +595,7 @@ export const ATTACHMENT_STATUS_LABELS: Record<AttachmentStatus, string> = {
     DELETED: 'حذف شده',
 };
 // Entity Type (for attachments)
-export type EntityType = 'TEST_REQUEST' | 'REQUIREMENT' | 'FLOW' | 'TEST_CASE' | 'TEST_RUN' | 'BUG' | 'RETEST_TASK' | 'RUN_ISSUE' | 'CHECKLIST' | 'VERSION_HISTORY' | 'RELEASE_PUBLISH' | 'PLAYWRIGHT_RUN' | 'PLAYWRIGHT_TEST_FILE';
+export type EntityType = 'TEST_REQUEST' | 'REQUIREMENT' | 'FLOW' | 'TEST_CASE' | 'TEST_RUN' | 'BUG' | 'RETEST_TASK' | 'RUN_ISSUE' | 'CHECKLIST' | 'VERSION_HISTORY' | 'RELEASE_PUBLISH';
 // Attachment
 export interface Attachment {
     id: string;
@@ -678,199 +660,6 @@ export interface ChecklistItem {
     result?: ChecklistResult | undefined;
     notes?: string | undefined;
     order: number;
-}
-// Playwright Run Status
-export type PlaywrightRunStatus = 'PREPARING' | 'QUEUED' | 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'ERROR' | 'CANCELLED';
-export const PLAYWRIGHT_RUN_STATUS_LABELS: Record<PlaywrightRunStatus, string> = {
-    PREPARING: 'Preparing snapshot',
-    QUEUED: 'Queued',
-    PENDING: 'در انتظار',
-    RUNNING: 'در حال اجرا',
-    PASSED: 'موفق',
-    FAILED: 'ناموفق',
-    ERROR: 'خطا',
-    CANCELLED: 'لغو شده',
-};
-export type PlaywrightProject = 'chromium' | 'firefox' | 'webkit';
-export type PlaywrightWorkers = 'auto' | '1' | '2' | '4';
-export type PlaywrightMaxFailures = 'unlimited' | '1' | '3' | '5';
-export type PlaywrightTraceMode = 'off' | 'retain-on-failure' | 'on-first-retry';
-export type PlaywrightReporter = 'html' | 'json' | 'junit';
-export const PLAYWRIGHT_PROJECT_LABELS: Record<PlaywrightProject, string> = {
-    chromium: 'Chromium',
-    firefox: 'Firefox',
-    webkit: 'WebKit',
-};
-export const PLAYWRIGHT_WORKERS_LABELS: Record<PlaywrightWorkers, string> = {
-    auto: 'Auto',
-    '1': '1',
-    '2': '2',
-    '4': '4',
-};
-export const PLAYWRIGHT_MAX_FAILURES_LABELS: Record<PlaywrightMaxFailures, string> = {
-    unlimited: 'نامحدود',
-    '1': '1',
-    '3': '3',
-    '5': '5',
-};
-export const PLAYWRIGHT_TRACE_LABELS: Record<PlaywrightTraceMode, string> = {
-    off: 'خاموش',
-    'retain-on-failure': 'هنگام شکست',
-    'on-first-retry': 'Retry',
-};
-export const PLAYWRIGHT_REPORTER_LABELS: Record<PlaywrightReporter, string> = {
-    html: 'HTML',
-    json: 'JSON',
-    junit: 'JUnit',
-};
-export interface PlaywrightReportCodeFrameLine {
-    lineNumber: number;
-    text: string;
-    highlighted?: boolean | undefined;
-}
-export interface PlaywrightReportFailure {
-    title: string;
-    project: PlaywrightProject;
-    filePath: string;
-    line: number;
-    column: number;
-    message: string;
-    expected?: string | undefined;
-    received?: string | undefined;
-    durationMs: number;
-    snippet: PlaywrightReportCodeFrameLine[];
-}
-export type PlaywrightReportTestOutcome = 'passed' | 'skipped' | 'cancelled';
-export interface PlaywrightReportTestItem {
-    title: string;
-    project: PlaywrightProject;
-    filePath: string;
-    status: PlaywrightReportTestOutcome;
-    durationMs: number;
-}
-export interface PlaywrightReport {
-    reporter: PlaywrightReporter;
-    fileName: string;
-    mimeType: string;
-    storagePath: string;
-    generatedAt: string;
-    status: PlaywrightRunStatus;
-    totalTests: number;
-    passedTests: number;
-    failedTests: number;
-    skippedTests: number;
-    cancelledTests: number;
-    durationMs: number;
-    failures: PlaywrightReportFailure[];
-    passed: PlaywrightReportTestItem[];
-    skipped: PlaywrightReportTestItem[];
-    cancelled: PlaywrightReportTestItem[];
-    content: string;
-}
-// Playwright Run
-export interface PlaywrightRun {
-    id: string;
-    applicationId: string;
-    environmentProfileId?: string | undefined;
-    snapshotId?: string | undefined;
-    snapshot?: {
-        id: string;
-        status: 'PENDING' | 'MATERIALIZING' | 'READY' | 'FAILED' | 'PURGED';
-        contentHash?: string | null | undefined;
-        errorCode?: string | null | undefined;
-        errorMessage?: string | null | undefined;
-        expiresAt: string;
-    } | undefined;
-    testFileId?: string | undefined;
-    testRequestId?: string | undefined;
-    testCaseIds?: string[] | undefined;
-    testFilePath: string;
-    environment: string;
-    projects?: PlaywrightProject[] | undefined;
-    headed?: boolean | undefined;
-    workers?: PlaywrightWorkers | undefined;
-    retries?: number | undefined;
-    maxFailures?: PlaywrightMaxFailures | undefined;
-    trace?: PlaywrightTraceMode | undefined;
-    reporter?: PlaywrightReporter | undefined;
-    status: PlaywrightRunStatus;
-    queueStatus?: ('QUEUED' | 'DISPATCHED' | 'DONE' | 'FAILED') | undefined;
-    runnerId?: string | undefined;
-    command?: string | undefined;
-    workingDirectory?: string | undefined;
-    timeoutSeconds?: number | undefined;
-    artifactIds?: string[] | undefined;
-    artifactPaths?: string[] | undefined;
-    report?: PlaywrightReport | undefined;
-    manualPath?: boolean | undefined;
-    idempotencyKey?: string | undefined;
-    correlationId?: string | undefined;
-    requestedAt?: string | undefined;
-    dispatchedAt?: string | undefined;
-    lastHeartbeatAt?: string | undefined;
-    startedAt?: string | undefined;
-    completedAt?: string | undefined;
-    duration?: number | undefined;
-    totalTests?: number | undefined;
-    passedTests?: number | undefined;
-    failedTests?: number | undefined;
-    skippedTests?: number | undefined;
-    cancelledTests?: number | undefined;
-    logs?: string | undefined;
-    triggeredById: string;
-    triggeredBy?: User | undefined;
-    createdAt: string;
-    updatedAt: string;
-}
-export type PlaywrightCdeRootKind = 'FRONT' | 'DATASERVICE' | 'GATEWAY' | 'MESSAGE_CONSUMER' | 'TESTS';
-export const PLAYWRIGHT_CDE_ROOT_LABELS: Record<PlaywrightCdeRootKind, string> = {
-    FRONT: 'Front',
-    DATASERVICE: 'Back NodeJS / DataService',
-    GATEWAY: 'Gateway',
-    MESSAGE_CONSUMER: 'Message Consumer',
-    TESTS: 'CouchDB Playwright Tests',
-};
-export interface PlaywrightTestFolder {
-    id: string;
-    applicationId: string;
-    rootKind: PlaywrightCdeRootKind;
-    rootUrl: string;
-    relativePath: string;
-    fullPath: string;
-}
-export interface PlaywrightTestFile {
-    id: string;
-    applicationId: string;
-    rootKind: PlaywrightCdeRootKind;
-    rootUrl: string;
-    source: 'DISCOVERED' | 'MANAGED' | 'CDE' | 'COUCHDB';
-    folderPath: string;
-    relativeFolderPath: string;
-    fileName: string;
-    fullPath: string;
-    script: string;
-    remoteRepoName?: string | undefined;
-    remotePackId?: string | undefined;
-    remoteBranchKind?: 'PUBLIC' | 'PERSONAL' | undefined;
-    remoteBranchRandId?: string | undefined;
-    remoteBranchIndex?: number | undefined;
-    remoteVersionId?: string | undefined;
-    remotePath?: string | undefined;
-    sourceHash?: string | undefined;
-    syncedAt?: string | undefined;
-    couchDocumentId?: string | undefined;
-    couchRevision?: string | undefined;
-    cdeBinding?: {
-        serviceId: string;
-        origin: string;
-        projectKey: string;
-        repositories: Record<string, string | null>;
-    } | undefined;
-    description?: string | undefined;
-    createdById: string;
-    createdBy?: User | undefined;
-    createdAt: string;
-    updatedAt: string;
 }
 // Version History / Publish Decision Status
 export type VersionHistoryStatus = 'DRAFT' | 'QA_REVIEW' | 'SECURITY_REVIEW' | 'PENDING_DECISION' | 'APPROVED' | 'CONDITIONAL' | 'REJECTED' | 'BLOCKED' | 'EMERGENCY' | 'PUBLISHED';
@@ -968,8 +757,6 @@ export interface VersionSnapshot {
     securityChecklistResult?: ChecklistResult | undefined;
     performanceChecklistResult?: ChecklistResult | undefined;
     penetrationChecklistResult?: ChecklistResult | undefined;
-    playwrightPassRate?: number | undefined;
-    playwrightTotalRuns?: number | undefined;
     capturedAt: string;
 }
 export interface VersionHistoryEvidence {
@@ -1236,8 +1023,6 @@ export interface CartableAction {
 }
 // Feature Flags
 export interface FeatureFlags {
-    cdeIntegration: boolean;
     favaIntegration: boolean;
-    playwrightEnabled: boolean;
     emergencyPublishEnabled: boolean;
 }

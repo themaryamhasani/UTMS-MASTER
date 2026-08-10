@@ -15,7 +15,6 @@ const {
   handleAuth,
   requireUtmsSession,
 } = require('../../../auth/auth-session-server.cjs');
-const { canHandleCde, handleCde } = require('../../../cde/cde-server.cjs');
 
 const REPOSITORY_ROOT = path.resolve(__dirname, '../../../../../../..');
 const resolveRepositoryPath = value => path.isAbsolute(value) ? value : path.join(REPOSITORY_ROOT, value);
@@ -5292,7 +5291,7 @@ function createServer() {
           status: 'ok',
           service: 'utms-api',
           checkedAt: nowIso(),
-          modules: ['api-console', 'domain-rpc', 'auth-session', 'cde-bridge'],
+          modules: ['api-console', 'domain-rpc', 'auth-session'],
         });
         return;
       }
@@ -5306,12 +5305,6 @@ function createServer() {
       if (canHandleAuth(parsedUrl.pathname)) {
         const body = await readJsonBody(req, 1024 * 1024);
         const result = await handleAuth(req, parsedUrl, body, res);
-        sendJson(res, 200, result);
-        return;
-      }
-      if (canHandleCde(parsedUrl.pathname)) {
-        const body = await readJsonBody(req, Number(process.env.CDE_MAX_BODY_BYTES || 32 * 1024 * 1024));
-        const result = await handleCde(req, parsedUrl, body);
         sendJson(res, 200, result);
         return;
       }

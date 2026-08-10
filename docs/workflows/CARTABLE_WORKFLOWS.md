@@ -1,5 +1,7 @@
 # UTMS - Cartable Workflows
 
+> Scope update 2026-08-10: CDE and both Playwright workflows are extracted to [Playwright Studio](https://github.com/themaryamhasani/playwright-studio). Their sections below are retained only as pre-extraction history.
+
 Source-verified: 2026-07-26
 
 ## Overview

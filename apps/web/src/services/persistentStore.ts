@@ -8,8 +8,6 @@ import type {
   Flow,
   Notification,
   NotificationOutboxItem,
-  PlaywrightRun,
-  PlaywrightTestFile,
   ReleasePublish,
   Requirement,
   RetestTask,
@@ -62,9 +60,6 @@ export interface PersistedUtmsState {
   retestTasks: RetestTask[];
   runIssues: RunIssue[];
   checklists: Checklist[];
-  playwrightRuns: PlaywrightRun[];
-  playwrightTestFiles: PlaywrightTestFile[];
-  hiddenDiscoveredPlaywrightPaths: string[];
   releasePublishes: ReleasePublish[];
   auditLogs: AuditLog[];
   comments: Comment[];

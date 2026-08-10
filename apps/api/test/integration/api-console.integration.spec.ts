@@ -43,7 +43,7 @@ test('UTMS-API-INT-001 @integration exposes health and self-check contracts', as
   expect(await health.json()).toMatchObject({
     status: 'ok',
     service: 'utms-api',
-    modules: ['api-console', 'domain-rpc', 'auth-session', 'cde-bridge'],
+    modules: ['api-console', 'domain-rpc', 'auth-session'],
   });
   const selfCheck = await api.get('/api/api-console/self-check');
   expect(selfCheck.status()).toBe(200);

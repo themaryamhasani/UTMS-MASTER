@@ -68,10 +68,6 @@ function buildAvailableContexts(
     const assignmentIds = roleAssignments.map(assignment => assignment.id).sort();
     const scope = roleAssignments.some(assignment => assignment.scope === 'APP') ? 'APP' : 'SYSTEMS';
     const scopeApplicationIds = applications.map(item => item.id);
-    const automatedTestsEnabled = role === 'QA_SPECIALIST'
-      ? roleAssignments.every(assignment => assignment.automatedTestsEnabled !== false)
-      : undefined;
-
     contexts.push({
       contextId: `context:${user.id}:${role}:${assignmentIds.join('+')}`,
       assignmentId: assignmentIds[0]!,
@@ -81,7 +77,6 @@ function buildAvailableContexts(
       role,
       scope,
       scopeApplicationIds,
-      automatedTestsEnabled,
     });
   });
 
@@ -114,7 +109,6 @@ function createActiveContext(user: User, selectedContext: AvailableContext): Act
     applications: [...selectedContext.applications],
     role: selectedContext.role,
     scope: selectedContext.scope,
-    automatedTestsEnabled: selectedContext.automatedTestsEnabled,
     token: `mock-token-${user.id}-${selectedContext.contextId}`,
   };
 }
@@ -139,7 +133,7 @@ function findMatchingContext(
 
 function contextSignature(
   context:
-    | Pick<ActiveContext, 'contextId' | 'userId' | 'assignmentIds' | 'applicationId' | 'scopeApplicationIds' | 'role' | 'scope' | 'automatedTestsEnabled'>
+    | Pick<ActiveContext, 'contextId' | 'userId' | 'assignmentIds' | 'applicationId' | 'scopeApplicationIds' | 'role' | 'scope'>
     | null
     | undefined
 ): string {
@@ -152,7 +146,6 @@ function contextSignature(
     scopeApplicationIds: [...(context.scopeApplicationIds ?? [])].sort(),
     role: context.role,
     scope: context.scope,
-    automatedTestsEnabled: context.automatedTestsEnabled ?? null,
   });
 }
 
@@ -166,7 +159,6 @@ function availableContextSignature(contexts: AvailableContext[]): string {
       .sort(),
     role: context.role,
     scope: context.scope,
-    automatedTestsEnabled: context.automatedTestsEnabled ?? null,
   })).sort((left, right) => left.contextId.localeCompare(right.contextId)));
 }
 
@@ -178,12 +170,6 @@ export function getContextApplicationLabel(
   ));
   if (names.length > 0) return names.join('، ');
   return context.application?.name || 'سامانه‌ای تعیین نشده';
-}
-
-export function canUseAutomatedTests(context: Pick<ActiveContext, 'role' | 'automatedTestsEnabled'> | null | undefined): boolean {
-  if (!context) return false;
-  if (context.role !== 'QA_SPECIALIST') return true;
-  return context.automatedTestsEnabled !== false;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -354,9 +340,8 @@ export function getDataApplicationId(context: ActiveContext): string | string[] 
 // RBAC: Cartable access per role
 // SYSTEM_ADMIN gets access to ALL cartables
 // ============================================
-export const canAccessCartable = (role: UserRole, cartableType: string, context?: Pick<ActiveContext, 'role' | 'automatedTestsEnabled'> | null): boolean => {
+export const canAccessCartable = (role: UserRole, cartableType: string, _context?: ActiveContext | null): boolean => {
   if (role === 'SYSTEM_ADMIN') return true;
-  if (['playwright', 'playwright-files'].includes(cartableType) && context && !canUseAutomatedTests(context)) return false;
 
   const permissions: Record<string, UserRole[]> = {
     'test-requests': ['DEVELOPER', 'QA_LEAD', 'QA_SPECIALIST', 'BA', 'TECH_LEAD', 'PRODUCT_OWNER'],
@@ -367,8 +352,6 @@ export const canAccessCartable = (role: UserRole, cartableType: string, context?
     'run-issues': ['QA_LEAD', 'QA_SPECIALIST'],
     'checklists': ['SECURITY_REVIEWER', 'QA_LEAD', 'TECH_LEAD'],
     'security-review': ['QA_LEAD', 'QA_SPECIALIST', 'DEVELOPER', 'SECURITY_REVIEWER'],
-    'playwright': ['QA_LEAD', 'QA_SPECIALIST'],
-    'playwright-files': ['QA_LEAD', 'QA_SPECIALIST'],
     'releases': ['QA_LEAD', 'TECH_LEAD', 'PRODUCT_OWNER', 'DEVELOPER'],
     'api-console': ['SYSTEM_ADMIN', 'QA_LEAD', 'QA_SPECIALIST', 'BA', 'SECURITY_REVIEWER', 'TECH_LEAD', 'PRODUCT_OWNER', 'DEVELOPER'],
     'users': ['SYSTEM_ADMIN'],
@@ -423,8 +406,6 @@ export const canPerformAction = (role: UserRole, action: string): boolean => {
     'run-issue:resolve': ['QA_LEAD', 'QA_SPECIALIST'],
     'checklist:review': ['SECURITY_REVIEWER'],
     'checklist:view': ['QA_LEAD', 'TECH_LEAD'],
-    'playwright:run': ['QA_LEAD', 'QA_SPECIALIST'],
-    'playwright:view': ['QA_LEAD', 'QA_SPECIALIST', 'TECH_LEAD'],
     'release:create': ['QA_LEAD'],
     'release:qa-review': ['QA_LEAD'],
     'release:decide': ['TECH_LEAD'],

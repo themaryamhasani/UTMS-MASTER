@@ -17,34 +17,6 @@ services:
       timeout: 5s
       retries: 30
 
-  redis-test:
-    image: redis:7-alpine
-    command: redis-server --save "" --appendonly no
-    ports:
-      - "16379:6379"
-    volumes:
-      - utms-qa-redis:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
-
-  couchdb-test:
-    image: couchdb:3.5.2.1
-    environment:
-      COUCHDB_USER: utms_test
-      COUCHDB_PASSWORD: utms_test
-    ports:
-      - "15984:5984"
-    volumes:
-      - utms-qa-couchdb:/opt/couchdb/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS -u '$${COUCHDB_USER}:$${COUCHDB_PASSWORD}' http://127.0.0.1:5984/_up >/dev/null"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
-
   api-test:
     build:
       context: ../..
@@ -55,21 +27,12 @@ services:
       API_CONSOLE_CORS_ORIGIN: http://web-test:5173
       API_CONSOLE_DATA_DIR: /app/runtime/api-console
       DATABASE_URL: postgresql://utms_test:utms_test@postgres-test:5432/utms_test?schema=public
-      REDIS_URL: redis://redis-test:6379
-      COUCHDB_URL: http://couchdb-test:5984
-      COUCHDB_DATABASE: utms_playwright_test
-      COUCHDB_USERNAME: utms_test
-      COUCHDB_PASSWORD: utms_test
     ports:
       - "14174:4174"
     volumes:
       - utms-qa-api-console:/app/runtime/api-console
     depends_on:
       postgres-test:
-        condition: service_healthy
-      redis-test:
-        condition: service_healthy
-      couchdb-test:
         condition: service_healthy
     command: ["sh", "-c", "npm run db:migrate && npm run db:seed && npm run dev:api"]
     healthcheck:
@@ -123,7 +86,5 @@ services:
 
 volumes:
   utms-qa-postgres:
-  utms-qa-redis:
-  utms-qa-couchdb:
   utms-qa-api-console:
   utms-qa-node-modules:

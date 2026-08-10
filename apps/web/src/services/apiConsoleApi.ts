@@ -183,7 +183,6 @@ function compactContext(context?: ActiveContext) {
     scopeApplicationIds: context.scopeApplicationIds,
     role: context.role,
     scope: context.scope,
-    automatedTestsEnabled: context.automatedTestsEnabled,
   };
 }
 

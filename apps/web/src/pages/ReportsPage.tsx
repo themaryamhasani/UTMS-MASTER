@@ -21,7 +21,7 @@ import { formatJalaliDate, formatJalaliDateTime, parseJalaliFilterDate } from '.
 import {
   TEST_REQUEST_STATUS_LABELS, BUG_STATUS_LABELS, BUG_SEVERITY_LABELS,
   TEST_RUN_STATUS_LABELS, REQUIREMENT_STATUS_LABELS, ROLE_LABELS,
-  RELEASE_PUBLISH_STATUS_LABELS, QA_QUALITY_STATUS_LABELS, PLAYWRIGHT_RUN_STATUS_LABELS,
+  RELEASE_PUBLISH_STATUS_LABELS, QA_QUALITY_STATUS_LABELS,
   TEST_CASE_STATUS_LABELS, CHECKLIST_STATUS_LABELS, ATTACHMENT_STATUS_LABELS,
   RETEST_TASK_STATUS_LABELS, RUN_ISSUE_STATUS_LABELS,
 } from '../types';
@@ -29,7 +29,7 @@ import {
 type ReportKey =
   | 'overview' | 'quality-health' | 'test-requests' | 'requirements' | 'flow-coverage'
   | 'test-cases' | 'test-runs' | 'open-bugs' | 'developer-performance' | 'developer-bugfix'
-  | 'checklists' | 'releases' | 'emergency' | 'playwright' | 'attachments'
+  | 'checklists' | 'releases' | 'emergency' | 'attachments'
   | 'users-roles' | 'audit' | 'product-quality' | 'comments' | 'traceability' | 'api-usage';
 
 interface ReportDef {
@@ -45,6 +45,7 @@ type ReportRole = {
   role: keyof typeof ROLE_LABELS | string;
   appName: string;
 };
+
 
 interface ReportNestedMetrics extends Record<string, number> {
   total: number;
@@ -188,7 +189,6 @@ interface ReportData extends Record<string, unknown> {
   failRate: number;
   blockedRate: number;
   reopenRate: number;
-  playwrightPassRate: number;
   requirementCoverage: number;
   criticalMajorOpen: number;
   totalRequirements: number;
@@ -314,7 +314,6 @@ const REPORTS: ReportDef[] = [
   { key: 'checklists', title: 'گزارش چک‌لیست امنیت', icon: <ShieldCheck className="w-5 h-5" />, description: 'وضعیت بررسی‌های امنیتی', roles: ['SYSTEM_ADMIN','SECURITY_REVIEWER','QA_LEAD','TECH_LEAD'], category: 'عملیاتی' },
   { key: 'releases', title: 'گزارش VersionHistory', icon: <Rocket className="w-5 h-5" />, description: 'تصمیمات ثبت انتشار، وضعیت VersionHistory و گزارش تغییرات هر نسخه', roles: ['SYSTEM_ADMIN','QA_LEAD','TECH_LEAD','PRODUCT_OWNER','DEVELOPER','QA_SPECIALIST','BA','SECURITY_REVIEWER'], category: 'مدیریتی' },
   { key: 'emergency', title: 'گزارش Tag اضطراری', icon: <AlertTriangle className="w-5 h-5" />, description: 'ریسک و دلایل Tag اضطراری روی VersionHistory', roles: ['SYSTEM_ADMIN','QA_LEAD','TECH_LEAD','PRODUCT_OWNER'], category: 'مدیریتی' },
-  { key: 'playwright', title: 'گزارش Playwright', icon: <Terminal className="w-5 h-5" />, description: 'اجرای تست‌های خودکار', roles: ['SYSTEM_ADMIN','QA_LEAD','QA_SPECIALIST','TECH_LEAD'], category: 'عملیاتی' },
   { key: 'attachments', title: 'گزارش پیوست‌ها', icon: <Paperclip className="w-5 h-5" />, description: 'فایل‌ها و مصرف Storage', roles: ['SYSTEM_ADMIN','QA_LEAD'], category: 'سیستمی' },
   { key: 'users-roles', title: 'گزارش کاربران و نقش‌ها', icon: <Users className="w-5 h-5" />, description: 'کاربران، نقش‌ها و دسترسی‌ها', roles: ['SYSTEM_ADMIN'], category: 'سیستمی' },
   { key: 'audit', title: 'گزارش Audit Trail', icon: <History className="w-5 h-5" />, description: 'عملیات حساس و رهگیری', roles: ['SYSTEM_ADMIN'], category: 'سیستمی' },
@@ -364,13 +363,12 @@ const REPORT_STATUS_LABEL_GROUPS = [
   CHECKLIST_STATUS_LABELS,
   RELEASE_PUBLISH_STATUS_LABELS,
   QA_QUALITY_STATUS_LABELS,
-  PLAYWRIGHT_RUN_STATUS_LABELS,
   ATTACHMENT_STATUS_LABELS,
 ] as Array<Record<string, string>>;
 
 const REPORT_STATUS_LABEL_GROUPS_BY_REPORT: Partial<Record<ReportKey, Array<Record<string, string>>>> = {
   overview: [TEST_REQUEST_STATUS_LABELS, TEST_RUN_STATUS_LABELS, BUG_STATUS_LABELS, RELEASE_PUBLISH_STATUS_LABELS],
-  'quality-health': [TEST_RUN_STATUS_LABELS, BUG_STATUS_LABELS, REQUIREMENT_STATUS_LABELS, PLAYWRIGHT_RUN_STATUS_LABELS],
+  'quality-health': [TEST_RUN_STATUS_LABELS, BUG_STATUS_LABELS, REQUIREMENT_STATUS_LABELS],
   'test-requests': [TEST_REQUEST_STATUS_LABELS],
   requirements: [REQUIREMENT_STATUS_LABELS],
   'flow-coverage': [REQUIREMENT_STATUS_LABELS],
@@ -382,7 +380,6 @@ const REPORT_STATUS_LABEL_GROUPS_BY_REPORT: Partial<Record<ReportKey, Array<Reco
   checklists: [CHECKLIST_STATUS_LABELS],
   releases: [RELEASE_PUBLISH_STATUS_LABELS, QA_QUALITY_STATUS_LABELS],
   emergency: [RELEASE_PUBLISH_STATUS_LABELS],
-  playwright: [PLAYWRIGHT_RUN_STATUS_LABELS],
   attachments: [ATTACHMENT_STATUS_LABELS],
 };
 
@@ -563,7 +560,6 @@ export const ReportsPage: React.FC = () => {
         case 'checklists': data = await reportsApi.getChecklistReport(targetAppId); break;
         case 'releases': data = await reportsApi.getReleaseReport(targetAppId); break;
         case 'emergency': data = await reportsApi.getEmergencyPublishReport(targetAppId); break;
-        case 'playwright': data = await reportsApi.getPlaywrightReport(targetAppId); break;
         case 'attachments': data = await reportsApi.getAttachmentReport(); break;
         case 'users-roles': data = await reportsApi.getUsersRolesReport(); break;
         case 'audit': data = await reportsApi.getAuditReport(targetAppId); break;
@@ -886,7 +882,6 @@ export const ReportsPage: React.FC = () => {
                   <StatCard title="باگ Critical/Major باز" value={reportData.criticalMajorOpen} icon={<Bug className="w-6 h-6" />} variant="danger" />
                   <StatCard title="نرخ Reopen" value={`${reportData.reopenRate}%`} icon={<RefreshCw className="w-6 h-6" />} />
                   <StatCard title="پوشش نیازمندی" value={`${reportData.requirementCoverage}%`} icon={<FileText className="w-6 h-6" />} variant="primary" />
-                  <StatCard title="نرخ Playwright" value={`${reportData.playwrightPassRate}%`} icon={<Terminal className="w-6 h-6" />} variant="success" />
                   <StatCard title="کل اجراها" value={reportData.totalRuns} icon={<PlayCircle className="w-6 h-6" />} />
                 </div>
                 {/* Charts */}
@@ -897,7 +892,6 @@ export const ReportsPage: React.FC = () => {
                       {[
                         { label: 'نرخ موفقیت', value: reportData.passRate, color: 'bg-green-500' },
                         { label: 'پوشش نیازمندی', value: reportData.requirementCoverage, color: 'bg-blue-500' },
-                        { label: 'نرخ Playwright', value: reportData.playwrightPassRate, color: 'bg-purple-500' },
                         { label: 'نرخ شکست', value: reportData.failRate, color: 'bg-red-500' },
                         { label: 'نرخ Reopen', value: reportData.reopenRate, color: 'bg-amber-500' },
                       ].map(m => (
@@ -1146,26 +1140,6 @@ export const ReportsPage: React.FC = () => {
               </>
             )}
 
-            {/* ===== PLAYWRIGHT ===== */}
-            {selectedReport === 'playwright' && (
-              <>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
-                  <StatCard title="کل اجراها" value={reportData.total} icon={<Terminal className="w-6 h-6" />} />
-                  <StatCard title="موفق" value={reportData.passed} variant="success" icon={<CheckCircle className="w-6 h-6" />} />
-                  <StatCard title="ناموفق" value={reportData.failed} variant="danger" icon={<XCircle className="w-6 h-6" />} />
-                  <StatCard title="نرخ موفقیت" value={`${reportData.passRate}%`} variant="success" icon={<TrendingUp className="w-6 h-6" />} />
-                </div>
-                <Card>
-                  <PaginatedReportTable columns={[
-                    { key: 'file', title: 'فایل تست', render: (i: ReportRow) => <span className="font-mono text-sm">{i.testFile.split('/').pop()}</span> },
-                    { key: 'status', title: 'وضعیت', render: (i: ReportRow) => <StatusBadge status={i.status} labels={PLAYWRIGHT_RUN_STATUS_LABELS} /> },
-                    { key: 'duration', title: 'مدت (ثانیه)', render: (i: ReportRow) => i.duration },
-                    { key: 'tests', title: 'تست‌ها', render: (i: ReportRow) => `${i.passedTests}/${i.totalTests}` },
-                    { key: 'triggeredBy', title: 'اجراکننده', render: (i: ReportRow) => i.triggeredBy },
-                  ]} data={filterReportRows(reportData.details || [])} emptyMessage="-" />
-                </Card>
-              </>
-            )}
 
             {/* ===== ATTACHMENTS ===== */}
             {selectedReport === 'attachments' && (

@@ -1,5 +1,7 @@
 # UTMS - Cartable Requirements
 
+> Scope update 2026-08-10: CDE and both Playwright cartables are extracted to [Playwright Studio](https://github.com/themaryamhasani/playwright-studio). Their sections below are historical and no longer UTMS requirements.
+
 Source-verified: 2026-07-26
 
 ## Overview

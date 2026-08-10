@@ -15,13 +15,6 @@ import type {
   RetestTask,
   RunIssue,
   Checklist,
-  PlaywrightRun,
-  PlaywrightCdeRootKind,
-  PlaywrightReport,
-  PlaywrightReportFailure,
-  PlaywrightReportTestItem,
-  PlaywrightTestFile,
-  PlaywrightTestFolder,
   ReleasePublish,
   AuditLog,
   TestRequestHistoryEvent,
@@ -56,7 +49,6 @@ import type {
   CommandTrace,
   IntegrationAdapterConfig,
   IntegrationProvider,
-  PlaywrightRunnerConfig,
   SystemIntegrationSettings,
   SecurityReview,
   SecurityExecution,
@@ -85,7 +77,6 @@ import {
   mockRetestTasks,
   mockRunIssues,
   mockChecklists,
-  mockPlaywrightRuns,
   mockReleasePublishes,
   mockAuditLogs,
   mockComments,
@@ -201,9 +192,6 @@ let bugs = [...mockBugs];
 let retestTasks = [...mockRetestTasks];
 let runIssues = [...mockRunIssues];
 let checklists = [...mockChecklists];
-let playwrightRuns = [...mockPlaywrightRuns];
-let playwrightTestFiles: PlaywrightTestFile[] = [];
-let hiddenDiscoveredPlaywrightPaths = new Set<string>();
 let releasePublishes = [...mockReleasePublishes];
 let auditLogs = [...mockAuditLogs];
 let comments = [...mockComments];
@@ -211,31 +199,10 @@ let notifications = [...mockNotifications];
 let notificationOutbox: NotificationOutboxItem[] = [];
 let attachments = [...mockAttachments];
 let mutableApplications = mockApplications.map(applyWorkflowPolicyToApplication);
-const playwrightTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const commandResultCache = new Map<string, unknown>();
 let commandTraces: CommandTrace[] = [];
 let systemIntegrationSettings: SystemIntegrationSettings = {
-  playwright: {
-    enabled: true,
-    autoDiscovery: true,
-    runnerId: 'runner-default',
-    commandTemplate: 'npx playwright test {testFilePath}',
-    defaultWorkingDirectory: '/repo',
-    defaultTimeoutSeconds: 120,
-    artifactRoot: '/object-storage/playwright',
-    secretReference: 'secret/playwright/default',
-    updatedAt: new Date().toISOString(),
-  },
   adapters: [
-    {
-      provider: 'CDE',
-      enabled: false,
-      baseUrl: 'https://cde.example.local/api',
-      credentialReference: 'secret/integrations/cde',
-      syncDirection: 'PULL',
-      lastHealthStatus: 'DISABLED',
-      updatedAt: new Date().toISOString(),
-    },
     {
       provider: 'FAVA',
       enabled: false,
@@ -267,7 +234,6 @@ function syncSeedDataCollections(): void {
   replaceArrayContents(mockRetestTasks, retestTasks);
   replaceArrayContents(mockRunIssues, runIssues);
   replaceArrayContents(mockChecklists, checklists);
-  replaceArrayContents(mockPlaywrightRuns, playwrightRuns);
   replaceArrayContents(mockReleasePublishes, releasePublishes);
   replaceArrayContents(mockAuditLogs, auditLogs);
   replaceArrayContents(mockComments, comments);
@@ -292,9 +258,6 @@ function currentPersistentState(): PersistedUtmsState {
     retestTasks: [...retestTasks],
     runIssues: [...runIssues],
     checklists: [...checklists],
-    playwrightRuns: [...playwrightRuns],
-    playwrightTestFiles: [...playwrightTestFiles],
-    hiddenDiscoveredPlaywrightPaths: Array.from(hiddenDiscoveredPlaywrightPaths),
     releasePublishes: [...releasePublishes],
     auditLogs: [...auditLogs],
     comments: [...comments],
@@ -309,7 +272,6 @@ function currentPersistentState(): PersistedUtmsState {
     commandTraces: [...commandTraces],
     systemIntegrationSettings: {
       ...systemIntegrationSettings,
-      playwright: { ...systemIntegrationSettings.playwright },
       adapters: systemIntegrationSettings.adapters.map(adapter => ({ ...adapter })),
     },
     securityChecklistTemplate: securityChecklistTemplate.map(item => ({ ...item })),
@@ -363,9 +325,6 @@ function applyPersistedState(persisted: PersistedUtmsState): void {
   retestTasks = Array.isArray(state.retestTasks) ? state.retestTasks : retestTasks;
   runIssues = Array.isArray(state.runIssues) ? state.runIssues : runIssues;
   checklists = Array.isArray(state.checklists) ? state.checklists : checklists;
-  playwrightRuns = Array.isArray(state.playwrightRuns) ? state.playwrightRuns : playwrightRuns;
-  playwrightTestFiles = Array.isArray(state.playwrightTestFiles) ? state.playwrightTestFiles : playwrightTestFiles;
-  hiddenDiscoveredPlaywrightPaths = new Set(state.hiddenDiscoveredPlaywrightPaths ?? []);
   releasePublishes = Array.isArray(state.releasePublishes) ? state.releasePublishes : releasePublishes;
   auditLogs = Array.isArray(state.auditLogs) ? state.auditLogs : auditLogs;
   comments = Array.isArray(state.comments) ? state.comments : comments;
@@ -511,8 +470,6 @@ const AUDIT_ENTITY_TYPES: readonly AuditableEntityType[] = [
   'CHECKLIST',
   'VERSION_HISTORY',
   'RELEASE_PUBLISH',
-  'PLAYWRIGHT_RUN',
-  'PLAYWRIGHT_TEST_FILE',
   'USER',
   'APPLICATION',
   'ROLE_ASSIGNMENT',
@@ -838,8 +795,6 @@ function inferAuditActorRole(
       : ['TECH_LEAD', 'QA_LEAD', 'PRODUCT_OWNER', 'SYSTEM_ADMIN'];
   } else if (entityType === 'CHECKLIST') {
     preferred = ['SECURITY_REVIEWER', 'QA_LEAD', 'QA_SPECIALIST', 'DEVELOPER', 'SYSTEM_ADMIN'];
-  } else if (entityType === 'PLAYWRIGHT_RUN') {
-    preferred = ['QA_SPECIALIST', 'QA_LEAD', 'SYSTEM_ADMIN'];
   }
 
   return preferred.find(role => roles.includes(role)) || roles[0];
@@ -3228,943 +3183,6 @@ const localChecklistApi = {
 };
 
 // ============================================
-// Playwright API
-// ============================================
-
-function clampPlaywrightRetries(value?: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
-  return Math.min(3, Math.max(0, Math.trunc(value)));
-}
-
-function buildPlaywrightRunOptions(run: PlaywrightRun): string[] {
-  const projects: NonNullable<PlaywrightRun['projects']> = run.projects?.length
-    ? run.projects
-    : ['chromium'];
-  const options = projects.map(project => `--project=${project}`);
-  const workers = run.workers || 'auto';
-  const maxFailures = run.maxFailures || 'unlimited';
-  const trace = run.trace || 'off';
-  const reporter = run.reporter || 'html';
-
-  if (run.headed) {
-    options.push('--headed');
-  }
-
-  if (workers !== 'auto') {
-    options.push(`--workers=${workers}`);
-  }
-
-  options.push(`--retries=${clampPlaywrightRetries(run.retries)}`);
-
-  if (maxFailures !== 'unlimited') {
-    options.push(`--max-failures=${maxFailures}`);
-  }
-
-  if (trace !== 'off') {
-    options.push(`--trace=${trace}`);
-  }
-
-  options.push(`--reporter=${reporter}`);
-  return options;
-}
-
-function buildPlaywrightCommand(run: PlaywrightRun): string {
-  const baseCommand = systemIntegrationSettings.playwright.commandTemplate
-    .replace('{testFilePath}', run.testFilePath)
-    .replace('{environment}', run.environment)
-    .trim();
-  return [baseCommand, ...buildPlaywrightRunOptions(run)].filter(Boolean).join(' ');
-}
-
-type PlaywrightReportArtifactSpec = {
-  fileName: string;
-  mimeType: string;
-  label: string;
-};
-
-const PLAYWRIGHT_REPORT_ARTIFACTS: Record<NonNullable<PlaywrightRun['reporter']>, PlaywrightReportArtifactSpec> = {
-  html: {
-    fileName: 'playwright-report.html',
-    mimeType: 'text/html',
-    label: 'HTML',
-  },
-  json: {
-    fileName: 'playwright-report.json',
-    mimeType: 'application/json',
-    label: 'JSON',
-  },
-  junit: {
-    fileName: 'playwright-report.xml',
-    mimeType: 'application/xml',
-    label: 'JUnit XML',
-  },
-};
-
-function getPlaywrightReportArtifactSpec(run: PlaywrightRun): PlaywrightReportArtifactSpec {
-  return PLAYWRIGHT_REPORT_ARTIFACTS[run.reporter || 'html'];
-}
-
-function createPlaywrightArtifact(
-  run: PlaywrightRun,
-  fileName: string,
-  type: Attachment['type'],
-  mimeType?: string
-): Attachment {
-  const now = new Date().toISOString();
-  const artifact: Attachment = {
-    id: uuidv4(),
-    entityType: 'PLAYWRIGHT_RUN',
-    entityId: run.id,
-    type,
-    fileName,
-    fileSize: Math.floor(Math.random() * 700000) + 100000,
-    mimeType: mimeType || (type === 'TRACE' ? 'application/zip' : type === 'REPORT' ? 'text/html' : 'text/plain'),
-    storagePath: `${systemIntegrationSettings.playwright.artifactRoot}/${run.id}/${fileName}`,
-    status: 'VALID',
-    uploadedById: run.triggeredById,
-    uploadedBy: getUserById(run.triggeredById),
-    createdAt: now,
-    updatedAt: now,
-  };
-  attachments.unshift(artifact);
-  return artifact;
-}
-
-function escapeReportText(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function getPlaywrightRunScript(run: PlaywrightRun): string {
-  const managedFile = playwrightTestFiles.find(file => file.fullPath === run.testFilePath);
-  if (managedFile) return managedFile.script;
-  const fileName = run.testFilePath.split(/[\\/]/).pop() || 'scenario.spec.ts';
-  return defaultPlaywrightScript(fileName);
-}
-
-function createPlaywrightFailures(run: PlaywrightRun): PlaywrightReportFailure[] {
-  const failureCount = Math.max(1, run.failedTests || 1);
-  const projects: NonNullable<PlaywrightRun['projects']> = run.projects?.length
-    ? run.projects
-    : ['chromium'];
-  const lines = getPlaywrightRunScript(run).split(/\r?\n/);
-  const expectLineIndex = lines.findIndex(line => line.includes('expect('));
-  const fallbackLineIndex = lines.findIndex(line => line.trim().startsWith('await '));
-  const baseLineIndex = expectLineIndex >= 0 ? expectLineIndex : Math.max(0, fallbackLineIndex);
-  const fileName = run.testFilePath.split(/[\\/]/).pop()?.replace(/\.spec\.ts$/, '') || 'playwright scenario';
-
-  return Array.from({ length: failureCount }, (_, index) => {
-    const lineIndex = Math.min(lines.length - 1, Math.max(0, baseLineIndex + (index % 2)));
-    const line = lineIndex + 1;
-    const lineText = lines[lineIndex] || '';
-    const column = Math.max(1, lineText.search(/\S/) + 1);
-    const snippetStart = Math.max(0, lineIndex - 2);
-    const snippetEnd = Math.min(lines.length, lineIndex + 3);
-    return {
-      title: `${fileName} › scenario ${index + 1}`,
-      project: projects[index % projects.length] ?? 'chromium',
-      filePath: run.testFilePath,
-      line,
-      column,
-      message: `Error: expect(locator).toBeVisible() failed\nLocator resolved to hidden element in ${run.testFilePath}:${line}:${column}`,
-      expected: 'visible',
-      received: 'hidden',
-      durationMs: 900 + (index + 1) * 170,
-      snippet: lines.slice(snippetStart, snippetEnd).map((text, offset) => {
-        const lineNumber = snippetStart + offset + 1;
-        return {
-          lineNumber,
-          text,
-          highlighted: lineNumber === line,
-        };
-      }),
-    };
-  });
-}
-
-function createPlaywrightTestItems(
-  run: PlaywrightRun,
-  status: PlaywrightReportTestItem['status'],
-  count: number,
-  offset: number
-): PlaywrightReportTestItem[] {
-  const projects: NonNullable<PlaywrightRun['projects']> = run.projects?.length
-    ? run.projects
-    : ['chromium'];
-  const fileName = run.testFilePath.split(/[\\/]/).pop()?.replace(/\.spec\.ts$/, '') || 'playwright scenario';
-  const statusLabel = status === 'passed' ? 'passed' : status === 'skipped' ? 'skipped' : 'cancelled';
-
-  return Array.from({ length: Math.max(0, count) }, (_, index) => ({
-    title: `${fileName} › ${statusLabel} test ${offset + index + 1}`,
-    project: projects[(offset + index) % projects.length] ?? 'chromium',
-    filePath: run.testFilePath,
-    status,
-    durationMs: status === 'cancelled' ? 0 : status === 'skipped' ? 12 : 520 + ((offset + index) % 5) * 140,
-  }));
-}
-
-function renderReportTestList(title: string, items: PlaywrightReportTestItem[]): string {
-  if (!items.length) return '';
-  return `
-    <section class="test-list">
-      <h2>${escapeReportText(title)}</h2>
-      <ul>
-        ${items.map(item => `<li><strong>${escapeReportText(item.title)}</strong><span>${escapeReportText(item.project)} · ${escapeReportText(item.status)} · ${item.durationMs}ms</span></li>`).join('')}
-      </ul>
-    </section>
-  `;
-}
-
-function renderPlaywrightHtmlReport(
-  run: PlaywrightRun,
-  failures: PlaywrightReportFailure[],
-  passed: PlaywrightReportTestItem[],
-  skipped: PlaywrightReportTestItem[],
-  cancelled: PlaywrightReportTestItem[],
-  generatedAt: string
-): string {
-  const status = run.status === 'PASSED' ? 'passed' : run.status === 'CANCELLED' ? 'cancelled' : 'failed';
-  const failureBlocks = failures.length
-    ? failures.map(failure => `
-      <section class="failure">
-        <h2>${escapeReportText(failure.title)}</h2>
-        <p class="location">${escapeReportText(failure.project)} · ${escapeReportText(failure.filePath)}:${failure.line}:${failure.column}</p>
-        <pre class="message">${escapeReportText(failure.message)}</pre>
-        <pre class="snippet">${failure.snippet.map(line =>
-          `<span class="${line.highlighted ? 'highlight' : ''}">${String(line.lineNumber).padStart(4, ' ')} | ${escapeReportText(line.text)}</span>`
-        ).join('\n')}</pre>
-      </section>
-    `).join('')
-    : run.status === 'CANCELLED'
-      ? '<section class="success">Run was cancelled. See cancelled tests below.</section>'
-      : '<section class="success">No failed tests.</section>';
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Playwright Report - ${escapeReportText(run.testFilePath)}</title>
-  <style>
-    body { margin: 0; padding: 24px; font-family: Inter, Segoe UI, Arial, sans-serif; color: #111827; background: #f8fafc; }
-    .shell { max-width: 1100px; margin: 0 auto; }
-    .header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 20px; }
-    h1 { margin: 0 0 8px; font-size: 24px; }
-    .path { font-family: Consolas, monospace; color: #475569; word-break: break-all; }
-    .badge { border-radius: 999px; padding: 6px 12px; font-weight: 700; text-transform: uppercase; background: ${status === 'passed' ? '#dcfce7' : status === 'cancelled' ? '#fef3c7' : '#fee2e2'}; color: ${status === 'passed' ? '#166534' : status === 'cancelled' ? '#92400e' : '#991b1b'}; }
-    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
-    .stat { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; }
-    .stat strong { display: block; font-size: 24px; }
-    .failure, .success { background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
-    .test-list { background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
-    .test-list h2 { margin: 0 0 10px; font-size: 16px; }
-    .test-list ul { margin: 0; padding: 0; list-style: none; }
-    .test-list li { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-top: 1px solid #eef2f7; }
-    .test-list li:first-child { border-top: 0; }
-    .test-list span { color: #64748b; font-family: Consolas, monospace; font-size: 12px; }
-    .failure h2 { margin: 0 0 6px; font-size: 18px; color: #991b1b; }
-    .location { margin: 0 0 12px; color: #475569; font-family: Consolas, monospace; }
-    pre { overflow: auto; border-radius: 10px; padding: 12px; }
-    .message { background: #111827; color: #fecaca; white-space: pre-wrap; }
-    .snippet { background: #0f172a; color: #d1d5db; }
-    .snippet span { display: block; }
-    .snippet .highlight { background: rgba(239, 68, 68, .25); color: #fff; }
-  </style>
-</head>
-<body>
-  <main class="shell">
-    <div class="header">
-      <div>
-        <h1>Playwright Test Report</h1>
-        <div class="path">${escapeReportText(run.testFilePath)}</div>
-        <div>Generated at ${escapeReportText(new Date(generatedAt).toLocaleString('fa-IR'))}</div>
-      </div>
-      <span class="badge">${status}</span>
-    </div>
-    <div class="stats">
-      <div class="stat"><span>Total</span><strong>${run.totalTests || 0}</strong></div>
-      <div class="stat"><span>Passed</span><strong>${run.passedTests || 0}</strong></div>
-      <div class="stat"><span>Failed</span><strong>${run.failedTests || 0}</strong></div>
-      <div class="stat"><span>Skipped</span><strong>${run.skippedTests || 0}</strong></div>
-    </div>
-    ${failureBlocks}
-    ${renderReportTestList('Passed tests', passed)}
-    ${renderReportTestList('Skipped tests', skipped)}
-    ${renderReportTestList('Cancelled tests', cancelled)}
-  </main>
-</body>
-</html>`;
-}
-
-function renderPlaywrightJsonReport(
-  run: PlaywrightRun,
-  failures: PlaywrightReportFailure[],
-  passed: PlaywrightReportTestItem[],
-  skipped: PlaywrightReportTestItem[],
-  cancelled: PlaywrightReportTestItem[],
-  generatedAt: string
-): string {
-  return JSON.stringify({
-    config: {
-      reporter: run.reporter || 'html',
-      projects: run.projects?.length ? run.projects : ['chromium'],
-      command: run.command,
-    },
-    stats: {
-      startTime: run.startedAt,
-      generatedAt,
-      duration: run.duration || 0,
-      expected: run.passedTests || 0,
-      unexpected: run.failedTests || 0,
-      skipped: run.skippedTests || 0,
-      cancelled: run.cancelledTests || 0,
-      total: run.totalTests || 0,
-    },
-    tests: {
-      passed,
-      failed: failures,
-      skipped,
-      cancelled,
-    },
-    suites: [
-      {
-        title: run.testFilePath,
-        specs: failures.length
-          ? failures.map(failure => ({
-              title: failure.title,
-              file: failure.filePath,
-              line: failure.line,
-              column: failure.column,
-              tests: [
-                {
-                  projectName: failure.project,
-                  status: 'failed',
-                  duration: failure.durationMs,
-                  errors: [
-                    {
-                      message: failure.message,
-                      location: {
-                        file: failure.filePath,
-                        line: failure.line,
-                        column: failure.column,
-                      },
-                      snippet: failure.snippet,
-                    },
-                  ],
-                },
-              ],
-            }))
-          : [
-              {
-                title: `${run.testFilePath} › all tests`,
-                file: run.testFilePath,
-                tests: [
-                  {
-                    projectName: run.projects?.[0] || 'chromium',
-                    status: 'passed',
-                    duration: run.duration ? run.duration * 1000 : 0,
-                    errors: [],
-                  },
-                ],
-              },
-            ],
-      },
-    ],
-  }, null, 2);
-}
-
-function renderPlaywrightJunitReport(
-  run: PlaywrightRun,
-  failures: PlaywrightReportFailure[],
-  passed: PlaywrightReportTestItem[],
-  skipped: PlaywrightReportTestItem[],
-  cancelled: PlaywrightReportTestItem[]
-): string {
-  const durationSeconds = run.duration || 0;
-  const failureCases = failures.map(failure => {
-        const snippet = failure.snippet
-          .map(line => `${String(line.lineNumber).padStart(4, ' ')} | ${line.text}`)
-          .join('\n');
-        const firstFailureLine = failure.message.split('\n')[0] ?? failure.message;
-        return `    <testcase classname="${escapeReportText(failure.project)}.${escapeReportText(run.testFilePath)}" name="${escapeReportText(failure.title)}" time="${(failure.durationMs / 1000).toFixed(3)}">
-      <failure message="${escapeReportText(firstFailureLine)}" type="AssertionError">${escapeReportText(`${failure.filePath}:${failure.line}:${failure.column}\n${failure.message}\n\n${snippet}`)}</failure>
-    </testcase>`;
-      }).join('\n');
-  const passedCases = passed.map(item =>
-    `    <testcase classname="${escapeReportText(item.project)}.${escapeReportText(item.filePath)}" name="${escapeReportText(item.title)}" time="${(item.durationMs / 1000).toFixed(3)}" />`
-  ).join('\n');
-  const skippedCases = skipped.map(item =>
-    `    <testcase classname="${escapeReportText(item.project)}.${escapeReportText(item.filePath)}" name="${escapeReportText(item.title)}" time="${(item.durationMs / 1000).toFixed(3)}"><skipped /></testcase>`
-  ).join('\n');
-  const cancelledCases = cancelled.map(item =>
-    `    <testcase classname="${escapeReportText(item.project)}.${escapeReportText(item.filePath)}" name="${escapeReportText(item.title)}" time="0"><skipped message="cancelled by runner" /></testcase>`
-  ).join('\n');
-  const testCases = [failureCases, passedCases, skippedCases, cancelledCases].filter(Boolean).join('\n');
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<testsuites id="" name="" tests="${run.totalTests || 0}" failures="${run.failedTests || 0}" skipped="${(run.skippedTests || 0) + (run.cancelledTests || 0)}" errors="0" time="${durationSeconds.toFixed(3)}">
-  <testsuite name="${escapeReportText(run.testFilePath)}" timestamp="${escapeReportText(run.startedAt || '')}" tests="${run.totalTests || 0}" failures="${run.failedTests || 0}" skipped="${(run.skippedTests || 0) + (run.cancelledTests || 0)}" time="${durationSeconds.toFixed(3)}">
-${testCases}
-  </testsuite>
-</testsuites>`;
-}
-
-function createPlaywrightReport(
-  run: PlaywrightRun,
-  reportSpec: PlaywrightReportArtifactSpec,
-  reportArtifact: Attachment,
-  generatedAt: string
-): PlaywrightReport {
-  const failures = run.failedTests ? createPlaywrightFailures(run) : [];
-  const passed = createPlaywrightTestItems(run, 'passed', run.passedTests || 0, 0);
-  const skipped = createPlaywrightTestItems(run, 'skipped', run.skippedTests || 0, passed.length);
-  const cancelled = createPlaywrightTestItems(run, 'cancelled', run.cancelledTests || 0, passed.length + skipped.length);
-  const reporter = run.reporter || 'html';
-  const content = reporter === 'json'
-    ? renderPlaywrightJsonReport(run, failures, passed, skipped, cancelled, generatedAt)
-    : reporter === 'junit'
-      ? renderPlaywrightJunitReport(run, failures, passed, skipped, cancelled)
-      : renderPlaywrightHtmlReport(run, failures, passed, skipped, cancelled, generatedAt);
-
-  return {
-    reporter,
-    fileName: reportSpec.fileName,
-    mimeType: reportSpec.mimeType,
-    storagePath: reportArtifact.storagePath,
-    generatedAt,
-    status: run.status,
-    totalTests: run.totalTests || 0,
-    passedTests: run.passedTests || 0,
-    failedTests: run.failedTests || 0,
-    skippedTests: run.skippedTests || 0,
-    cancelledTests: run.cancelledTests || 0,
-    durationMs: (run.duration || 0) * 1000,
-    failures,
-    passed,
-    skipped,
-    cancelled,
-    content,
-  };
-}
-
-function dispatchPlaywrightRun(id: string): void {
-  const run = playwrightRuns.find(pr => pr.id === id);
-  if (!run || run.status !== 'PENDING') return;
-
-  run.status = 'RUNNING';
-  run.queueStatus = 'DISPATCHED';
-  run.runnerId = systemIntegrationSettings.playwright.runnerId || `runner-${run.applicationId}`;
-  run.dispatchedAt = new Date().toISOString();
-  run.startedAt = run.dispatchedAt;
-  run.lastHeartbeatAt = run.dispatchedAt;
-  run.updatedAt = run.dispatchedAt;
-
-  const durationMs = Math.min((run.timeoutSeconds || 120) * 100, 5000);
-  const timer = setTimeout(() => completePlaywrightRun(id), durationMs);
-  playwrightTimers.set(id, timer);
-}
-
-function completePlaywrightRun(id: string): void {
-  const run = playwrightRuns.find(pr => pr.id === id);
-  if (!run || run.status !== 'RUNNING') return;
-
-  const deterministicSeed = run.testFilePath.length + run.environment.length;
-  const success = deterministicSeed % 4 !== 0;
-  const now = new Date().toISOString();
-  const reportSpec = getPlaywrightReportArtifactSpec(run);
-  const logFile = createPlaywrightArtifact(run, 'runner.log', 'LOG');
-  const reportFile = createPlaywrightArtifact(run, reportSpec.fileName, 'REPORT', reportSpec.mimeType);
-  const traceFile = createPlaywrightArtifact(run, 'trace.zip', 'TRACE');
-
-  run.status = success ? 'PASSED' : 'FAILED';
-  run.queueStatus = 'DONE';
-  run.completedAt = now;
-  run.duration = run.startedAt ? Math.max(1, Math.round((Date.parse(now) - Date.parse(run.startedAt)) / 1000)) : 0;
-  run.totalTests = 10;
-  run.failedTests = success ? 0 : 3;
-  run.skippedTests = 1;
-  run.cancelledTests = !success && run.maxFailures !== 'unlimited' ? 1 : 0;
-  run.passedTests = Math.max(0, run.totalTests - run.failedTests - run.skippedTests - run.cancelledTests);
-  run.artifactIds = [logFile.id, reportFile.id, traceFile.id];
-  run.artifactPaths = [logFile.storagePath, reportFile.storagePath, traceFile.storagePath];
-  run.report = createPlaywrightReport(run, reportSpec, reportFile, now);
-  run.logs = success
-    ? `Runner ${run.runnerId} completed ${run.command}\nAll tests passed. ${reportSpec.label} report generated: ${reportFile.storagePath}`
-    : `Runner ${run.runnerId} completed ${run.command}\nError: Some tests failed. ${reportSpec.label} report generated: ${reportFile.storagePath}\nTrace artifact is available: ${traceFile.storagePath}`;
-  run.updatedAt = now;
-  playwrightTimers.delete(id);
-}
-
-function normalizeCdeRoot(value?: string): string {
-  return (value || '').trim().replace(/[\\/]+$/, '');
-}
-
-const PLAYWRIGHT_TEST_FILE_NAME_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:\.spec\.(?:ts|js)|\.test\.(?:ts|js)|\.js)$/;
-
-const CDE_ROOT_FOLDERS: Record<PlaywrightCdeRootKind, string[]> = {
-  FRONT: ['tests/e2e', 'tests/e2e/auth', 'tests/e2e/smoke', 'tests/e2e/regression'],
-  DATASERVICE: ['tests/api', 'tests/api/contracts', 'tests/api/data-service', 'tests/api/regression'],
-  GATEWAY: ['tests/api', 'tests/api/gateway', 'tests/api/gateway/auth', 'tests/api/gateway/routing'],
-  MESSAGE_CONSUMER: [],
-  TESTS: [],
-};
-
-const CDE_TEST_FILE_TEMPLATES: Record<PlaywrightCdeRootKind, Array<{ folder: string; fileName: string }>> = {
-  FRONT: [
-    { folder: 'tests/e2e', fileName: 'app-shell.spec.ts' },
-    { folder: 'tests/e2e', fileName: 'auth-flow.spec.ts' },
-    { folder: 'tests/e2e/smoke', fileName: 'smoke-navigation.spec.ts' },
-  ],
-  DATASERVICE: [
-    { folder: 'tests/api', fileName: 'data-contract.spec.ts' },
-    { folder: 'tests/api', fileName: 'business-rules.spec.ts' },
-    { folder: 'tests/api/contracts', fileName: 'schema-validation.spec.ts' },
-  ],
-  GATEWAY: [
-    { folder: 'tests/api/gateway', fileName: 'routing.spec.ts' },
-    { folder: 'tests/api/gateway', fileName: 'auth.spec.ts' },
-  ],
-  MESSAGE_CONSUMER: [],
-  TESTS: [],
-};
-
-function cdeRootsForApplication(app: Application): Array<{ kind: PlaywrightCdeRootKind; root: string }> {
-  const roots: Array<{ kind: PlaywrightCdeRootKind; root: string }> = [
-    { kind: 'FRONT', root: normalizeCdeRoot(app.cdeFrontUrl) },
-    { kind: 'DATASERVICE', root: normalizeCdeRoot(app.cdeDataServiceUrl) },
-    { kind: 'GATEWAY', root: normalizeCdeRoot(app.cdeGatewayUrl) },
-  ];
-  return roots.filter(item => !!item.root);
-}
-
-function cdeTestFoldersForApplication(app: Application): PlaywrightTestFolder[] {
-  return cdeRootsForApplication(app).flatMap(({ kind, root }) =>
-    CDE_ROOT_FOLDERS[kind].map(relativePath => ({
-      id: `${app.id}:${kind}:${relativePath}`,
-      applicationId: app.id,
-      rootKind: kind,
-      rootUrl: root,
-      relativePath,
-      fullPath: `${root}/${relativePath}`,
-    }))
-  );
-}
-
-function defaultPlaywrightScript(fileName: string): string {
-  const title = fileName.replace(/(?:\.spec|\.test)?\.(?:ts|js)$/, '').replace(/-/g, ' ');
-  return `const { test, expect } = require('@playwright/test');\n\n` +
-    `test('${title}', async ({ page }) => {\n` +
-    `  await page.goto('/');\n` +
-    `  await expect(page).toHaveTitle(/./);\n` +
-    `});\n`;
-}
-
-function cdeDiscoveredTestFilesForApplication(app: Application): PlaywrightTestFile[] {
-  const folders = cdeTestFoldersForApplication(app);
-  return cdeRootsForApplication(app).flatMap(({ kind, root }) =>
-    CDE_TEST_FILE_TEMPLATES[kind].flatMap(template => {
-      const folder = folders.find(item => item.rootKind === kind && item.relativePath === template.folder);
-      if (!folder) return [];
-      const fullPath = `${root}/${template.folder}/${template.fileName}`;
-      if (hiddenDiscoveredPlaywrightPaths.has(fullPath)) return [];
-      return [{
-        id: `discovered:${app.id}:${kind}:${template.folder}/${template.fileName}`,
-        applicationId: app.id,
-        rootKind: kind,
-        rootUrl: root,
-        source: 'DISCOVERED' as const,
-        folderPath: folder.fullPath,
-        relativeFolderPath: folder.relativePath,
-        fileName: template.fileName,
-        fullPath,
-        script: defaultPlaywrightScript(template.fileName),
-        description: 'فایل تست کشف‌شده از ریشه CDE سامانه.',
-        createdById: 'user-admin',
-        createdBy: getUserById('user-admin'),
-        createdAt: app.createdAt,
-        updatedAt: app.updatedAt,
-      }];
-    })
-  );
-}
-
-function cdeTestFilesForApplication(app: Application): string[] {
-  return cdeDiscoveredTestFilesForApplication(app).map(file => file.fullPath);
-}
-
-function getAllPlaywrightTestFiles(applicationId: ApplicationScopeFilter): PlaywrightTestFile[] {
-  const discovered = mutableApplications
-    .filter(app => app.isActive && matchesApplicationScope(app.id, applicationId))
-    .flatMap(cdeDiscoveredTestFilesForApplication);
-  const managed = filterByApplicationScope(playwrightTestFiles, applicationId);
-  const managedPaths = new Set(managed.map(file => file.fullPath));
-  return [
-    ...managed.map(file => ({ ...file, createdBy: getUserById(file.createdById) })),
-    ...discovered.filter(file => !managedPaths.has(file.fullPath)),
-  ];
-}
-
-function assertPlaywrightFilePayload(data: {
-  applicationId: string;
-  folderPath: string;
-  fileName: string;
-  script: string;
-  description?: string;
-}): {
-  application: Application;
-  folder: PlaywrightTestFolder;
-  fileName: string;
-  script: string;
-  fullPath: string;
-} {
-  const application = mutableApplications.find(app => app.id === data.applicationId && app.isActive);
-  if (!application) {
-    throw new Error('APPLICATION_NOT_FOUND');
-  }
-
-  const folder = cdeTestFoldersForApplication(application).find(item => item.fullPath === data.folderPath);
-  if (!folder) {
-    throw new Error('PLAYWRIGHT_FOLDER_NOT_FOUND');
-  }
-
-  const fileName = data.fileName.trim();
-  if (!PLAYWRIGHT_TEST_FILE_NAME_REGEX.test(fileName)) {
-    throw new Error('INVALID_PLAYWRIGHT_TEST_FILE_NAME');
-  }
-
-  const script = data.script.trim();
-  if (!script) {
-    throw new Error('PLAYWRIGHT_SCRIPT_REQUIRED');
-  }
-
-  assertDescriptionLength(data.description, 'PLAYWRIGHT_FILE_DESCRIPTION_TOO_LONG');
-  return {
-    application,
-    folder,
-    fileName,
-    script,
-    fullPath: `${folder.fullPath}/${fileName}`,
-  };
-}
-
-const localPlaywrightApi = {
-  async getAll(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<PlaywrightRun>> {
-    await delay();
-    let data = filterByApplicationScope(playwrightRuns, applicationId);
-    data = applyFilters(data, filters);
-    data = data.map(pr => ({
-      ...pr,
-      triggeredBy: getUserById(pr.triggeredById),
-    }));
-    return paginate(data, filters.page, filters.limit);
-  },
-
-  async getById(id: string): Promise<PlaywrightRun | null> {
-    await delay();
-    const run = playwrightRuns.find(pr => pr.id === id);
-    if (run) {
-      run.triggeredBy = getUserById(run.triggeredById);
-    }
-    return run || null;
-  },
-
-  async getTestFiles(applicationId: ApplicationScopeFilter, filters: CartableFilterParams): Promise<PaginatedResponse<PlaywrightTestFile>> {
-    await delay();
-    let data = getAllPlaywrightTestFiles(applicationId);
-    data = applyFilters(data, filters);
-    return paginate(data, filters.page, filters.limit);
-  },
-
-  async discoverFolders(applicationId: ApplicationScopeFilter): Promise<PlaywrightTestFolder[]> {
-    await delay();
-    return mutableApplications
-      .filter(app => app.isActive && matchesApplicationScope(app.id, applicationId))
-      .flatMap(cdeTestFoldersForApplication)
-      .sort((a, b) => a.fullPath.localeCompare(b.fullPath));
-  },
-
-  async createTestFile(
-    data: {
-      applicationId: string;
-      folderPath: string;
-      fileName: string;
-      script: string;
-      description?: string;
-    },
-    userId: string
-  ): Promise<PlaywrightTestFile> {
-    await delay();
-    const { application, folder, fileName, script, fullPath } = assertPlaywrightFilePayload(data);
-    assertActorApplicationScope(userId, application.id);
-    if (getAllPlaywrightTestFiles(application.id).some(file => file.fullPath === fullPath)) {
-      throw new Error('PLAYWRIGHT_TEST_FILE_ALREADY_EXISTS');
-    }
-
-    const now = new Date().toISOString();
-    const file: PlaywrightTestFile = {
-      id: uuidv4(),
-      applicationId: application.id,
-      rootKind: folder.rootKind,
-      rootUrl: folder.rootUrl,
-      source: 'MANAGED',
-      folderPath: folder.fullPath,
-      relativeFolderPath: folder.relativePath,
-      fileName,
-      fullPath,
-      script,
-      description: data.description?.trim() || undefined,
-      createdById: userId,
-      createdBy: getUserById(userId),
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    playwrightTestFiles.unshift(file);
-    createAuditLog(userId, application.id, 'PLAYWRIGHT_TEST_FILE', file.id, 'CREATE', null, {
-      fullPath: file.fullPath,
-      rootKind: file.rootKind,
-      description: file.description,
-    });
-    return file;
-  },
-
-  async updateTestFile(
-    id: string,
-    data: {
-      applicationId: string;
-      folderPath: string;
-      fileName: string;
-      script: string;
-      description?: string;
-    },
-    userId: string
-  ): Promise<PlaywrightTestFile | null> {
-    await delay();
-    const existing = getAllPlaywrightTestFiles(undefined).find(file => file.id === id);
-    if (!existing) return null;
-    const { application, folder, fileName, script, fullPath } = assertPlaywrightFilePayload(data);
-    assertActorApplicationScope(userId, existing.applicationId);
-    assertActorApplicationScope(userId, application.id);
-    const duplicate = getAllPlaywrightTestFiles(undefined).some(file => file.id !== id && file.fullPath === fullPath);
-    if (duplicate) {
-      throw new Error('PLAYWRIGHT_TEST_FILE_ALREADY_EXISTS');
-    }
-
-    const previous = { ...existing };
-    const updated: PlaywrightTestFile = {
-      ...existing,
-      applicationId: application.id,
-      rootKind: folder.rootKind,
-      rootUrl: folder.rootUrl,
-      source: 'MANAGED',
-      folderPath: folder.fullPath,
-      relativeFolderPath: folder.relativePath,
-      fileName,
-      fullPath,
-      script,
-      description: data.description?.trim() || undefined,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const managedIndex = playwrightTestFiles.findIndex(file => file.id === id);
-    if (managedIndex >= 0) {
-      playwrightTestFiles[managedIndex] = updated;
-    } else {
-      playwrightTestFiles.unshift(updated);
-    }
-    if (id.startsWith('discovered:') && previous.fullPath !== updated.fullPath) {
-      hiddenDiscoveredPlaywrightPaths.add(previous.fullPath);
-    }
-
-    createAuditLog(userId, application.id, 'PLAYWRIGHT_TEST_FILE', updated.id, 'UPDATE', previous, updated);
-    return { ...updated, createdBy: getUserById(updated.createdById) };
-  },
-
-  async start(
-    data: Partial<PlaywrightRun>,
-    userId: string,
-    applicationId: string,
-    metadata?: CommandMetadata
-  ): Promise<PlaywrightRun> {
-    await delay();
-    const command = resolveCommandMetadata('playwright.start', metadata);
-    const replayed = getIdempotentResult<PlaywrightRun>(command);
-    if (replayed) {
-      createCommandTrace(command, 'REPLAYED', userId, replayed.applicationId, 'PLAYWRIGHT_RUN', replayed.id);
-      return replayed;
-    }
-
-    if (!systemIntegrationSettings.playwright.enabled) {
-      throw new Error('PLAYWRIGHT_DISABLED');
-    }
-
-    if (!data.testFilePath?.trim()) {
-      throw new Error('PLAYWRIGHT_FILE_REQUIRED');
-    }
-    assertRequestedApplicationMatches(data.applicationId, applicationId, 'PLAYWRIGHT_APPLICATION_MISMATCH');
-    assertActorApplicationScope(userId, applicationId);
-
-    const testFilePath = data.testFilePath.trim();
-    const registeredFiles = getAllPlaywrightTestFiles(undefined).filter(file => file.fullPath === testFilePath);
-    if (!data.manualPath && registeredFiles.length === 0) {
-      throw new Error('PLAYWRIGHT_FILE_NOT_FOUND');
-    }
-    if (registeredFiles.length > 0 && !registeredFiles.some(file => file.applicationId === applicationId)) {
-      throw new Error('PLAYWRIGHT_FILE_APPLICATION_MISMATCH');
-    }
-
-    const linkedTestRequest = data.testRequestId
-      ? testRequests.find(testRequest => testRequest.id === data.testRequestId)
-      : undefined;
-    if (data.testRequestId && !linkedTestRequest) {
-      throw new Error('TEST_REQUEST_NOT_FOUND');
-    }
-    if (linkedTestRequest && linkedTestRequest.applicationId !== applicationId) {
-      throw new Error('PLAYWRIGHT_APPLICATION_MISMATCH');
-    }
-
-    const testCaseIds = Array.from(new Set(data.testCaseIds || []));
-    testCaseIds.forEach(testCaseId => {
-      const testCase = testCases.find(item => item.id === testCaseId);
-      if (!testCase) {
-        throw new Error('TEST_CASE_NOT_FOUND');
-      }
-      if (testCase.applicationId !== applicationId) {
-        throw new Error('PLAYWRIGHT_APPLICATION_MISMATCH');
-      }
-    });
-    const now = new Date().toISOString();
-    const run: PlaywrightRun = {
-      id: uuidv4(),
-      applicationId,
-      testRequestId: data.testRequestId,
-      testCaseIds,
-      testFilePath,
-      environment: data.environment || 'staging',
-      projects: data.projects?.length ? data.projects : ['chromium'],
-      headed: data.headed ?? false,
-      workers: data.workers || 'auto',
-      retries: clampPlaywrightRetries(data.retries),
-      maxFailures: data.maxFailures || 'unlimited',
-      trace: data.trace || 'retain-on-failure',
-      reporter: data.reporter || 'html',
-      status: 'PENDING',
-      queueStatus: 'QUEUED',
-      workingDirectory: data.workingDirectory || systemIntegrationSettings.playwright.defaultWorkingDirectory,
-      timeoutSeconds: data.timeoutSeconds || systemIntegrationSettings.playwright.defaultTimeoutSeconds,
-      manualPath: data.manualPath ?? false,
-      idempotencyKey: command.idempotencyKey,
-      correlationId: command.correlationId,
-      triggeredById: userId,
-      triggeredBy: getUserById(userId),
-      requestedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    };
-    run.command = buildPlaywrightCommand(run);
-    playwrightRuns.unshift(run);
-    createAuditLog(
-      userId,
-      applicationId,
-      'PLAYWRIGHT_RUN',
-      run.id,
-      'CREATE',
-      null,
-      run,
-      commandAuditMetadata(command)
-    );
-    createCommandTrace(command, 'COMPLETED', userId, applicationId, 'PLAYWRIGHT_RUN', run.id);
-    rememberIdempotentResult(command, run);
-    const dispatchTimer = setTimeout(() => dispatchPlaywrightRun(run.id), 500);
-    playwrightTimers.set(`${run.id}:dispatch`, dispatchTimer);
-    
-    return run;
-  },
-
-  async cancel(id: string, userId: string, metadata?: CommandMetadata): Promise<PlaywrightRun | null> {
-    await delay();
-    const command = resolveCommandMetadata('playwright.cancel', metadata, `playwright:${id}:cancel`);
-    const replayed = getIdempotentResult<PlaywrightRun | null>(command);
-    if (replayed) {
-      createCommandTrace(command, 'REPLAYED', userId, replayed.applicationId, 'PLAYWRIGHT_RUN', id);
-      return replayed;
-    }
-
-    const run = playwrightRuns.find(pr => pr.id === id);
-    if (!run) return null;
-    if (run.status === 'CANCELLED') return run;
-    if (!['PENDING', 'RUNNING'].includes(run.status)) return null;
-    
-    playwrightTimers.get(id) && clearTimeout(playwrightTimers.get(id)!);
-    playwrightTimers.get(`${id}:dispatch`) && clearTimeout(playwrightTimers.get(`${id}:dispatch`)!);
-    playwrightTimers.delete(id);
-    playwrightTimers.delete(`${id}:dispatch`);
-    const previous = { status: run.status, queueStatus: run.queueStatus };
-    run.status = 'CANCELLED';
-    run.queueStatus = 'DONE';
-    const now = new Date().toISOString();
-    run.completedAt = now;
-    run.duration = run.startedAt ? Math.max(1, Math.round((Date.parse(now) - Date.parse(run.startedAt)) / 1000)) : 0;
-    run.totalTests = 10;
-    run.passedTests = Math.min(2, run.totalTests);
-    run.failedTests = 0;
-    run.skippedTests = 0;
-    run.cancelledTests = Math.max(0, run.totalTests - run.passedTests);
-    const reportSpec = getPlaywrightReportArtifactSpec(run);
-    const logFile = createPlaywrightArtifact(run, 'runner.log', 'LOG');
-    const reportFile = createPlaywrightArtifact(run, reportSpec.fileName, 'REPORT', reportSpec.mimeType);
-    const traceFile = createPlaywrightArtifact(run, 'trace.zip', 'TRACE');
-    run.artifactIds = [logFile.id, reportFile.id, traceFile.id];
-    run.artifactPaths = [logFile.storagePath, reportFile.storagePath, traceFile.storagePath];
-    run.report = createPlaywrightReport(run, reportSpec, reportFile, now);
-    run.logs = `Runner ${run.runnerId || systemIntegrationSettings.playwright.runnerId} cancelled ${run.command}\n${reportSpec.label} report generated for the partial run: ${reportFile.storagePath}`;
-    run.updatedAt = now;
-    createAuditLog(
-      userId,
-      run.applicationId,
-      'PLAYWRIGHT_RUN',
-      id,
-      'CANCEL',
-      previous,
-      { status: 'CANCELLED' },
-      commandAuditMetadata(command)
-    );
-    createCommandTrace(command, 'COMPLETED', userId, run.applicationId, 'PLAYWRIGHT_RUN', id);
-    return rememberIdempotentResult(command, run);
-  },
-
-  async discoverFiles(applicationId: ApplicationScopeFilter): Promise<string[]> {
-    await delay();
-    if (!systemIntegrationSettings.playwright.enabled) {
-      return [];
-    }
-    const managedFiles = filterByApplicationScope(playwrightTestFiles, applicationId).map(file => file.fullPath);
-    if (!systemIntegrationSettings.playwright.autoDiscovery) {
-      return Array.from(new Set(managedFiles)).sort();
-    }
-    const cdeFiles = mutableApplications
-      .filter(app => matchesApplicationScope(app.id, applicationId))
-      .flatMap(cdeTestFilesForApplication);
-    const discoveredAndManaged = Array.from(new Set([...cdeFiles, ...managedFiles])).sort();
-    if (discoveredAndManaged.length > 0) {
-      return discoveredAndManaged;
-    }
-    // Mock file discovery
-    return [
-      'tests/auth/login.spec.ts',
-      'tests/auth/two-factor.spec.ts',
-      'tests/transfer/scheduled-transfer.spec.ts',
-      'tests/transfer/instant-transfer.spec.ts',
-      'tests/reports/financial-report.spec.ts',
-      'tests/reports/statement.spec.ts',
-    ];
-  },
-};
-
-// ============================================
 // VersionHistory helpers
 // ============================================
 
@@ -4248,24 +3266,12 @@ function getSecurityReviewResultForRequestIds(requestIds: string[]): ChecklistRe
   return 'NOT_TESTED';
 }
 
-function getPlaywrightPassRateForRequestIds(requestIds: string[]): { rate?: number; total: number } {
-  const scoped = playwrightRuns.filter(pr =>
-    pr.testRequestId && requestIds.includes(pr.testRequestId) && ['PASSED', 'FAILED'].includes(pr.status)
-  );
-  if (!scoped.length) return { total: 0 };
-  return {
-    total: scoped.length,
-    rate: Math.round((scoped.filter(pr => pr.status === 'PASSED').length / scoped.length) * 100),
-  };
-}
-
 function buildVersionSnapshot(rp: ReleasePublish): VersionSnapshot {
   const requestIds = syncVersionHistoryRequestIds(rp);
   const runs = getRunsForRequestIds(requestIds);
   const bgs = getBugsForRequestIds(requestIds);
   const issues = getRunIssuesForRequestIds(requestIds);
   const tasks = retestTasks.filter(task => requestIds.includes(task.testRequestId));
-  const playwright = getPlaywrightPassRateForRequestIds(requestIds);
 
   return {
     totalTestCases: getTestCasesForRequestIds(requestIds).length,
@@ -4286,8 +3292,6 @@ function buildVersionSnapshot(rp: ReleasePublish): VersionSnapshot {
     securityChecklistResult: getSecurityReviewResultForRequestIds(requestIds),
     performanceChecklistResult: getChecklistResultForRequestIds(requestIds, 'PERFORMANCE'),
     penetrationChecklistResult: getChecklistResultForRequestIds(requestIds, 'PENETRATION'),
-    playwrightPassRate: playwright.rate,
-    playwrightTotalRuns: playwright.total,
     capturedAt: new Date().toISOString(),
   };
 }
@@ -5387,7 +4391,6 @@ function buildTestRequestHistory(testRequestId: string): TestRequestHistoryEvent
   const linkedRetestTasks = retestTasks.filter(task => task.testRequestId === request.id);
   const linkedRunIssues = runIssues.filter(issue => linkedRunIds.has(issue.testRunId));
   const linkedChecklists = checklists.filter(checklist => checklist.testRequestId === request.id);
-  const linkedPlaywrightRuns = playwrightRuns.filter(run => run.testRequestId === request.id);
   const linkedVersionHistories = releasePublishes.filter(versionHistory =>
     getVersionHistoryRequestIds(versionHistory).includes(request.id)
   );
@@ -5414,7 +4417,6 @@ function buildTestRequestHistory(testRequestId: string): TestRequestHistoryEvent
   linkedRunIssues.forEach(issue => addEntity('RUN_ISSUE', issue.id, issue.title));
   linkedChecklists.forEach(checklist => addEntity('CHECKLIST', checklist.id, `چک‌لیست ${checklist.type}`));
   linkedSecurityReviews.forEach(review => addEntity('CHECKLIST', review.id, 'بررسی امنیت درخواست'));
-  linkedPlaywrightRuns.forEach(run => addEntity('PLAYWRIGHT_RUN', run.id, run.testFilePath));
   linkedVersionHistories.forEach(versionHistory => {
     const title = `نسخه ${versionHistory.version}${versionHistory.buildNumber ? ` / بیلد ${versionHistory.buildNumber}` : ''}`;
     addEntity('VERSION_HISTORY', versionHistory.id, title);
@@ -5893,7 +4895,6 @@ const localUserApi = {
       role: UserRole;
       scope: AccessScope;
       applicationIds: string[];
-      automatedTestsEnabled?: boolean | undefined;
     }
   ): Promise<UserRoleAssignment[]> {
     await delay();
@@ -5927,9 +4928,6 @@ const localUserApi = {
     assignment.applicationId = applicationIds[0] || '';
     assignment.applicationIds = applicationIds;
     assignment.scope = data.scope;
-    assignment.automatedTestsEnabled = data.role === 'QA_SPECIALIST'
-      ? data.automatedTestsEnabled !== false
-      : undefined;
     assignment.isActive = true;
 
     // Consolidate duplicate assignments for the same role, while preserving
@@ -6071,40 +5069,8 @@ const localSystemSettingsApi = {
     await delay();
     return {
       ...systemIntegrationSettings,
-      playwright: { ...systemIntegrationSettings.playwright },
       adapters: systemIntegrationSettings.adapters.map(adapter => ({ ...adapter })),
     };
-  },
-
-  async updatePlaywrightRunner(
-    data: Partial<PlaywrightRunnerConfig>,
-    userId: string
-  ): Promise<PlaywrightRunnerConfig> {
-    await delay();
-    const previous = { ...systemIntegrationSettings.playwright };
-    const updatedAt = new Date().toISOString();
-    systemIntegrationSettings = {
-      ...systemIntegrationSettings,
-      playwright: {
-        ...systemIntegrationSettings.playwright,
-        ...data,
-        defaultTimeoutSeconds: Number(data.defaultTimeoutSeconds || systemIntegrationSettings.playwright.defaultTimeoutSeconds),
-        updatedAt,
-      },
-      updatedAt,
-      updatedById: userId,
-    };
-    createAuditLog(
-      userId,
-      undefined,
-      'APPLICATION',
-      'system-integration-settings',
-      'UPDATE',
-      previous,
-      systemIntegrationSettings.playwright,
-      { settingsArea: 'PLAYWRIGHT_RUNNER' }
-    );
-    return { ...systemIntegrationSettings.playwright };
   },
 
   async updateIntegrationAdapter(
@@ -6180,30 +5146,6 @@ const localWorkflowPolicyApi = {
 // Application API (Admin) — Item #2 fix: actual CRUD
 // ============================================
 
-const APPLICATION_CDE_ROOT_PREFIXES: Record<'cdeFrontUrl' | 'cdeDataServiceUrl' | 'cdeGatewayUrl', string> = {
-  cdeFrontUrl: 'https://cde.edus.ir/front/',
-  cdeDataServiceUrl: 'https://cde.edus.ir/dservice/',
-  cdeGatewayUrl: 'https://cde.edus.ir/back/',
-};
-
-function assertApplicationCdeRoots(data: Partial<Application>): void {
-  (Object.keys(APPLICATION_CDE_ROOT_PREFIXES) as Array<keyof typeof APPLICATION_CDE_ROOT_PREFIXES>).forEach(field => {
-    const value = data[field]?.trim();
-    if (!value) return;
-    if (!value.startsWith('https://cde.edus.ir/')) {
-      throw new Error('APPLICATION_CDE_ROOT_INVALID');
-    }
-    if (!value.startsWith(APPLICATION_CDE_ROOT_PREFIXES[field])) {
-      throw new Error('APPLICATION_CDE_ROOT_INVALID');
-    }
-    try {
-      new URL(value);
-    } catch {
-      throw new Error('APPLICATION_CDE_ROOT_INVALID');
-    }
-  });
-}
-
 const localApplicationApi = {
   async getAll(): Promise<Application[]> {
     await delay();
@@ -6218,7 +5160,6 @@ const localApplicationApi = {
 
   async create(data: Partial<Application>): Promise<Application> {
     await delay();
-    assertApplicationCdeRoots(data);
     const id = data.id || uuidv4();
     const workflowPolicyId = setApplicationWorkflowPolicy(id, data.workflowPolicyId || getWorkflowPolicy().id);
     const app: Application = {
@@ -6226,9 +5167,6 @@ const localApplicationApi = {
       name: data.name || '',
       code: data.code || '',
       description: data.description,
-      cdeFrontUrl: data.cdeFrontUrl,
-      cdeDataServiceUrl: data.cdeDataServiceUrl,
-      cdeGatewayUrl: data.cdeGatewayUrl,
       workflowPolicyId,
       isActive: true,
       createdAt: new Date().toISOString(),
@@ -6240,7 +5178,6 @@ const localApplicationApi = {
 
   async update(id: string, data: Partial<Application>): Promise<Application | null> {
     await delay();
-    assertApplicationCdeRoots(data);
     const idx = mutableApplications.findIndex(a => a.id === id);
     if (idx === -1) return null;
     const workflowPolicyId = data.workflowPolicyId
@@ -7175,7 +6112,6 @@ export const bugApi = createDomainRpcProxy('bugApi', localBugApi);
 export const retestTaskApi = createDomainRpcProxy('retestTaskApi', localRetestTaskApi);
 export const runIssueApi = createDomainRpcProxy('runIssueApi', localRunIssueApi);
 export const checklistApi = createDomainRpcProxy('checklistApi', localChecklistApi);
-export const playwrightApi = createDomainRpcProxy('playwrightApi', localPlaywrightApi);
 export const releasePublishApi = createDomainRpcProxy('releasePublishApi', localReleasePublishApi);
 export const versionHistoryApi = releasePublishApi;
 export const commandTraceApi = createDomainRpcProxy('commandTraceApi', localCommandTraceApi);

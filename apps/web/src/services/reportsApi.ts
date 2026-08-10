@@ -6,7 +6,7 @@
 import {
   mockTestRequests, mockRequirements, mockFlows, mockTestCases,
   mockTestRuns, mockBugs, mockRunIssues, mockChecklists,
-  mockPlaywrightRuns, mockReleasePublishes, mockAuditLogs,
+  mockReleasePublishes, mockAuditLogs,
   mockAttachments, mockUsers, mockApplications, mockUserRoleAssignments,
   getUserById, mockComments,
 } from '../services/seedData';
@@ -47,7 +47,6 @@ export async function getSystemOverview(applicationId?: ApplicationScopeFilter) 
   const runs = filterByApplicationScope(mockTestRuns, applicationId);
   const bgs = filterByApplicationScope(mockBugs, applicationId);
   const ris = filterByApplicationScope(mockRunIssues, applicationId);
-  const pws = filterByApplicationScope(mockPlaywrightRuns, applicationId);
   const rps = filterByApplicationScope(mockReleasePublishes, applicationId);
   const atts = mockAttachments;
 
@@ -97,13 +96,6 @@ export async function getSystemOverview(applicationId?: ApplicationScopeFilter) 
       blocked: rps.filter(r => r.status === 'BLOCKED').length,
       emergency: rps.filter(r => r.isEmergency).length,
       pending: rps.filter(r => ['DRAFT', 'QA_REVIEW', 'PENDING_DECISION'].includes(r.status)).length,
-    },
-    playwright: {
-      total: pws.length,
-      passed: pws.filter(p => p.status === 'PASSED').length,
-      failed: pws.filter(p => p.status === 'FAILED').length,
-      error: pws.filter(p => p.status === 'ERROR').length,
-      running: pws.filter(p => p.status === 'RUNNING').length,
     },
     attachments: { total: atts.length, valid: atts.filter(a => a.status === 'VALID').length, deleted: atts.filter(a => a.status === 'DELETED').length },
     auditEvents: mockAuditLogs.length,
@@ -181,7 +173,6 @@ export async function getQualityHealth(applicationId?: ApplicationScopeFilter) {
   const bgs = filterByApplicationScope(mockBugs, applicationId);
   const reqs = filterByApplicationScope(mockRequirements, applicationId);
   const tcs = filterByApplicationScope(mockTestCases, applicationId);
-  const pws = filterByApplicationScope(mockPlaywrightRuns, applicationId);
   const reqsWithTC = reqs.filter(r => tcs.some(tc => tc.requirementId === r.id));
 
   return {
@@ -193,7 +184,6 @@ export async function getQualityHealth(applicationId?: ApplicationScopeFilter) {
     closedBugs: bgs.filter(b => b.status === 'CLOSED').length,
     reopenRate: bgs.filter(b => b.status === 'CLOSED').length > 0 ? Math.round((bgs.filter(b => b.status === 'REOPENED').length / Math.max(1, bgs.filter(b => b.status === 'CLOSED').length)) * 100) : 0,
     requirementCoverage: reqs.length > 0 ? Math.round((reqsWithTC.length / reqs.length) * 100) : 0,
-    playwrightPassRate: pws.length > 0 ? Math.round((pws.filter(p => p.status === 'PASSED').length / pws.length) * 100) : 0,
     totalRuns: runs.length, totalBugs: bgs.length, totalRequirements: reqs.length,
   };
 }
@@ -486,26 +476,6 @@ export async function getAttachmentReport() {
   };
 }
 
-// ========== 10.1 Playwright Report ==========
-export async function getPlaywrightReport(applicationId?: ApplicationScopeFilter) {
-  await delay();
-  const pws = filterByApplicationScope(mockPlaywrightRuns, applicationId);
-  return {
-    total: pws.length,
-    passed: pws.filter(p => p.status === 'PASSED').length,
-    failed: pws.filter(p => p.status === 'FAILED').length,
-    error: pws.filter(p => p.status === 'ERROR').length,
-    running: pws.filter(p => p.status === 'RUNNING').length,
-    passRate: pws.length > 0 ? Math.round((pws.filter(p => p.status === 'PASSED').length / pws.length) * 100) : 0,
-    avgDuration: pws.filter(p => p.duration).length > 0 ? Math.round(pws.filter(p => p.duration).reduce((s, p) => s + (p.duration || 0), 0) / pws.filter(p => p.duration).length) : 0,
-    details: pws.map(p => ({
-      id: p.id, testFile: p.testFilePath, status: p.status, environment: p.environment,
-      duration: p.duration || 0, totalTests: p.totalTests || 0, passedTests: p.passedTests || 0,
-      failedTests: p.failedTests || 0, triggeredBy: p.triggeredBy?.fullName || '-', startedAt: p.startedAt || '-',
-    })),
-  };
-}
-
 // ========== 9.1 Product Quality Overview ==========
 export async function getProductQualityOverview() {
   await delay();
@@ -629,7 +599,6 @@ const localReportsApi = {
   getUsersRolesReport,
   getAuditReport,
   getAttachmentReport,
-  getPlaywrightReport,
   getProductQualityOverview,
   getOpenBugsList,
   getCommentReport,

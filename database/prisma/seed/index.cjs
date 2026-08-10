@@ -82,9 +82,6 @@ async function seedDemoIdentityAndApplications() {
       name: 'سامانه بانکداری آنلاین',
       code: 'ONLINE_BANKING',
       description: 'سیستم بانکداری اینترنتی برای مشتریان',
-      cdeFrontUrl: 'https://cde.edus.ir/front/directory/medu-community%3EApp',
-      cdeDataServiceUrl: 'https://cde.edus.ir/dservice/directory/medu-community%3EApp',
-      cdeGatewayUrl: 'https://cde.edus.ir/back/medu-ai/medu-community%3E?return=/workspace/medu-ai',
       workflowPolicyId: 'standard-tech-lead',
     },
     {
@@ -92,9 +89,6 @@ async function seedDemoIdentityAndApplications() {
       name: 'سامانه مدیریت منابع انسانی',
       code: 'HRM',
       description: 'سیستم مدیریت کارکنان و منابع انسانی',
-      cdeFrontUrl: 'https://cde.edus.ir/front/directory/hrm%3EApp',
-      cdeDataServiceUrl: 'https://cde.edus.ir/dservice/directory/hrm%3EApp',
-      cdeGatewayUrl: 'https://cde.edus.ir/back/hrm/hrm%3E?return=/workspace/hrm',
       workflowPolicyId: 'qa-owned-release',
     },
     {
@@ -102,9 +96,6 @@ async function seedDemoIdentityAndApplications() {
       name: 'پورتال کارمندان',
       code: 'EMPLOYEE_PORTAL',
       description: 'پورتال خدمات کارمندان',
-      cdeFrontUrl: 'https://cde.edus.ir/front/directory/employee-portal%3EApp',
-      cdeDataServiceUrl: 'https://cde.edus.ir/dservice/directory/employee-portal%3EApp',
-      cdeGatewayUrl: 'https://cde.edus.ir/back/employee-portal/employee-portal%3E?return=/workspace/employee-portal',
       workflowPolicyId: 'standard-tech-lead',
     },
   ];
@@ -116,9 +107,6 @@ async function seedDemoIdentityAndApplications() {
         name: application.name,
         code: application.code,
         description: application.description,
-        cdeFrontUrl: application.cdeFrontUrl,
-        cdeDataServiceUrl: application.cdeDataServiceUrl,
-        cdeGatewayUrl: application.cdeGatewayUrl,
         workflowPolicyId: application.workflowPolicyId,
         isActive: true,
       },
@@ -185,27 +173,27 @@ async function seedDemoIdentityAndApplications() {
   }
 
   const assignments = [
-    ['ura-1', 'user-1', 'app-1', ['app-1'], 'DEVELOPER', 'SYSTEMS', false],
-    ['ura-2', 'user-2', 'app-1', ['app-1'], 'QA_LEAD', 'SYSTEMS', false],
-    ['ura-3', 'user-3', 'app-1', ['app-1'], 'QA_SPECIALIST', 'SYSTEMS', true],
-    ['ura-4', 'user-4', 'app-1', ['app-1'], 'BA', 'SYSTEMS', false],
-    ['ura-5', 'user-5', 'app-1', ['app-1', 'app-2', 'app-3'], 'SECURITY_REVIEWER', 'APP', false],
-    ['ura-6', 'user-6', 'app-1', ['app-1'], 'TECH_LEAD', 'SYSTEMS', false],
-    ['ura-7', 'user-7', 'app-1', ['app-1'], 'PRODUCT_OWNER', 'SYSTEMS', false],
-    ['ura-8', 'user-8', 'app-1', ['app-1'], 'DEVELOPER', 'SYSTEMS', false],
-    ['ura-9', 'user-2', 'app-2', ['app-1', 'app-2'], 'QA_LEAD', 'SYSTEMS', false],
-    ['ura-10', 'user-1', 'app-2', ['app-2'], 'DEVELOPER', 'SYSTEMS', false],
-    ['ura-11', 'user-1', 'app-2', ['app-2'], 'BA', 'SYSTEMS', false],
-    ['ura-app-qa', 'user-10', 'app-1', ['app-1', 'app-2', 'app-3'], 'QA_LEAD', 'APP', false],
-    ['ura-app-tl', 'user-11', 'app-1', ['app-1', 'app-2', 'app-3'], 'TECH_LEAD', 'APP', false],
-    ['ura-app-po', 'user-12', 'app-1', ['app-1', 'app-2', 'app-3'], 'PRODUCT_OWNER', 'APP', false],
-    ['ura-app-qs', 'user-13', 'app-1', ['app-1', 'app-2', 'app-3'], 'QA_SPECIALIST', 'APP', true],
-    ['ura-app-ba', 'user-14', 'app-1', ['app-1', 'app-2', 'app-3'], 'BA', 'APP', false],
-    ['ura-app-dev', 'user-15', 'app-1', ['app-1', 'app-2', 'app-3'], 'DEVELOPER', 'APP', false],
-    ['ura-admin', 'user-admin', 'app-1', ['app-1', 'app-2', 'app-3'], 'SYSTEM_ADMIN', 'APP', true],
+    ['ura-1', 'user-1', 'app-1', ['app-1'], 'DEVELOPER', 'SYSTEMS'],
+    ['ura-2', 'user-2', 'app-1', ['app-1'], 'QA_LEAD', 'SYSTEMS'],
+    ['ura-3', 'user-3', 'app-1', ['app-1'], 'QA_SPECIALIST', 'SYSTEMS'],
+    ['ura-4', 'user-4', 'app-1', ['app-1'], 'BA', 'SYSTEMS'],
+    ['ura-5', 'user-5', 'app-1', ['app-1', 'app-2', 'app-3'], 'SECURITY_REVIEWER', 'APP'],
+    ['ura-6', 'user-6', 'app-1', ['app-1'], 'TECH_LEAD', 'SYSTEMS'],
+    ['ura-7', 'user-7', 'app-1', ['app-1'], 'PRODUCT_OWNER', 'SYSTEMS'],
+    ['ura-8', 'user-8', 'app-1', ['app-1'], 'DEVELOPER', 'SYSTEMS'],
+    ['ura-9', 'user-2', 'app-2', ['app-1', 'app-2'], 'QA_LEAD', 'SYSTEMS'],
+    ['ura-10', 'user-1', 'app-2', ['app-2'], 'DEVELOPER', 'SYSTEMS'],
+    ['ura-11', 'user-1', 'app-2', ['app-2'], 'BA', 'SYSTEMS'],
+    ['ura-app-qa', 'user-10', 'app-1', ['app-1', 'app-2', 'app-3'], 'QA_LEAD', 'APP'],
+    ['ura-app-tl', 'user-11', 'app-1', ['app-1', 'app-2', 'app-3'], 'TECH_LEAD', 'APP'],
+    ['ura-app-po', 'user-12', 'app-1', ['app-1', 'app-2', 'app-3'], 'PRODUCT_OWNER', 'APP'],
+    ['ura-app-qs', 'user-13', 'app-1', ['app-1', 'app-2', 'app-3'], 'QA_SPECIALIST', 'APP'],
+    ['ura-app-ba', 'user-14', 'app-1', ['app-1', 'app-2', 'app-3'], 'BA', 'APP'],
+    ['ura-app-dev', 'user-15', 'app-1', ['app-1', 'app-2', 'app-3'], 'DEVELOPER', 'APP'],
+    ['ura-admin', 'user-admin', 'app-1', ['app-1', 'app-2', 'app-3'], 'SYSTEM_ADMIN', 'APP'],
   ];
 
-  for (const [id, userId, applicationId, applicationIds, role, scope, automatedTestsEnabled] of assignments) {
+  for (const [id, userId, applicationId, applicationIds, role, scope] of assignments) {
     await prisma.userRoleAssignment.upsert({
       where: { id },
       update: {
@@ -213,7 +201,6 @@ async function seedDemoIdentityAndApplications() {
         applicationId,
         role,
         scope,
-        automatedTestsEnabled,
         isActive: true,
       },
       create: {
@@ -222,7 +209,6 @@ async function seedDemoIdentityAndApplications() {
         applicationId,
         role,
         scope,
-        automatedTestsEnabled,
         isActive: true,
         createdAt,
         updatedAt: createdAt,
@@ -244,50 +230,6 @@ async function seedDemoIdentityAndApplications() {
 }
 
 async function seedSystemSettings() {
-  await prisma.playwrightRunnerSetting.upsert({
-    where: { id: 'default' },
-    update: {
-      enabled: true,
-      autoDiscovery: true,
-      runnerId: 'runner-default',
-      commandTemplate: 'npx playwright test {testFilePath}',
-      defaultWorkingDirectory: '/repo',
-      defaultTimeoutSeconds: 120,
-      artifactRoot: '/object-storage/playwright',
-      secretReference: 'secret/playwright/default',
-    },
-    create: {
-      id: 'default',
-      enabled: true,
-      autoDiscovery: true,
-      runnerId: 'runner-default',
-      commandTemplate: 'npx playwright test {testFilePath}',
-      defaultWorkingDirectory: '/repo',
-      defaultTimeoutSeconds: 120,
-      artifactRoot: '/object-storage/playwright',
-      secretReference: 'secret/playwright/default',
-    },
-  });
-
-  await prisma.integrationAdapterSetting.upsert({
-    where: { provider: 'CDE' },
-    update: {
-      enabled: false,
-      baseUrl: 'https://cde.example.local/api',
-      credentialReference: 'secret/integrations/cde',
-      syncDirection: 'PULL',
-      lastHealthStatus: 'DISABLED',
-    },
-    create: {
-      provider: 'CDE',
-      enabled: false,
-      baseUrl: 'https://cde.example.local/api',
-      credentialReference: 'secret/integrations/cde',
-      syncDirection: 'PULL',
-      lastHealthStatus: 'DISABLED',
-    },
-  });
-
   await prisma.integrationAdapterSetting.upsert({
     where: { provider: 'FAVA' },
     update: {

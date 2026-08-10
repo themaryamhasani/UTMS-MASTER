@@ -17,17 +17,6 @@ services:
       timeout: 5s
       retries: 20
 
-  redis-performance:
-    image: redis:7-alpine
-    command: redis-server --save "" --appendonly no
-    ports:
-      - "26379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
   performance-downstream:
     build:
       context: ../..
@@ -52,15 +41,12 @@ services:
       API_CONSOLE_CORS_ORIGIN: http://web-performance:5173
       API_CONSOLE_DATA_DIR: /app/runtime/api-console
       DATABASE_URL: postgresql://utms_perf:utms_perf@postgres-performance:5432/utms_perf?schema=public
-      REDIS_URL: redis://redis-performance:6379
     ports:
       - "24174:4174"
     volumes:
       - utms-performance-api-console:/app/runtime/api-console
     depends_on:
       postgres-performance:
-        condition: service_healthy
-      redis-performance:
         condition: service_healthy
       performance-downstream:
         condition: service_healthy

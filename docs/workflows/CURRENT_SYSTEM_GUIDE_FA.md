@@ -1,5 +1,7 @@
 # راهنمای وضعیت فعلی سامانه UTMS
 
+> به‌روزرسانی 2026-08-10: CDE و دو کارتابل مدیریت فایل/اجرای Playwright از UTMS حذف و به [Playwright Studio](https://github.com/themaryamhasani/playwright-studio) منتقل شده‌اند. اشاره‌های قدیمی این سند تاریخی‌اند؛ مرجع جاری [Current Implementation](../architecture/CURRENT_IMPLEMENTATION.md) است.
+
 > وضعیت مستند: منطبق با سورس تا تاریخ ۱۴۰۵/۰۵/۰۴ (۲۰۲۶-۰۷-۲۶)
 >
 > این سند، مرجع فارسی رفتار فعلی سامانه است. برای جزئیات فنی‌تر به
@@ -17,7 +19,6 @@ UTMS سامانه مدیریت درخواست تست، نیازمندی، سنا
 - رابط کاربری React 19 و Vite 7 در `apps/web`
 - API مبتنی بر Node.js و Domain RPC در `apps/api`
 - PostgreSQL 16 و Prisma 7 در `database`
-- سرویس اجرای Playwright در `apps/playwright-runner`
 - Nginx و Docker Compose برای اجرای یکپارچه محیط
 
 ## ۲. نقش‌ها و مسیرها

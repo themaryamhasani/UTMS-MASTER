@@ -46,7 +46,6 @@ const ENTITY_LABELS: Record<string, string> = {
   CHECKLIST: 'چک‌لیست',
   RELEASE_PUBLISH: 'VersionHistory',
   VERSION_HISTORY: 'VersionHistory',
-  PLAYWRIGHT_RUN: 'تست Playwright',
   USER: 'کاربر',
   APPLICATION: 'سامانه',
   ROLE_ASSIGNMENT: 'تخصیص نقش',

@@ -1,5 +1,7 @@
 # UTMS System QA Checklist Audit
 
+> Scope update 2026-08-10: Playwright/CDE findings below describe the pre-extraction system and are superseded by the standalone repository evidence.
+
 Source-verified: 2026-07-22
 
 Audit status is aligned with the frontend after phases 14-17.

@@ -14,16 +14,12 @@
     "dev": "npm run dev:web",
     "dev:web": "npm run dev -w @utms/web",
     "dev:api": "npm run dev -w @utms/api",
-    "dev:worker": "npm run dev -w @utms/worker",
-    "dev:runner": "npm run dev -w @utms/playwright-runner",
     "dev:all": "node scripts/development/dev-all.cjs",
     "backend": "npm run dev:api",
     "backend:self-check": "npm run self-check -w @utms/api",
     "build": "npm run db:generate && npm run build --workspaces --if-present",
     "build:web": "npm run build -w @utms/web",
     "build:api": "npm run build -w @utms/api",
-    "build:worker": "npm run build -w @utms/worker",
-    "build:runner": "npm run build -w @utms/playwright-runner",
     "lint": "node scripts/verification/workspace-lint.cjs .",
     "format": "node scripts/verification/format-check.cjs . --write",
     "format:check": "node scripts/verification/format-check.cjs .",
@@ -76,6 +72,7 @@
     "db:migrate:status": "node scripts/database/prisma-task.cjs migrate:status",
     "db:seed": "node scripts/database/prisma-task.cjs seed",
     "db:verify": "node scripts/database/verify-database.cjs",
+    "db:verify:extraction": "node scripts/database/verify-extraction.cjs",
     "verify": "npm run format:check && npm run lint && npm run architecture:check && npm run typecheck && npm run test:unit && npm run test:contract && npm run build"
   },
   "devDependencies": {
@@ -84,7 +81,6 @@
     "@types/node": "22.19.17",
     "c8": "^10.1.3",
     "prisma": "7.9.1",
-    "redis-memory-server": "0.17.1",
     "typescript": "5.9.3"
   },
   "dependencies": {

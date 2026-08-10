@@ -14,7 +14,6 @@ What belongs here:
 What does not belong here:
 
 - Frontend code.
-- Worker or Playwright runner implementation.
 - Shared test fixtures.
 - Runtime data files.
 

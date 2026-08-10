@@ -58,7 +58,6 @@ function toRoleAssignment(row) {
     applicationIds,
     role: row.role,
     scope: row.scope,
-    automatedTestsEnabled: row.role === 'QA_SPECIALIST' ? row.automatedTestsEnabled : undefined,
     isActive: row.isActive,
   };
 }
@@ -344,7 +343,6 @@ async function replaceRoleAssignments(userId, data = {}) {
       applicationId: primaryApplicationId,
       role,
       scope,
-      automatedTestsEnabled: role === 'QA_SPECIALIST' ? data.automatedTestsEnabled !== false : false,
       isActive: true,
     };
 

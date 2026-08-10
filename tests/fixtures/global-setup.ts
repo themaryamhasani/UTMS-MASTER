@@ -84,7 +84,6 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
       applications: contextApplications,
       role,
       scope: identity.scope,
-      automatedTestsEnabled: true,
       token: `test-token-${identity.id}`,
     };
     const availableContext = {
@@ -96,7 +95,6 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
       role,
       scope: identity.scope,
       scopeApplicationIds: identityApplicationIds,
-      automatedTestsEnabled: true,
     };
     const persisted = JSON.stringify({
       state: { isAuthenticated: true, user, activeContext, availableContexts: [availableContext] },

@@ -4,8 +4,6 @@ ENV NODE_ENV=development
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
-COPY apps/worker/package.json apps/worker/package.json
-COPY apps/playwright-runner/package.json apps/playwright-runner/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/shared/package.json packages/shared/package.json

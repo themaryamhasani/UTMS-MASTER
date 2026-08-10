@@ -38,7 +38,6 @@ export const UsersPage: React.FC = () => {
   const [selectedRole, setSelectedRole] = useState<UserRole | ''>('');
   const [accessScope, setAccessScope] = useState<AccessScope>('SYSTEMS');
   const [selectedSystems, setSelectedSystems] = useState<string[]>([]);
-  const [automatedTestsEnabled, setAutomatedTestsEnabled] = useState(true);
   const [generatedPassword, setGeneratedPassword] = useState('');
   const [passwordDraft, setPasswordDraft] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
@@ -113,16 +112,10 @@ export const UsersPage: React.FC = () => {
   const resetCreateForm = () => {
     setNationalCodeInput(''); setLookupDone(false); setFoundName(''); setFoundPhone('');
     setSelectedRole(''); setAccessScope('SYSTEMS'); setSelectedSystems([]);
-    setAutomatedTestsEnabled(true);
     setGeneratedPassword(''); setFormErrors({});
   };
 
-  const handleRoleChange = (value: UserRole | '') => {
-    setSelectedRole(value);
-    if (value !== 'QA_SPECIALIST') {
-      setAutomatedTestsEnabled(true);
-    }
-  };
+  const handleRoleChange = (value: UserRole | '') => setSelectedRole(value);
 
   const validateAccessForm = (requirePassword = false): boolean => {
     const errors: Record<string, string> = {};
@@ -163,7 +156,6 @@ export const UsersPage: React.FC = () => {
         role: selectedRole as UserRole,
         scope: accessScope,
         applicationIds: accessScope === 'SYSTEMS' ? selectedSystems : [],
-        automatedTestsEnabled: selectedRole === 'QA_SPECIALIST' ? automatedTestsEnabled : undefined,
       });
       toast.success(`کاربر «${foundName}» با نقش ${ROLE_LABELS[selectedRole as UserRole]} ایجاد شد. رمز: ${generatedPassword}`);
       setShowCreateModal(false);
@@ -184,7 +176,6 @@ export const UsersPage: React.FC = () => {
     handleRoleChange('');
     setAccessScope('SYSTEMS');
     setSelectedSystems([]);
-    setAutomatedTestsEnabled(true);
     setFormErrors({});
     setShowEditModal(true);
   };
@@ -202,7 +193,6 @@ export const UsersPage: React.FC = () => {
     if (!assignments.length) {
       setAccessScope('SYSTEMS');
       setSelectedSystems([]);
-      setAutomatedTestsEnabled(true);
       return;
     }
     const isAppScope = assignments.some(assignment => assignment.scope === 'APP');
@@ -210,9 +200,6 @@ export const UsersPage: React.FC = () => {
     setSelectedSystems(Array.from(new Set(assignments.flatMap(assignment =>
       assignment.applicationIds?.length ? assignment.applicationIds : [assignment.applicationId]
     ))));
-    setAutomatedTestsEnabled(value === 'QA_SPECIALIST'
-      ? assignments.every(assignment => assignment.automatedTestsEnabled !== false)
-      : true);
   };
 
   const handleEditAccess = async () => {
@@ -223,7 +210,6 @@ export const UsersPage: React.FC = () => {
         role: selectedRole as UserRole,
         scope: accessScope,
         applicationIds: accessScope === 'SYSTEMS' ? selectedSystems : [],
-        automatedTestsEnabled: selectedRole === 'QA_SPECIALIST' ? automatedTestsEnabled : undefined,
       });
       toast.success(`نقش ${ROLE_LABELS[selectedRole as UserRole]} ثبت شد و سایر نقش‌های کاربر حفظ شدند.`);
       setShowEditModal(false);
@@ -315,9 +301,6 @@ export const UsersPage: React.FC = () => {
         role: assignedRole,
         isActive: assignments.some(assignment => assignment.isActive),
         scope: assignments.some(assignment => assignment.scope === 'APP') ? 'APP' as const : 'SYSTEMS' as const,
-        automatedTestsEnabled: assignedRole === 'QA_SPECIALIST'
-          ? assignments.every(assignment => assignment.automatedTestsEnabled !== false)
-          : undefined,
         applications: applications.filter(application => applicationIds.includes(application.id)),
       };
     });
@@ -367,11 +350,6 @@ export const UsersPage: React.FC = () => {
                   {ROLE_LABELS[r.role]} ({r.scope === 'APP' ? 'همه سامانه‌ها' : r.applications.map(application => application.name).join('، ') || 'سامانه نامشخص'})
                 </Badge>
                 {!r.isActive && <Badge variant="danger" size="sm">غیرفعال</Badge>}
-                {r.role === 'QA_SPECIALIST' && (
-                  <Badge variant={r.automatedTestsEnabled !== false ? 'success' : 'warning'} size="sm">
-                    تست خودکار {r.automatedTestsEnabled !== false ? 'فعال' : 'غیرفعال'}
-                  </Badge>
-                )}
               </div>
             ))}
           </div>
@@ -469,25 +447,6 @@ export const UsersPage: React.FC = () => {
                   ]} />
               </div>
 
-              {selectedRole === 'QA_SPECIALIST' && (
-                <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                  automatedTestsEnabled ? 'bg-purple-50 border-purple-300' : 'bg-white border-gray-200 hover:bg-gray-50'
-                }`}>
-                  <input
-                    type="checkbox"
-                    checked={automatedTestsEnabled}
-                    onChange={(e) => setAutomatedTestsEnabled(e.target.checked)}
-                    className="mt-1 w-4 h-4 rounded border-gray-300 text-purple-600"
-                  />
-                  <span>
-                    <span className="block text-sm font-medium text-gray-900">نمایش کارتابل‌های تست خودکار و اجازه اجرای Playwright</span>
-                    <span className="block text-xs text-gray-500 mt-1">
-                      اگر غیرفعال باشد، کارشناس تست کارتابل Playwright را نمی‌بیند و امکان اجرای جدید Playwright ندارد.
-                    </span>
-                  </span>
-                </label>
-              )}
-
               {accessScope === 'APP' && (
                 <div className="p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-green-700">
                   ✓ این کاربر به <strong>تمام سامانه‌ها</strong> با نقش {selectedRole ? ROLE_LABELS[selectedRole as UserRole] : '...'} دسترسی خواهد داشت.
@@ -562,24 +521,6 @@ export const UsersPage: React.FC = () => {
                 { value: 'APP', label: 'سطح اپ (تمام سامانه‌ها)' },
                 { value: 'SYSTEMS', label: 'سطح سامانه (یک یا چند سامانه)' },
               ]} />
-            {selectedRole === 'QA_SPECIALIST' && (
-              <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                automatedTestsEnabled ? 'bg-purple-50 border-purple-300' : 'bg-white border-gray-200 hover:bg-gray-50'
-              }`}>
-                <input
-                  type="checkbox"
-                  checked={automatedTestsEnabled}
-                  onChange={(e) => setAutomatedTestsEnabled(e.target.checked)}
-                  className="mt-1 w-4 h-4 rounded border-gray-300 text-purple-600"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-gray-900">نمایش کارتابل‌های تست خودکار و اجازه اجرای Playwright</span>
-                  <span className="block text-xs text-gray-500 mt-1">
-                    اگر غیرفعال باشد، کارشناس تست کارتابل Playwright را نمی‌بیند و امکان اجرای جدید Playwright ندارد.
-                  </span>
-                </span>
-              </label>
-            )}
             {accessScope === 'SYSTEMS' && (
               <div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -685,11 +626,6 @@ export const UsersPage: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2 justify-end">
-                      {r.role === 'QA_SPECIALIST' && (
-                        <Badge variant={r.automatedTestsEnabled !== false ? 'success' : 'warning'}>
-                          تست خودکار {r.automatedTestsEnabled !== false ? 'فعال' : 'غیرفعال'}
-                        </Badge>
-                      )}
                       <Badge variant={r.isActive ? 'success' : 'danger'}>{r.isActive ? 'نقش فعال' : 'نقش غیرفعال'}</Badge>
                       <Badge variant={r.scope === 'APP' ? 'info' : 'secondary'}>{ROLE_LABELS[r.role]}</Badge>
                       {canEdit && (

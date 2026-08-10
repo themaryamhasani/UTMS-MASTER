@@ -1,7 +1,7 @@
 import React from 'react';
 import { cn } from '../../utils/cn';
 import { useAuthStore, canAccessCartable } from '../../stores/authStore';
-import { LayoutDashboard, FileText, ClipboardList, TestTube, PlayCircle, AlertTriangle, ShieldCheck, Terminal, Rocket, Users, Building2, History, Settings, LogOut, BarChart3, Activity, Braces, } from 'lucide-react';
+import { LayoutDashboard, FileText, ClipboardList, TestTube, PlayCircle, AlertTriangle, ShieldCheck, Rocket, Users, Building2, History, Settings, LogOut, BarChart3, Activity, Braces, } from 'lucide-react';
 import { ThemeToggle } from '../theme/ThemeToggle';
 import { ContextSwitcher } from './ContextSwitcher';
 interface NavItem {
@@ -31,8 +31,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate, onLogo
         { id: 'run-issues', label: 'مشکلات اجرا', icon: <AlertTriangle className="w-5 h-5"/>, cartableType: 'run-issues' },
         { id: 'checklists', label: 'چک‌لیست‌ها', icon: <ShieldCheck className="w-5 h-5"/>, cartableType: 'checklists' },
         { id: 'security-review', label: 'بررسی امنیت', icon: <ShieldCheck className="w-5 h-5"/>, cartableType: 'security-review' },
-        { id: 'playwright', label: 'Playwright', icon: <Terminal className="w-5 h-5"/>, cartableType: 'playwright' },
-        { id: 'playwright-files', label: 'فایل تست Playwright', icon: <FileText className="w-5 h-5"/>, cartableType: 'playwright-files' },
         { id: 'releases', label: 'تصمیم و ثبت انتشار', icon: <Rocket className="w-5 h-5"/>, cartableType: 'releases' },
         { id: 'api-console', label: 'Online API Console', icon: <Braces className="w-5 h-5"/>, cartableType: 'api-console' },
         { id: 'reports', label: 'گزارش‌ها', icon: <BarChart3 className="w-5 h-5"/>, cartableType: 'dashboard' },

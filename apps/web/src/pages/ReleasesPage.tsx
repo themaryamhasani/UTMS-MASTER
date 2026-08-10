@@ -1069,14 +1069,6 @@ export const ReleasesPage: React.FC = () => {
                       <span className="text-gray-400">-</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-500">پلی‌رایت:</span>
-                    {selectedRelease.snapshot.playwrightPassRate !== undefined ? (
-                      <span className="font-medium">{selectedRelease.snapshot.playwrightPassRate}%</span>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </div>
                 </div>
               </div>
             )}

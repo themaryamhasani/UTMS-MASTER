@@ -189,8 +189,6 @@ enum EntityType {
   CHECKLIST
   VERSION_HISTORY
   RELEASE_PUBLISH
-  PLAYWRIGHT_RUN
-  PLAYWRIGHT_TEST_FILE
 }
 
 enum SystemEntityType {
@@ -205,8 +203,6 @@ enum SystemEntityType {
   CHECKLIST
   VERSION_HISTORY
   RELEASE_PUBLISH
-  PLAYWRIGHT_RUN
-  PLAYWRIGHT_TEST_FILE
   USER
   APPLICATION
   ROLE_ASSIGNMENT
@@ -258,66 +254,6 @@ enum SecurityReviewItemResult {
 enum SecurityExecutionStatus {
   ASSIGNED_TO_DEVELOPER
   FIXED
-}
-
-enum PlaywrightRunStatus {
-  PREPARING
-  QUEUED
-  PENDING
-  RUNNING
-  PASSED
-  FAILED
-  ERROR
-  CANCELLED
-}
-
-enum PlaywrightQueueStatus {
-  QUEUED
-  DISPATCHED
-  DONE
-  FAILED
-}
-
-enum PlaywrightProject {
-  chromium
-  firefox
-  webkit
-}
-
-enum PlaywrightCdeRootKind {
-  FRONT
-  DATASERVICE
-  GATEWAY
-  MESSAGE_CONSUMER
-  TESTS
-}
-
-enum PlaywrightTestFileSource {
-  DISCOVERED
-  MANAGED
-  CDE
-  COUCHDB
-}
-
-enum CdeRepositoryType {
-  WEB_UI
-  DATA_SERVICE
-  API_MODULE
-  MESSAGE_CONSUMER
-  TESTS
-}
-
-enum CdeBranchKind {
-  PUBLIC
-  PERSONAL
-}
-
-enum CdeSnapshotStatus {
-  PENDING
-  MATERIALIZING
-  READY
-  FAILED
-  PURGED
 }
 
 enum VersionHistoryStatus {
@@ -413,7 +349,6 @@ enum VersionHistoryWorkflowMode {
 }
 
 enum IntegrationProvider {
-  CDE
   FAVA
 }
 
@@ -564,8 +499,6 @@ model User {
   credential              UserCredential?
   passwordResetOtps       PasswordResetOtp[]
   sessions                UserSession[]
-  cdeBranchSelections     CdeBranchSelection[]
-  cdeSourceSnapshots      CdeSourceSnapshot[]       @relation("CdeSnapshotRequester")
   requestedTestRequests   TestRequest[]             @relation("TestRequestRequester")
   assignedTestRequests    TestRequest[]             @relation("TestRequestAssignee")
   reviewedTestRequests    TestRequest[]             @relation("TestRequestReviewer")
@@ -586,8 +519,6 @@ model User {
   assignedRunIssues       RunIssue[]                @relation("RunIssueAssignee")
   reviewedChecklists      Checklist[]               @relation("ChecklistReviewer")
   uploadedAttachments     Attachment[]              @relation("AttachmentUploader")
-  triggeredPlaywrightRuns PlaywrightRun[]           @relation("PlaywrightRunTrigger")
-  createdPlaywrightFiles  PlaywrightTestFile[]      @relation("PlaywrightFileCreator")
   qaReviewedVersions      VersionHistory[]          @relation("VersionHistoryQaReviewer")
   qaRetestVersions        VersionHistory[]          @relation("VersionHistoryQaRetestRequester")
   decidedVersions         VersionHistory[]          @relation("VersionHistoryDecisionBy")
@@ -598,7 +529,6 @@ model User {
   notifications           Notification[]            @relation("NotificationRecipient")
   notificationOutboxItems NotificationOutboxItem[]  @relation("NotificationOutboxRecipient")
   commandTraces           CommandTrace[]            @relation("CommandTraceUser")
-  updatedRunnerSettings   PlaywrightRunnerSetting[] @relation("PlaywrightRunnerUpdatedBy")
   reviewedSecurityReviews SecurityReview[]          @relation("SecurityReviewReviewer")
   scheduledReports        ScheduledReport[]         @relation("ScheduledReportOwner")
   reportAlerts            ReportAlert[]             @relation("ReportAlertOwner")
@@ -674,9 +604,6 @@ model Application {
   name                    String                           @db.VarChar(255)
   code                    String                           @unique @db.VarChar(80)
   description             String?                          @db.Text
-  cdeFrontUrl             String?                          @map("cde_front_url") @db.Text
-  cdeDataServiceUrl       String?                          @map("cde_data_service_url") @db.Text
-  cdeGatewayUrl           String?                          @map("cde_gateway_url") @db.Text
   workflowPolicyId        String?                          @map("workflow_policy_id")
   workflowPolicy          WorkflowPolicy?                  @relation(fields: [workflowPolicyId], references: [id], onDelete: SetNull)
   isActive                Boolean                          @default(true) @map("is_active")
@@ -685,10 +612,6 @@ model Application {
   roleAssignments         UserRoleAssignment[]             @relation("AssignmentDefaultApplication")
   assignmentScopes        UserRoleAssignmentApplication[]
   sessions                UserSession[]
-  cdeMapping              CdeApplicationMapping?
-  cdeBranchSelections     CdeBranchSelection[]
-  cdeSourceSnapshots      CdeSourceSnapshot[]
-  applicationEnvironments ApplicationEnvironment[]
   testRequests            TestRequest[]
   requirements            Requirement[]
   testCases               TestCase[]
@@ -698,10 +621,6 @@ model Application {
   runIssues               RunIssue[]
   checklists              Checklist[]
   securityReviews         SecurityReview[]
-  playwrightRuns          PlaywrightRun[]
-  playwrightTestFolders   PlaywrightTestFolder[]
-  playwrightTestFiles     PlaywrightTestFile[]
-  hiddenPlaywrightPaths   PlaywrightHiddenDiscoveredPath[]
   versionHistories        VersionHistory[]
   auditLogs               AuditLog[]
   commandTraces           CommandTrace[]
@@ -727,7 +646,6 @@ model UserRoleAssignment {
   applications          UserRoleAssignmentApplication[]
   role                  UserRole
   scope                 AccessScope
-  automatedTestsEnabled Boolean                         @default(false) @map("automated_tests_enabled")
   isActive              Boolean                         @default(true) @map("is_active")
   createdAt             DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -798,7 +716,6 @@ model TestRequest {
   retestTasks               RetestTask[]
   checklists                Checklist[]
   securityReview            SecurityReview?
-  playwrightRuns            PlaywrightRun[]
   primaryVersionHistories   VersionHistory[]         @relation("VersionHistoryPrimaryRequest")
   versionHistoryLinks       VersionHistoryRequest[]
 
@@ -1196,219 +1113,6 @@ model SecurityReviewItem {
   @@map("security_review_items")
 }
 
-model PlaywrightRun {
-  id                   String                  @id @default(cuid())
-  applicationId        String                  @map("application_id")
-  application          Application             @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  environmentProfileId String?                 @map("environment_profile_id")
-  environmentProfile   ApplicationEnvironment? @relation(fields: [environmentProfileId], references: [id], onDelete: SetNull)
-  snapshotId           String?                 @map("snapshot_id")
-  snapshot             CdeSourceSnapshot?      @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
-  testFileId           String?                 @map("test_file_id")
-  testFile             PlaywrightTestFile?     @relation(fields: [testFileId], references: [id], onDelete: SetNull)
-  testRequestId        String?                 @map("test_request_id")
-  testRequest          TestRequest?            @relation(fields: [testRequestId], references: [id], onDelete: SetNull)
-  testCaseIds          String[]                @default([]) @map("test_case_ids")
-  testFilePath         String                  @map("test_file_path") @db.Text
-  environment          String                  @db.VarChar(120)
-  projects             PlaywrightProject[]     @default([])
-  headed               Boolean                 @default(false)
-  workers              String?                 @db.VarChar(32)
-  retries              Int?
-  maxFailures          String?                 @map("max_failures") @db.VarChar(32)
-  trace                String?                 @db.VarChar(64)
-  reporter             String?                 @db.VarChar(32)
-  status               PlaywrightRunStatus
-  queueStatus          PlaywrightQueueStatus?  @map("queue_status")
-  runnerId             String?                 @map("runner_id") @db.VarChar(255)
-  command              String?                 @db.Text
-  workingDirectory     String?                 @map("working_directory") @db.Text
-  timeoutSeconds       Int?                    @map("timeout_seconds")
-  artifactIds          String[]                @default([]) @map("artifact_ids")
-  artifactPaths        String[]                @default([]) @map("artifact_paths")
-  report               Json?
-  manualPath           Boolean                 @default(false) @map("manual_path")
-  idempotencyKey       String?                 @map("idempotency_key") @db.VarChar(255)
-  correlationId        String?                 @map("correlation_id") @db.VarChar(255)
-  requestedAt          DateTime?               @map("requested_at") @db.Timestamptz(6)
-  dispatchedAt         DateTime?               @map("dispatched_at") @db.Timestamptz(6)
-  lastHeartbeatAt      DateTime?               @map("last_heartbeat_at") @db.Timestamptz(6)
-  startedAt            DateTime?               @map("started_at") @db.Timestamptz(6)
-  completedAt          DateTime?               @map("completed_at") @db.Timestamptz(6)
-  duration             Int?
-  totalTests           Int?                    @map("total_tests")
-  passedTests          Int?                    @map("passed_tests")
-  failedTests          Int?                    @map("failed_tests")
-  skippedTests         Int?                    @map("skipped_tests")
-  cancelledTests       Int?                    @map("cancelled_tests")
-  logs                 String?                 @db.Text
-  triggeredById        String                  @map("triggered_by_id")
-  triggeredBy          User                    @relation("PlaywrightRunTrigger", fields: [triggeredById], references: [id], onDelete: Restrict)
-  createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@index([applicationId, status])
-  @@index([environmentProfileId])
-  @@index([snapshotId])
-  @@index([testFileId])
-  @@index([testRequestId])
-  @@index([correlationId])
-  @@map("playwright_runs")
-}
-
-model PlaywrightTestFolder {
-  id            String                @id @default(cuid())
-  applicationId String                @map("application_id")
-  application   Application           @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  rootKind      PlaywrightCdeRootKind @map("root_kind")
-  rootUrl       String                @map("root_url") @db.Text
-  relativePath  String                @map("relative_path") @db.Text
-  fullPath      String                @map("full_path") @db.Text
-  discoveredAt  DateTime              @default(now()) @map("discovered_at") @db.Timestamptz(6)
-
-  @@unique([applicationId, fullPath])
-  @@map("playwright_test_folders")
-}
-
-model PlaywrightTestFile {
-  id                 String                   @id @default(cuid())
-  applicationId      String                   @map("application_id")
-  application        Application              @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  rootKind           PlaywrightCdeRootKind    @map("root_kind")
-  rootUrl            String                   @map("root_url") @db.Text
-  source             PlaywrightTestFileSource
-  folderPath         String                   @map("folder_path") @db.Text
-  relativeFolderPath String                   @map("relative_folder_path") @db.Text
-  fileName           String                   @map("file_name") @db.VarChar(255)
-  fullPath           String                   @map("full_path") @db.Text
-  script             String                   @db.Text
-  remoteRepoName     String?                  @map("remote_repo_name") @db.Text
-  remotePackId       String?                  @map("remote_pack_id") @db.Text
-  remoteBranchKind   CdeBranchKind?           @map("remote_branch_kind")
-  remoteBranchRandId String?                  @map("remote_branch_rand_id") @db.VarChar(255)
-  remoteBranchIndex  Int?                     @map("remote_branch_index")
-  remoteVersionId    String?                  @map("remote_version_id") @db.VarChar(255)
-  remotePath         String?                  @map("remote_path") @db.Text
-  sourceHash         String?                  @map("source_hash") @db.VarChar(64)
-  syncedAt           DateTime?                @map("synced_at") @db.Timestamptz(6)
-  couchDocumentId    String?                  @unique @map("couch_document_id") @db.Text
-  couchRevision      String?                  @map("couch_revision") @db.VarChar(255)
-  cdeBinding         Json?                    @map("cde_binding")
-  description        String?                  @db.Text
-  createdById        String                   @map("created_by_id")
-  createdBy          User                     @relation("PlaywrightFileCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
-  runs               PlaywrightRun[]
-
-  @@unique([applicationId, fullPath])
-  @@index([applicationId, source])
-  @@index([applicationId, remoteRepoName, remotePackId])
-  @@map("playwright_test_files")
-}
-
-model CdeApplicationMapping {
-  id                      String      @id @default(cuid())
-  applicationId           String      @unique @map("application_id")
-  application             Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  serviceId               String      @default("cde.edus.ir") @map("service_id") @db.VarChar(255)
-  projectKey              String      @map("project_key") @db.VarChar(255)
-  webUiRepoName           String?     @map("web_ui_repo_name") @db.Text
-  dataServiceRepoName     String?     @map("data_service_repo_name") @db.Text
-  apiModuleRepoName       String?     @map("api_module_repo_name") @db.Text
-  messageConsumerRepoName String?     @map("message_consumer_repo_name") @db.Text
-  testRepoName            String?     @map("test_repo_name") @db.Text
-  testPackId              String?     @map("test_pack_id") @db.Text
-  testBranchRandId        String?     @map("test_branch_rand_id") @db.VarChar(255)
-  testBranchIndex         Int?        @map("test_branch_index")
-  enabled                 Boolean     @default(true)
-  lastValidationStatus    String?     @map("last_validation_status") @db.VarChar(64)
-  lastValidatedAt         DateTime?   @map("last_validated_at") @db.Timestamptz(6)
-  createdAt               DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@index([projectKey, enabled])
-  @@map("cde_application_mappings")
-}
-
-model CdeBranchSelection {
-  id                String            @id @default(cuid())
-  userId            String            @map("user_id")
-  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  applicationId     String            @map("application_id")
-  application       Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  repositoryType    CdeRepositoryType @map("repository_type")
-  repoName          String            @map("repo_name") @db.Text
-  packId            String            @map("pack_id") @db.Text
-  branchKind        CdeBranchKind     @map("branch_kind")
-  branchRandId      String?           @map("branch_rand_id") @db.VarChar(255)
-  branchIndex       Int?              @map("branch_index")
-  lastSeenVersionId String?           @map("last_seen_version_id") @db.VarChar(255)
-  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@unique([userId, applicationId, repositoryType, repoName, packId])
-  @@index([applicationId, repositoryType])
-  @@map("cde_branch_selections")
-}
-
-model ApplicationEnvironment {
-  id               String          @id @default(cuid())
-  applicationId    String          @map("application_id")
-  application      Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  name             String          @db.VarChar(120)
-  webBaseUrl       String          @map("web_base_url") @db.Text
-  apiBaseUrl       String?         @map("api_base_url") @db.Text
-  gatewayBaseUrl   String?         @map("gateway_base_url") @db.Text
-  secretReferences Json            @default("{}") @map("secret_references")
-  enabled          Boolean         @default(true)
-  availableFrom    DateTime?       @map("available_from") @db.Timestamptz(6)
-  availableUntil   DateTime?       @map("available_until") @db.Timestamptz(6)
-  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
-  playwrightRuns   PlaywrightRun[]
-
-  @@unique([applicationId, name])
-  @@index([applicationId, enabled])
-  @@index([applicationId, availableFrom, availableUntil])
-  @@map("application_environments")
-}
-
-model CdeSourceSnapshot {
-  id                  String            @id @default(cuid())
-  applicationId       String            @map("application_id")
-  application         Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  requestedById       String            @map("requested_by_id")
-  requestedBy         User              @relation("CdeSnapshotRequester", fields: [requestedById], references: [id], onDelete: Restrict)
-  initiatingSessionId String?           @map("initiating_session_id") @db.VarChar(255)
-  status              CdeSnapshotStatus @default(PENDING)
-  manifest            Json              @default("{}")
-  objectKey           String?           @map("object_key") @db.Text
-  contentHash         String?           @map("content_hash") @db.VarChar(64)
-  errorCode           String?           @map("error_code") @db.VarChar(120)
-  errorMessage        String?           @map("error_message") @db.Text
-  expiresAt           DateTime          @map("expires_at") @db.Timestamptz(6)
-  purgedAt            DateTime?         @map("purged_at") @db.Timestamptz(6)
-  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
-  playwrightRuns      PlaywrightRun[]
-
-  @@index([applicationId, status])
-  @@index([expiresAt, purgedAt])
-  @@map("cde_source_snapshots")
-}
-
-model PlaywrightHiddenDiscoveredPath {
-  id            String      @id @default(cuid())
-  applicationId String      @map("application_id")
-  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  fullPath      String      @map("full_path") @db.Text
-  hiddenAt      DateTime    @default(now()) @map("hidden_at") @db.Timestamptz(6)
-
-  @@unique([applicationId, fullPath])
-  @@map("playwright_hidden_discovered_paths")
-}
-
 model VersionHistory {
   id                       String                   @id @default(cuid())
   applicationId            String                   @map("application_id")
@@ -1641,23 +1345,6 @@ model DomainEventOutbox {
   @@index([status, occurredAt])
   @@index([aggregateType, aggregateId])
   @@map("domain_event_outbox")
-}
-
-model PlaywrightRunnerSetting {
-  id                      String   @id @default("default")
-  enabled                 Boolean  @default(true)
-  autoDiscovery           Boolean  @default(true) @map("auto_discovery")
-  runnerId                String   @map("runner_id") @db.VarChar(255)
-  commandTemplate         String   @map("command_template") @db.Text
-  defaultWorkingDirectory String   @map("default_working_directory") @db.Text
-  defaultTimeoutSeconds   Int      @map("default_timeout_seconds")
-  artifactRoot            String   @map("artifact_root") @db.Text
-  secretReference         String?  @map("secret_reference") @db.Text
-  updatedById             String?  @map("updated_by_id")
-  updatedBy               User?    @relation("PlaywrightRunnerUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@map("playwright_runner_settings")
 }
 
 model IntegrationAdapterSetting {

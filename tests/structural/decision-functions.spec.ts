@@ -21,7 +21,6 @@ import {
 import {
   canAccessCartable,
   canPerformAction,
-  canUseAutomatedTests,
   getDataApplicationId,
 } from '../../apps/web/src/stores/authStore';
 import {
@@ -107,18 +106,6 @@ test('UTMS-API-META-006 @metamorphic preserves normalized meaning when independe
   const normalized = (headers: any[]) => headers.map(header => `${header.name}:${header.valueTemplate}`).sort();
   expect({ method: left.method, url: left.url, headers: normalized(left.headers) })
     .toEqual({ method: right.method, url: right.url, headers: normalized(right.headers) });
-});
-
-test('UTMS-RBAC-MCDC-007 @mcdc proves automated-test access decision independence', async ({}, testInfo) => {
-  annotateTest(testInfo, metadata('UTMS-RBAC-MCDC-007', {
-    requirement: 'canUseAutomatedTests', feature: 'Automated test access', level: 'structural', type: 'security',
-    technique: 'Modified Condition/Decision Coverage — MCDC', role: 'QA_SPECIALIST', scope: 'SYSTEMS', risk: 'critical',
-    data: 'C1 context exists; C2 role is QA_SPECIALIST; C3 enabled is not false', expected: 'Each condition independently changes the decision',
-  }));
-  expect(canUseAutomatedTests(null)).toBe(false); // C1 false
-  expect(canUseAutomatedTests({ role: 'QA_LEAD', automatedTestsEnabled: false })).toBe(true); // C2 false
-  expect(canUseAutomatedTests({ role: 'QA_SPECIALIST', automatedTestsEnabled: true })).toBe(true); // C3 true
-  expect(canUseAutomatedTests({ role: 'QA_SPECIALIST', automatedTestsEnabled: false })).toBe(false); // C3 false
 });
 
 test('UTMS-RBAC-DT-008 @decision-table exhausts role and action rules', async ({}, testInfo) => {
@@ -236,25 +223,6 @@ test('UTMS-RUN-SCOPE-016 @negative rejects cross-application execution links', a
   expect(haveSameApplication(request, { applicationId: 'app-1' })).toBe(true);
   expect(haveSameApplication(request, { applicationId: 'app-2' })).toBe(false);
   expect(haveSameApplication(request, undefined)).toBe(false);
-});
-
-test('UTMS-RBAC-COMB-012 @combinatorial applies a pairwise access array', async ({}, testInfo) => {
-  annotateTest(testInfo, metadata('UTMS-RBAC-COMB-012', {
-    requirement: 'Role × automation flag × route', feature: 'RBAC', level: 'structural', type: 'reliability',
-    technique: 'Combinatorial Test Design', role: 'QA_SPECIALIST,QA_LEAD', scope: 'SYSTEMS',
-    data: 'Covering array: QA role/lead × enabled/disabled × playwright/dashboard', expected: 'All factor pairs occur and access decisions remain consistent',
-  }));
-  const cases = [
-    ['QA_SPECIALIST', true, 'playwright', true],
-    ['QA_SPECIALIST', false, 'playwright', false],
-    ['QA_SPECIALIST', false, 'dashboard', true],
-    ['QA_LEAD', true, 'playwright', true],
-    ['QA_LEAD', false, 'playwright', true],
-    ['QA_LEAD', true, 'dashboard', true],
-  ] as const;
-  for (const [role, enabled, route, expected] of cases) {
-    expect(canAccessCartable(role, route, { role, automatedTestsEnabled: enabled })).toBe(expected);
-  }
 });
 
 test('UTMS-SEC-ERR-013 @error-guessing rejects SSRF-prone destinations', async ({}, testInfo) => {

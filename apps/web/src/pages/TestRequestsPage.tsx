@@ -28,7 +28,6 @@ import type { TestRequest, User, Requirement, Flow, CartableFilterParams, Pagina
 import {
   BUG_STATUS_LABELS,
   CHECKLIST_STATUS_LABELS,
-  PLAYWRIGHT_RUN_STATUS_LABELS,
   PRIORITY_LABELS,
   QA_QUALITY_STATUS_LABELS,
   RELEASE_PUBLISH_STATUS_LABELS,
@@ -319,7 +318,6 @@ export const TestRequestsPage: React.FC = () => {
     RETEST_TASK: 'ماموریت اجرای مجدد',
     RUN_ISSUE: 'مشکل اجرا',
     CHECKLIST: 'بررسی امنیت/چک‌لیست',
-    PLAYWRIGHT_RUN: 'اجرای Playwright',
     VERSION_HISTORY: 'تصمیم و ثبت انتشار',
     RELEASE_PUBLISH: 'تصمیم و ثبت انتشار',
   };
@@ -357,7 +355,6 @@ export const TestRequestsPage: React.FC = () => {
     RETEST_TASK: RETEST_TASK_STATUS_LABELS,
     BUG: BUG_STATUS_LABELS,
     RUN_ISSUE: RUN_ISSUE_STATUS_LABELS,
-    PLAYWRIGHT_RUN: PLAYWRIGHT_RUN_STATUS_LABELS,
     VERSION_HISTORY: RELEASE_PUBLISH_STATUS_LABELS,
     RELEASE_PUBLISH: RELEASE_PUBLISH_STATUS_LABELS,
     CHECKLIST: {

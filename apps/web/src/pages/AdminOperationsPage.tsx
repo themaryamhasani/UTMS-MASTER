@@ -62,8 +62,6 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   CHECKLIST: 'چک‌لیست',
   VERSION_HISTORY: 'تصمیم انتشار',
   RELEASE_PUBLISH: 'تصمیم انتشار',
-  PLAYWRIGHT_RUN: 'اجرای Playwright',
-  PLAYWRIGHT_TEST_FILE: 'فایل تست Playwright',
   USER: 'کاربر',
   APPLICATION: 'سامانه',
   ROLE_ASSIGNMENT: 'نقش کاربر',
